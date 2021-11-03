@@ -43,7 +43,11 @@ def instrument(f):
 
     p = len(co.co_code)
     patch[:p] = co.co_code
+    last_offset = None
     for (offset, lineno) in lines:
+        # XXX this assumes there's enough space between lines for the jump
+        assert(last_offset is None or offset-last_offset >= 2)
+
         patch[p:p+len_t] = mk_trampoline(offset)
         patch[offset] = dis.opmap['JUMP_ABSOLUTE']
         patch[offset+1] = p
