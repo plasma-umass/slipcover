@@ -9,7 +9,7 @@ def newCodeType(orig, code, stacksize=None, consts=None, names=None):
                     orig.co_nlocals,
                     (orig.co_stacksize if stacksize is None else stacksize),
                     orig.co_flags,
-                    bytes(code),
+                    (orig.co_code if code is None else bytes(code)),
                     (orig.co_consts if consts is None else tuple(consts)),
                     (orig.co_names if names is None else tuple(names)),
                     orig.co_varnames,
@@ -32,7 +32,7 @@ def instrument(co):
         return
 
     assert isinstance(co, types.CodeType)
-    print(f"instrumenting {co.co_name}")
+#    print(f"instrumenting {co.co_name}")
 
     lines = list(dis.findlinestarts(co))
     consts = list(co.co_consts)
@@ -71,15 +71,19 @@ def instrument(co):
     return newCodeType(co, patch, stacksize=co.co_stacksize+2, # use dis.stack_effect?
                        consts=consts, names=co.co_names + ('noteCoverage',))
 
+replace_map = dict()
 
 def deinstrument(co, lines): # antonym for "to instrument"?
     import types
     if (isinstance(co, types.FunctionType)):
+        old = co.__code__
         co.__code__ = deinstrument(co.__code__, lines)
+        if old != co.__code__:
+            replace_map[old] = co.__code__
         return
 
     assert isinstance(co, types.CodeType)
-    print(f"de-instrumenting {co.co_name}")
+#    print(f"de-instrumenting {co.co_name}")
 
     patch = None
     consts = None
@@ -90,6 +94,7 @@ def deinstrument(co, lines): # antonym for "to instrument"?
             if nc != co.co_consts[i]:
                 if consts is None: consts = list(co.co_consts)
                 consts[i] = nc
+                replace_map[co.co_consts[i]] = nc
 
     for (offset, lineno) in dis.findlinestarts(co):
         if lineno in lines:
@@ -107,11 +112,63 @@ def deinstrument(co, lines): # antonym for "to instrument"?
 lines_seen = set()
 
 def noteCoverage(lineno):
-#    print(f"noteCoverage {lineno}")
     lines_seen.add(lineno)
     # inspect sees trampoline code as in the last line of the function
     #import inspect
     #print("noteCoverage line", inspect.getframeinfo(inspect.stack()[1][0]).lineno)
+
+
+lines_deinstrumented = set()
+
+def setup():
+    import signal
+
+    def signal_handler(signum, this_frame):
+        to_remove = lines_seen - lines_deinstrumented
+        if len(to_remove) > 0:
+            for f in all_functions():
+                deinstrument(f, to_remove)
+            lines_deinstrumented.update(to_remove)
+
+    # this doesn't work: frame.f_code is read-only
+    #        frame = this_frame
+    #        while not frame is None:
+    #            if frame.f_code in replace_map:
+    #                frame.f_code = replace_map[frame.f_code]
+    #            frame = frame.f_back
+    #        replace_map.clear()
+        signal.setitimer(signal.ITIMER_VIRTUAL, 0.2)
+
+    signal.siginterrupt(signal.SIGVTALRM, False)
+    signal.signal(signal.SIGVTALRM, signal_handler)
+    signal.setitimer(signal.ITIMER_VIRTUAL, 0.2)
+
+    for f in all_functions():
+        instrument(f)
+
+def all_functions():
+    # replace with something like inspect.getmembers(sys.modules[__name__], inspect.isfunction)
+    # (and filter out our own!)
+    return [doit2, testme]
+
+# ------
+
+def doit2(x):
+    i = 0
+#    zarr = [math.cos(13) for i in range(1,100000)]
+#    z = zarr[0]
+    z = 0.1
+    while i < 100000:
+#        z = math.cos(13)
+#        z = np.multiply(x,x)
+#        z = np.multiply(z,z)
+#        z = np.multiply(z,z)
+        z = z * z
+        z = x * x
+        z = z * z
+        z = z * z
+        i += 1
+    return z
 
 def testme():
     import numpy as np
@@ -132,22 +189,22 @@ def testme():
     #    z = np.multiply(x, y)
         return z
 
-    def doit2(x):
-        i = 0
-    #    zarr = [math.cos(13) for i in range(1,100000)]
-    #    z = zarr[0]
-        z = 0.1
-        while i < 100000:
-    #        z = math.cos(13)
-    #        z = np.multiply(x,x)
-    #        z = np.multiply(z,z)
-    #        z = np.multiply(z,z)
-            z = z * z
-            z = x * x
-            z = z * z
-            z = z * z
-            i += 1
-        return z
+#    def doit2(x):
+#        i = 0
+#    #    zarr = [math.cos(13) for i in range(1,100000)]
+#    #    z = zarr[0]
+#        z = 0.1
+#        while i < 100000:
+#    #        z = math.cos(13)
+#    #        z = np.multiply(x,x)
+#    #        z = np.multiply(z,z)
+#    #        z = np.multiply(z,z)
+#            z = z * z
+#            z = x * x
+#            z = z * z
+#            z = z * z
+#            i += 1
+#        return z
 
     def doit3(x):
         z = x + 1
@@ -172,13 +229,10 @@ def testme():
 
     stuff()
 
-#print("--original--")
-#dis.dis(testme.__code__)
-#testme()
+# ------
 
-print("--instrumented--")
-instrument(testme)
-#dis.dis(testme.__code__)
+setup()
+
 testme()
 
 def merge_consecutives(L):
@@ -189,8 +243,3 @@ def merge_consecutives(L):
     return [str(g[0]) if g[0]==g[-1] else f"{g[0]}-{g[-1]}" for g in [list(g) for _,g in groups]]
 
 print("seen:", merge_consecutives(list(lines_seen)))
-
-#print("--reversed--")
-#deinstrument(testme, lines_seen)
-#dis.dis(testme.__code__)
-#testme()
