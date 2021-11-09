@@ -1,4 +1,5 @@
 import dis
+import stackpatch
 
 # map to guide CodeType replacements on the stack
 replace_map = dict()
@@ -28,6 +29,7 @@ def newCodeType(orig, code, stacksize=None, consts=None, names=None):
                    orig.co_freevars,
                    orig.co_cellvars)
     replace_map[orig] = new
+    print("->", new)
     return new
 
 def instrument(co):
@@ -142,6 +144,8 @@ def setup():
                 deinstrument(f, to_remove)
             lines_deinstrumented.update(to_remove)
 
+            stackpatch.patch(replace_map)
+            replace_map.clear()
     # this doesn't work: frame.f_code is read-only
     #        frame = this_frame
     #        while not frame is None:
@@ -162,26 +166,27 @@ def all_functions():
     """Introspects, returning all functions to instrument"""
     # replace with something like inspect.getmembers(sys.modules[__name__], inspect.isfunction)
     # (and filter out our own!)
-    return [doit2, testme]
+#    return [doit2, testme]
+    return [testme]
 
 # ------
 
-def doit2(x):
-    i = 0
-#    zarr = [math.cos(13) for i in range(1,100000)]
-#    z = zarr[0]
-    z = 0.1
-    while i < 100000:
-#        z = math.cos(13)
-#        z = np.multiply(x,x)
-#        z = np.multiply(z,z)
-#        z = np.multiply(z,z)
-        z = z * z
-        z = x * x
-        z = z * z
-        z = z * z
-        i += 1
-    return z
+#def doit2(x):
+#    i = 0
+##    zarr = [math.cos(13) for i in range(1,100000)]
+##    z = zarr[0]
+#    z = 0.1
+#    while i < 100000:
+##        z = math.cos(13)
+##        z = np.multiply(x,x)
+##        z = np.multiply(z,z)
+##        z = np.multiply(z,z)
+#        z = z * z
+#        z = x * x
+#        z = z * z
+#        z = z * z
+#        i += 1
+#    return z
 
 def testme():
     import numpy as np
@@ -202,22 +207,26 @@ def testme():
     #    z = np.multiply(x, y)
         return z
 
-#    def doit2(x):
-#        i = 0
-#    #    zarr = [math.cos(13) for i in range(1,100000)]
-#    #    z = zarr[0]
-#        z = 0.1
-#        while i < 100000:
-#    #        z = math.cos(13)
-#    #        z = np.multiply(x,x)
-#    #        z = np.multiply(z,z)
-#    #        z = np.multiply(z,z)
-#            z = z * z
-#            z = x * x
-#            z = z * z
-#            z = z * z
-#            i += 1
-#        return z
+    import inspect
+
+    def doit2(x):
+        print("doit2 f_code=", inspect.currentframe().f_code)
+
+        i = 0
+    #    zarr = [math.cos(13) for i in range(1,100000)]
+    #    z = zarr[0]
+        z = 0.1
+        while i < 100000:
+    #        z = math.cos(13)
+    #        z = np.multiply(x,x)
+    #        z = np.multiply(z,z)
+    #        z = np.multiply(z,z)
+            z = z * z
+            z = x * x
+            z = z * z
+            z = z * z
+            i += 1
+        return z
 
     def doit3(x):
         z = x + 1
@@ -232,6 +241,7 @@ def testme():
         y = np.random.randint(1, 100, size=5000000)[4999999]
         x = 1.01
         for i in range(1,10):
+            print("stuff f_code=", inspect.currentframe().f_code)
             print(i)
             for j in range(1,10):
                 x = doit1(x)
@@ -243,6 +253,8 @@ def testme():
     stuff()
 
 # ------
+
+#dis.dis(testme.__code__)
 
 setup()
 
