@@ -10,7 +10,7 @@ def extra_compile_args():
     return ['-std=c++14']
 
 setup(
-    name="trampoline",
+    name="slipcover",
     version='0.1',
     description="XXX add description here",
     keywords="program coverage",
