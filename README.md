@@ -1,2 +1,2 @@
 # slipcover
-Faster python profiling through slippery bytecodes
+Faster python coverage by slipping bytecodes in
