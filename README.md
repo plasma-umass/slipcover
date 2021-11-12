@@ -1,2 +1,2 @@
-# trampoline
-Faster python profiling through bytecode acrobatics
+# slipcover
+Faster python profiling through slippery bytecodes
