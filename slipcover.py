@@ -1,5 +1,5 @@
+import sys
 import dis
-import stackpatch
 
 # map to guide CodeType replacements on the stack
 replace_map = dict()
@@ -131,10 +131,25 @@ def noteCoverage(lineno):
 # Remembers which lines we've already de-instrumented
 lines_deinstrumented = set()
 
+def print_coverage():
+    def merge_consecutives(L):
+        # Neat little trick due to John La Rooy: the difference between the numbers
+        # on a list and a counter is constant for consecutive items :)
+        from itertools import groupby, count
+        groups = groupby(sorted(L), key=lambda item, c=count(): item-next(c))
+        return [str(g[0]) if g[0]==g[-1] else f"{g[0]}-{g[-1]}" for g in [list(g) for _,g in groups]]
+
+    # XXX fixme need file names, too!
+    print("coverage:", merge_consecutives(list(lines_seen)))
+
 def setup():
     """Sets up for coverage tracking"""
+    import atexit
     import signal
 
+    atexit.register(print_coverage)
+
+    INTERVAL = .2
     def deinstrument_callback(signum, this_frame):
         """Periodically de-instruments lines that were already reached."""
         to_remove = lines_seen - lines_deinstrumented
@@ -144,127 +159,31 @@ def setup():
                 deinstrument(f, to_remove)
             lines_deinstrumented.update(to_remove)
 
-            stackpatch.patch(replace_map)
-            replace_map.clear()
-    # this doesn't work: frame.f_code is read-only
-    #        frame = this_frame
-    #        while not frame is None:
-    #            if frame.f_code in replace_map:
-    #                frame.f_code = replace_map[frame.f_code]
-    #            frame = frame.f_back
-    #        replace_map.clear()
-        signal.setitimer(signal.ITIMER_VIRTUAL, 0.2)
+#            stackpatch.patch(replace_map)
+#            replace_map.clear()
+        signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
     signal.siginterrupt(signal.SIGVTALRM, False)
     signal.signal(signal.SIGVTALRM, deinstrument_callback)
-    signal.setitimer(signal.ITIMER_VIRTUAL, 0.2)
+    signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
-    for f in all_functions():
-        instrument(f)
+#    for f in all_functions():
+#        instrument(f)
 
 def all_functions():
     """Introspects, returning all functions to instrument"""
-    # replace with something like inspect.getmembers(sys.modules[__name__], inspect.isfunction)
-    # (and filter out our own!)
-#    return [doit2, testme]
-    return [testme]
-
-# ------
-
-#def doit2(x):
-#    i = 0
-##    zarr = [math.cos(13) for i in range(1,100000)]
-##    z = zarr[0]
-#    z = 0.1
-#    while i < 100000:
-##        z = math.cos(13)
-##        z = np.multiply(x,x)
-##        z = np.multiply(z,z)
-##        z = np.multiply(z,z)
-#        z = z * z
-#        z = x * x
-#        z = z * z
-#        z = z * z
-#        i += 1
-#    return z
-
-def testme():
-    import numpy as np
-    #import math
-
-    from numpy import linalg as LA
-
-    arr = [i for i in range(1,1000)]
-
-    def doit1(x):
-    #    x = [i*i for i in range(1,1000)][0]
-        y = 1
-    #    w, v = LA.eig(np.diag(arr)) # (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)))
-        x = [i*i for i in range(0,100000)][99999]
-        y1 = [i*i for i in range(0,200000)][199999]
-        z1 = [i for i in range(0,300000)][299999]
-        z = x * y
-    #    z = np.multiply(x, y)
-        return z
-
     import inspect
-
-    def doit2(x):
-        print("doit2 f_code=", inspect.currentframe().f_code)
-
-        i = 0
-    #    zarr = [math.cos(13) for i in range(1,100000)]
-    #    z = zarr[0]
-        z = 0.1
-        while i < 100000:
-    #        z = math.cos(13)
-    #        z = np.multiply(x,x)
-    #        z = np.multiply(z,z)
-    #        z = np.multiply(z,z)
-            z = z * z
-            z = x * x
-            z = z * z
-            z = z * z
-            i += 1
-        return z
-
-    def doit3(x):
-        z = x + 1
-        z = x + 1
-        z = x + 1
-        z = x + z
-        z = x + z
-    #    z = np.cos(x)
-        return z
-
-    def stuff():
-        y = np.random.randint(1, 100, size=5000000)[4999999]
-        x = 1.01
-        for i in range(1,10):
-            print("stuff f_code=", inspect.currentframe().f_code)
-            print(i)
-            for j in range(1,10):
-                x = doit1(x)
-                x = doit2(x)
-                x = doit3(x)
-                x = 1.01
-        return x
-
-    stuff()
-
-# ------
-
-#dis.dis(testme.__code__)
+    # XXX get it from isolated globals, locals
+    classes = [c[1] for c in inspect.getmembers(sys.modules['__main__'], inspect.isclass)]
+    methods = [f[1] for c in classes for f in inspect.getmembers(c, inspect.isfunction)]
+#    funcs = [f[1] for f in inspect.getmembers(sys.modules['__main__'], inspect.isfunction)]
+    return methods
 
 setup()
-
-testme()
-
-def merge_consecutives(L):
-    # Neat little trick due to John La Rooy: the difference between the numbers
-    # on a list and a counter is constant for consecutive items :)
-    from itertools import groupby, count
-    groups = groupby(sorted(L), key=lambda item, c=count(): item-next(c))
-    return [str(g[0]) if g[0]==g[-1] else f"{g[0]}-{g[-1]}" for g in [list(g) for _,g in groups]]
-
-print("seen:", merge_consecutives(list(lines_seen)))
+for file in sys.argv:
+    if file != __file__:
+        with open(file, 'r') as f:
+            code = compile(f.read(), file, 'exec')
+            code = instrument(code)
+            # XXX isolate environments by passing globals, locals
+            exec(code)
