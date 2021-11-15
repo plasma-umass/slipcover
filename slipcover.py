@@ -47,6 +47,9 @@ def instrument(co):
     lines = list(dis.findlinestarts(co))
     consts = list(co.co_consts)
 
+    filename_index = len(consts)
+    consts.append(co.co_filename)
+
     # handle functions-within-functions
     for i in range(len(consts)):
         if isinstance(consts[i], types.CodeType):
@@ -55,8 +58,9 @@ def instrument(co):
     def mk_trampoline(offset):
         return [co.co_code[offset], co.co_code[offset+1],
                 dis.opmap['LOAD_GLOBAL'], len(co.co_names), # <- '___noteCoverage'
-                dis.opmap['LOAD_CONST'], len(consts), # line number (will be added)
-                dis.opmap['CALL_FUNCTION'], 1,
+                dis.opmap['LOAD_CONST'], filename_index,    # <- filename
+                dis.opmap['LOAD_CONST'], len(consts),       # line number (will be added)
+                dis.opmap['CALL_FUNCTION'], 2,
                 dis.opmap['POP_TOP'], 0,
                 dis.opmap['JUMP_ABSOLUTE'], offset+2]
 
@@ -117,19 +121,17 @@ def deinstrument(co, lines): # antonym for "to instrument"?
     return co if (patch is None and consts is None) \
               else newCodeType(co, patch, consts=consts)
 
-# Notes which lines have been seen.  Needs to be extended to include the filename
-lines_seen = set()
+# Notes which lines have been seen.
+lines_seen = dict()
 
-def ___noteCoverage(lineno):
+def ___noteCoverage(filename, lineno):
     """Invoked to mark a line as having executed."""
-    lines_seen.add(lineno)
-    # inspect sees trampoline code as in the last line of the function
-    #import inspect
-    #print("noteCoverage line", inspect.getframeinfo(inspect.stack()[1][0]).lineno)
-
+    if not filename in lines_seen: lines_seen[filename] = set()
+    lines_seen[filename].add(lineno)
 
 # Remembers which lines we've already de-instrumented
-lines_deinstrumented = set()
+# XXX remember those to de-instrument instead?
+lines_deinstrumented = dict()
 
 def print_coverage():
     def merge_consecutives(L):
@@ -139,8 +141,8 @@ def print_coverage():
         groups = groupby(sorted(L), key=lambda item, c=count(): item-next(c))
         return [str(g[0]) if g[0]==g[-1] else f"{g[0]}-{g[-1]}" for g in [list(g) for _,g in groups]]
 
-    # XXX fixme need file names, too!
-    print("coverage:", merge_consecutives(list(lines_seen)))
+    for file in lines_seen:
+        print(f"coverage: {file}:", merge_consecutives(lines_seen[file]))
 
     import signal
     signal.setitimer(signal.ITIMER_VIRTUAL, 0)
@@ -155,15 +157,18 @@ def setup():
     INTERVAL = .2
     def deinstrument_callback(signum, this_frame):
         """Periodically de-instruments lines that were already reached."""
-        to_remove = lines_seen - lines_deinstrumented
-        if len(to_remove) > 0:
-            # XXX this could be better guided, rather than go through all_functions
-            for f in all_functions():
-                deinstrument(f, to_remove)
-            lines_deinstrumented.update(to_remove)
+        for file in lines_seen:
+            to_remove = lines_deinstrumented[file] - lines_seen[file] if file in lines_deinstrumented \
+                        else lines_seen[file]
+            if len(to_remove) > 0:
+                # XXX this could be better guided, rather than go through all_functions
+                for f in all_functions():
+                    deinstrument(f, to_remove)
+                if file not in lines_deinstrumented: lines_deinstrumented[file] = set()
+                lines_deinstrumented[file].update(to_remove)
 
-#            stackpatch.patch(replace_map)
-#            replace_map.clear()
+    #            stackpatch.patch(replace_map)
+    #            replace_map.clear()
         signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
     signal.siginterrupt(signal.SIGVTALRM, False)
