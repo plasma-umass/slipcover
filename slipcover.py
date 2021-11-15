@@ -29,7 +29,7 @@ def newCodeType(orig, code, stacksize=None, consts=None, names=None):
                    orig.co_freevars,
                    orig.co_cellvars)
     replace_map[orig] = new
-    print("->", new)
+    #print("->", new)
     return new
 
 def instrument(co):
@@ -54,7 +54,7 @@ def instrument(co):
 
     def mk_trampoline(offset):
         return [co.co_code[offset], co.co_code[offset+1],
-                dis.opmap['LOAD_GLOBAL'], len(co.co_names), # <- 'noteCoverage'
+                dis.opmap['LOAD_GLOBAL'], len(co.co_names), # <- '___noteCoverage'
                 dis.opmap['LOAD_CONST'], len(consts), # line number (will be added)
                 dis.opmap['CALL_FUNCTION'], 1,
                 dis.opmap['POP_TOP'], 0,
@@ -80,7 +80,7 @@ def instrument(co):
         p += len_t
 
     return newCodeType(co, patch, stacksize=co.co_stacksize+2, # use dis.stack_effect?
-                       consts=consts, names=co.co_names + ('noteCoverage',))
+                       consts=consts, names=co.co_names + ('___noteCoverage',))
 
 
 def deinstrument(co, lines): # antonym for "to instrument"?
@@ -120,7 +120,7 @@ def deinstrument(co, lines): # antonym for "to instrument"?
 # Notes which lines have been seen.  Needs to be extended to include the filename
 lines_seen = set()
 
-def noteCoverage(lineno):
+def ___noteCoverage(lineno):
     """Invoked to mark a line as having executed."""
     lines_seen.add(lineno)
     # inspect sees trampoline code as in the last line of the function
@@ -141,6 +141,9 @@ def print_coverage():
 
     # XXX fixme need file names, too!
     print("coverage:", merge_consecutives(list(lines_seen)))
+
+    import signal
+    signal.setitimer(signal.ITIMER_VIRTUAL, 0)
 
 def setup():
     """Sets up for coverage tracking"""
@@ -170,20 +173,24 @@ def setup():
 #    for f in all_functions():
 #        instrument(f)
 
+slipcover_globals = dict() # XXX rename
+
 def all_functions():
     """Introspects, returning all functions to instrument"""
     import inspect
-    # XXX get it from isolated globals, locals
-    classes = [c[1] for c in inspect.getmembers(sys.modules['__main__'], inspect.isclass)]
+    import types
+    classes = [slipcover_globals[c] for c in slipcover_globals if isinstance(slipcover_globals[c], type)]
     methods = [f[1] for c in classes for f in inspect.getmembers(c, inspect.isfunction)]
-#    funcs = [f[1] for f in inspect.getmembers(sys.modules['__main__'], inspect.isfunction)]
-    return methods
+    funcs = [slipcover_globals[c] for c in slipcover_globals if c != '___notecoverage' and \
+                                                  isinstance(slipcover_globals[c], types.FunctionType)]
+    return methods + funcs
 
 setup()
+slipcover_globals['___noteCoverage'] = ___noteCoverage
+slipcover_globals['__name__'] = '__main__'
 for file in sys.argv:
     if file != __file__:
         with open(file, 'r') as f:
             code = compile(f.read(), file, 'exec')
             code = instrument(code)
-            # XXX isolate environments by passing globals, locals
-            exec(code)
+            exec(code, slipcover_globals)
