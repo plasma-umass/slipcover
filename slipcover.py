@@ -194,6 +194,7 @@ setup()
 slipcover_globals['___noteCoverage'] = ___noteCoverage
 slipcover_globals['__name__'] = '__main__'
 sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
+# XXX do we really need a loop? what does python do with multiple files?  What about other modules?
 for file in sys.argv:
     # needed? slipcover_globals['__file__'] = file
     with open(file, 'r') as f:
