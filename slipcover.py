@@ -188,9 +188,10 @@ def all_functions():
 setup()
 slipcover_globals['___noteCoverage'] = ___noteCoverage
 slipcover_globals['__name__'] = '__main__'
+sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
 for file in sys.argv:
-    if file != __file__:
-        with open(file, 'r') as f:
-            code = compile(f.read(), file, 'exec')
-            code = instrument(code)
-            exec(code, slipcover_globals)
+    # needed? slipcover_globals['__file__'] = file
+    with open(file, 'r') as f:
+        code = compile(f.read(), file, 'exec')
+        code = instrument(code)
+        exec(code, slipcover_globals)
