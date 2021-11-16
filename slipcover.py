@@ -29,7 +29,7 @@ def newCodeType(orig, code, stacksize=None, consts=None, names=None):
                    orig.co_freevars,
                    orig.co_cellvars)
     replace_map[orig] = new
-    #print("->", new)
+    print("->", new)
     return new
 
 def instrument(co):
@@ -101,7 +101,7 @@ def deinstrument(co, lines): # antonym for "to instrument"?
         return
 
     assert isinstance(co, types.CodeType)
-#    print(f"de-instrumenting {co.co_name}")
+    print(f"de-instrumenting {co.co_name}")
 
     patch = None
     consts = None
@@ -206,7 +206,7 @@ def all_functions():
     import types
     classes = [slipcover_globals[c] for c in slipcover_globals if isinstance(slipcover_globals[c], type)]
     methods = [f[1] for c in classes for f in inspect.getmembers(c, inspect.isfunction)]
-    funcs = [slipcover_globals[c] for c in slipcover_globals if c != '___notecoverage' and \
+    funcs = [slipcover_globals[c] for c in slipcover_globals if c != '___noteCoverage' and \
                                                   isinstance(slipcover_globals[c], types.FunctionType)]
     return methods + funcs
 
