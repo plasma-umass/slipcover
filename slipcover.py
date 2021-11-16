@@ -159,15 +159,17 @@ def setup():
 
     atexit.register(print_coverage)
 
-    INTERVAL = .2
+    INTERVAL = .5
     def deinstrument_callback(signum, this_frame):
         """Periodically de-instruments lines that were already reached."""
         import inspect
         import types
 
+        print("deinstrument_callback")
         for file in lines_seen:
             to_remove = lines_deinstrumented[file] - lines_seen[file] if file in lines_deinstrumented \
                         else lines_seen[file]
+            print(f"{file} to_remove:", len(to_remove))
             if len(to_remove) > 0:
                 # XXX this could be better guided, rather than go through all_functions
                 for f in all_functions():
