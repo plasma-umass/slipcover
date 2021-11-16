@@ -157,6 +157,9 @@ def setup():
     INTERVAL = .2
     def deinstrument_callback(signum, this_frame):
         """Periodically de-instruments lines that were already reached."""
+        import inspect
+        import types
+
         for file in lines_seen:
             to_remove = lines_deinstrumented[file] - lines_seen[file] if file in lines_deinstrumented \
                         else lines_seen[file]
@@ -166,6 +169,16 @@ def setup():
                     deinstrument(f, to_remove)
                 if file not in lines_deinstrumented: lines_deinstrumented[file] = set()
                 lines_deinstrumented[file].update(to_remove)
+
+                # XXX this could be better guided
+                frame = inspect.currentframe()
+                while frame:
+                    for var in list(frame.f_locals.keys()): # avoid 'dictionary changed size during iter.'
+                        # replace inner functions and any other function variables
+                        if isinstance(frame.f_locals[var], types.FunctionType):
+                            if frame.f_locals[var].__code__ in replace_map:
+                                frame.f_locals[var].__code__ = replace_map[frame.f_locals[var].__code__]
+                    frame = frame.f_back
 
     #            stackpatch.patch(replace_map)
     #            replace_map.clear()
