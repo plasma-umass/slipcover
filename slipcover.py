@@ -1,3 +1,4 @@
+from types import CodeType
 import copy
 import sys
 import dis
@@ -7,13 +8,35 @@ replace_map = dict()
 
 def newCodeType(orig, code, stacksize=None, consts=None, names=None):
     """Instantiates a new CodeType, modifying it from the original"""
-    new = copy.copy(orig)
-    new.replace(co_stacksize=orig.co_stacksize if stacksize is None else stacksize,
-                co_code=orig.co_code if code is None else bytes(code),
-                co_consts=(orig.co_consts if consts is None else tuple(consts)),
-                co_names=(orig.co_names if names is None else tuple(names)))
+    if False:
+        new = orig.replace(co_stacksize=orig.co_stacksize if not stacksize else stacksize,
+                           co_code=orig.co_code if not code else bytes(code),
+                           co_consts=(orig.co_consts if not consts else tuple(consts)),
+                           co_names=(orig.co_names if not names else tuple(names)))
+    else:
+        # from cpython/Lib/test/test_code.py
+        new = CodeType(orig.co_argcount,
+                       orig.co_posonlyargcount,
+                       orig.co_kwonlyargcount,
+                       orig.co_nlocals,
+                       (orig.co_stacksize if stacksize is None else stacksize),
+                       orig.co_flags,
+                       (orig.co_code if code is None else bytes(code)),
+                       (orig.co_consts if consts is None else tuple(consts)),
+                       (orig.co_names if names is None else tuple(names)),
+                       orig.co_varnames,
+                       orig.co_filename,
+                       orig.co_name,
+    #                  orig.co_qualname,
+                       orig.co_firstlineno,
+                       orig.co_lnotab,
+    #                  orig.co_endlinetable,
+    #                  orig.co_columntable,
+    #                  orig.co_exceptiontable,
+                       orig.co_freevars,
+                       orig.co_cellvars)
     replace_map[orig] = new
-    # print("->", new)
+    print("->", new)
     return new
 
 def instrument(co):
@@ -127,6 +150,7 @@ def ___noteCoverage(filename, lineno):
 lines_deinstrumented = dict()
 
 def print_coverage():
+    print("printing coverage")
     def merge_consecutives(L):
         # Neat little trick due to John La Rooy: the difference between the numbers
         # on a list and a counter is constant for consecutive items :)
@@ -147,7 +171,7 @@ def setup():
 
     atexit.register(print_coverage)
 
-    INTERVAL = .5
+    INTERVAL = 1.0
     def deinstrument_callback(signum, this_frame):
         """Periodically de-instruments lines that were already reached."""
         import inspect
