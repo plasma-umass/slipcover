@@ -57,5 +57,6 @@ def stuff():
 import sys
 print("TESTME")
 print(sys.argv)
+print(__file__)
 stuff()
 

@@ -55,33 +55,38 @@ def instrument(co):
         if isinstance(consts[i], types.CodeType):
             consts[i] = instrument(consts[i])
 
-    def mk_trampoline(offset):
-        return [co.co_code[offset], co.co_code[offset+1],
-                dis.opmap['LOAD_GLOBAL'], len(co.co_names), # <- '___noteCoverage'
-                dis.opmap['LOAD_CONST'], filename_index,    # <- filename
-                dis.opmap['LOAD_CONST'], len(consts),       # line number (will be added)
-                dis.opmap['CALL_FUNCTION'], 2,
-                dis.opmap['POP_TOP'], 0,
-                dis.opmap['JUMP_ABSOLUTE'], offset+2]
+    def opcode_arg(opcode, arg):
+        """Emits an opcode and its (variable length) argument."""
+        bytecode = []
+        ext = (arg.bit_length()-1)//8
+        assert ext <= 3
+        for i in range(ext):
+            bytecode.extend([dis.opmap['EXTENDED_ARG'], (arg >> (ext-i)*8) & 0xFF])
+        bytecode.extend([dis.opmap[opcode], arg & 0xFF])
+        return bytecode
 
-    len_t = len(mk_trampoline(0))
+    def mk_trampoline(offset, after_jump):
+        tr = list(co.co_code[offset:offset+after_jump])
+        tr.extend(opcode_arg('LOAD_GLOBAL', len(co.co_names))) # <- '___noteCoverage'
+        tr.extend(opcode_arg('LOAD_CONST', filename_index))    # <- filename
+        tr.extend(opcode_arg('LOAD_CONST', len(consts)))       # line number (will be added)
+        tr.extend([dis.opmap['CALL_FUNCTION'], 2,
+                   dis.opmap['POP_TOP'], 0])
+        tr.extend(opcode_arg('JUMP_ABSOLUTE', offset+after_jump))
+        return tr
 
-    patch = bytearray(len(co.co_code) + len(lines)*len_t)
-
-    p = len(co.co_code)
-    patch[:p] = co.co_code
+    patch = bytearray(co.co_code)
     last_offset = None
     for (offset, lineno) in lines:
-        # XXX this assumes there's enough space between lines for the jump
-        assert(last_offset is None or offset-last_offset >= 2)
+        # Verify there's been enough space between lines for the jump
+        assert(last_offset is None or offset-last_offset >= len(j))
+        last_offset = offset
 
-        patch[p:p+len_t] = mk_trampoline(offset)
-        patch[offset] = dis.opmap['JUMP_ABSOLUTE']
-        patch[offset+1] = p
+        j = opcode_arg('JUMP_ABSOLUTE', len(patch))
+        patch.extend(mk_trampoline(offset, len(j)))
+        patch[offset:offset+len(j)] = j
 
         consts.append(lineno)
-
-        p += len_t
 
     return newCodeType(co, patch, stacksize=co.co_stacksize+2, # use dis.stack_effect?
                        consts=consts, names=co.co_names + ('___noteCoverage',))
@@ -170,18 +175,18 @@ def setup():
                 if file not in lines_deinstrumented: lines_deinstrumented[file] = set()
                 lines_deinstrumented[file].update(to_remove)
 
+                # Replace inner functions and any other function variables
                 # XXX this could be better guided
                 frame = inspect.currentframe()
                 while frame:
                     for var in list(frame.f_locals.keys()): # avoid 'dictionary changed size during iter.'
-                        # replace inner functions and any other function variables
                         if isinstance(frame.f_locals[var], types.FunctionType):
                             if frame.f_locals[var].__code__ in replace_map:
                                 frame.f_locals[var].__code__ = replace_map[frame.f_locals[var].__code__]
                     frame = frame.f_back
 
     #            stackpatch.patch(replace_map)
-    #            replace_map.clear()
+                replace_map.clear()
         signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
     signal.siginterrupt(signal.SIGVTALRM, False)
@@ -209,8 +214,9 @@ slipcover_globals['__name__'] = '__main__'
 sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
 # XXX do we really need a loop? what does python do with multiple files?  What about other modules?
 for file in sys.argv:
-    # needed? slipcover_globals['__file__'] = file
+    slipcover_globals['__file__'] = file
     with open(file, 'r') as f:
         code = compile(f.read(), file, 'exec')
         code = instrument(code)
+#        dis.dis(code)
         exec(code, slipcover_globals)
