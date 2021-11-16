@@ -114,14 +114,18 @@ def deinstrument(co, lines): # antonym for "to instrument"?
                 consts[i] = nc
 
     for (offset, lineno) in dis.findlinestarts(co):
-        if lineno in lines:
-            if co.co_code[offset] == dis.opmap['JUMP_ABSOLUTE']:
-                t_offset = co.co_code[offset+1]
+        if lineno in lines: # FIXME this assumes all lines are on the same file
+            ext = 0
+            t_offset = co.co_code[offset+1]
+            while co.co_code[offset+ext] == dis.opmap['EXTENDED_ARG']:
+                ext += 2
+                t_offset = (t_offset << 8) | co.co_code[offset+ext+1]
 
-            if patch is None:
-                patch = bytearray(co.co_code)
+            if co.co_code[offset+ext] == dis.opmap['JUMP_ABSOLUTE']:
+                if patch is None:
+                    patch = bytearray(co.co_code)
 
-            patch[offset:offset+2] = patch[t_offset:t_offset+2]
+                patch[offset:offset+ext+2] = patch[t_offset:t_offset+ext+2]
 
     return co if (patch is None and consts is None) \
               else newCodeType(co, patch, consts=consts)
