@@ -72,13 +72,20 @@ def instrument(co: CodeType) -> CodeType:
         return tr
 
     patch = bytearray(co.co_code)
+    last_offset = None
+    last_jump_len = None
     for (offset, lineno) in lines:
-        # Verify there's been enough space between lines for the jump
+        assert(last_offset is None or last_offset + last_jump_len <= offset)
+
         j = opcode_arg("JUMP_ABSOLUTE", len(patch))
         patch.extend(mk_trampoline(offset, len(j)))
         patch[offset: offset + len(j)] = j
 
         consts.append(lineno)
+        last_offset = offset
+        last_jump_len = len(j)
+
+    assert(last_offset is None or last_offset + last_jump_len <= len(co.co_code))
 
     return newCodeType(
         co,
@@ -252,8 +259,13 @@ def all_functions():
 
 
 setup()
+
+# linkage back to this module  XXX use module name?
 slipcover_globals["___noteCoverage"] = ___noteCoverage
-# slipcover_globals['__name__'] = '__main__'
+
+# needed so that the script being invoked behaves like the main one
+slipcover_globals['__name__'] = '__main__'
+
 sys.argv = sys.argv[1:]  # delete ourselves so as not to confuse others
 # XXX do we really need a loop? what does python do with multiple files?  What about other modules?
 for file in sys.argv:
