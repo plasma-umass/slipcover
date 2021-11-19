@@ -188,18 +188,12 @@ def setup():
         nonlocal INTERVAL
     
         for file in lines_seen:
-            to_remove = (
-                lines_deinstrumented[file] - lines_seen[file]
-                if file in lines_deinstrumented
-                else lines_seen[file]
-            )
-            print(f"{file} to_remove:", len(to_remove))
+            to_remove = lines_seen[file] - lines_deinstrumented[file]
+            # print(f"{file} to_remove:", len(to_remove))
             if to_remove:
                 # XXX this could be better guided, rather than go through all_functions
                 for f in all_functions():
                     deinstrument(f, to_remove)
-                if file not in lines_deinstrumented:
-                    lines_deinstrumented[file] = set()
                 lines_deinstrumented[file].update(to_remove)
 
                 # Replace inner functions and any other function variables
