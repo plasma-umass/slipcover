@@ -144,20 +144,25 @@ def deinstrument(co, lines):
 
 
 # Notes which lines have been seen.
-lines_seen = defaultdict(lambda: set())
+lines_seen: Dict[str, set] = defaultdict(lambda: set())
+
+# Notes lines seen since last de-instrumentation
+new_lines_seen: Dict[str, set] = defaultdict(lambda: set())
 
 
 def ___noteCoverage(filename, lineno):
     """Invoked to mark a line as having executed."""
-    lines_seen[filename].add(lineno)
-
-
-# Remembers which lines we've already de-instrumented
-# XXX remember those to de-instrument instead?
-lines_deinstrumented: Dict[str, set] = defaultdict(lambda: set())
+    new_lines_seen[filename].add(lineno)
 
 
 def print_coverage():
+    import signal
+    signal.setitimer(signal.ITIMER_VIRTUAL, 0)
+
+    # in case any haven't been merged in yet
+    for file in new_lines_seen:
+        lines_seen[file].update(new_lines_seen[file])
+
     print("printing coverage")
 
     def merge_consecutives(L):
@@ -174,9 +179,6 @@ def print_coverage():
     for file in lines_seen:
         print(f"coverage: {file}:", merge_consecutives(lines_seen[file]))
 
-    import signal
-
-    signal.setitimer(signal.ITIMER_VIRTUAL, 0)
 
 def setup():
     """Sets up for coverage tracking"""
@@ -193,31 +195,33 @@ def setup():
         import types
         nonlocal INTERVAL
     
-        for file in lines_seen:
-            to_remove = lines_seen[file] - lines_deinstrumented[file]
-            # print(f"{file} to_remove:", len(to_remove))
-            if to_remove:
-                # XXX this could be better guided, rather than go through all_functions
-                for f in all_functions():
-                    deinstrument(f, to_remove)
-                lines_deinstrumented[file].update(to_remove)
+        for file in new_lines_seen:
+            # XXX this could be better guided, rather than go through all_functions
+            for f in all_functions():
+                deinstrument(f, new_lines_seen[file])
 
-                # Replace inner functions and any other function variables
-                # XXX this could be better guided
-                frame = inspect.currentframe()
-                while frame:
-                    for var in list(
-                        frame.f_locals.keys()
-                    ):  # avoid 'dictionary changed size during iter.'
-                        if isinstance(frame.f_locals[var], types.FunctionType):
-                            if frame.f_locals[var].__code__ in replace_map:
-                                frame.f_locals[var].__code__ = replace_map[
-                                    frame.f_locals[var].__code__
-                                ]
-                    frame = frame.f_back
+            lines_seen[file].update(new_lines_seen[file])
+        new_lines_seen.clear()
 
-                #            stackpatch.patch(replace_map)
-                replace_map.clear()
+        # Replace inner functions and any other function variables
+        # XXX this could be better guided
+        if replace_map:
+            frame = inspect.currentframe()
+            while frame:
+                # list() avoids 'dictionary changed size during iter.'
+                for var in list(frame.f_locals.keys()):
+                    if isinstance(frame.f_locals[var], types.FunctionType):
+                        f = frame.f_locals[var]
+                        if f.__code__ in replace_map:
+                            f.__code__ = replace_map[f.__code__]
+
+                frame = frame.f_back
+
+            # all references should have been replaced now... right?
+            replace_map.clear()
+
+        # stackpatch.patch(replace_map)
+
         # Increase the interval geometrically
         INTERVAL *= 2
         signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
