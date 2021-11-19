@@ -61,12 +61,12 @@ def instrument(co: CodeType) -> CodeType:
     def mk_trampoline(offset, after_jump):
         tr = list(co.co_code[offset: offset + after_jump])
         tr.extend(
-            opcode_arg("LOAD_GLOBAL", len(co.co_names))
-        )  # <- '___noteCoverage'
+            opcode_arg("LOAD_GLOBAL", len(co.co_names)) # <- '___noteCoverage'
+        )
         tr.extend(opcode_arg("LOAD_CONST", filename_index))  # <- filename
         tr.extend(
-            opcode_arg("LOAD_CONST", len(consts))
-        )  # line number (will be added)
+            opcode_arg("LOAD_CONST", len(consts))  # line number (will be added)
+        )
         tr.extend([dis.opmap["CALL_FUNCTION"], 2, dis.opmap["POP_TOP"], 0])
         tr.extend(opcode_arg("JUMP_ABSOLUTE", offset + after_jump))
         return tr
@@ -96,7 +96,7 @@ def instrument(co: CodeType) -> CodeType:
     )
 
 
-def deinstrument(co, lines):  # antonym for "to instrument"?
+def deinstrument(co, lines):
     """De-instruments a code object previously instrumented for coverage detection.
     If invoked on a function, de-instruments its code."""
     import types
@@ -120,9 +120,8 @@ def deinstrument(co, lines):  # antonym for "to instrument"?
                 consts[i] = nc
 
     for (offset, lineno) in dis.findlinestarts(co):
-        if (
-            lineno in lines
-        ):  # FIXME this assumes all lines are on the same file
+        # FIXME this assumes all lines are on the same file
+        if lineno in lines:
             ext = 0
             t_offset = co.co_code[offset + 1]
             while co.co_code[offset + ext] == dis.opmap["EXTENDED_ARG"]:
