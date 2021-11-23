@@ -1,5 +1,6 @@
 import sys
 import dis
+from pathlib import Path
 from types import CodeType
 from typing import Any, Dict
 from collections import defaultdict
@@ -191,8 +192,9 @@ def print_coverage():
 
         return nonempty_lines
 
+    print("not covered:")
     for file in lines_seen:
-        print(f"not covered: {file}:", merge_consecutives(get_nonempty_lines(file) - lines_seen[file]))
+        print(" " * 5, file, merge_consecutives(get_nonempty_lines(file) - lines_seen[file]))
 
 def setup():
     """Sets up for coverage tracking"""
@@ -276,15 +278,54 @@ def all_functions():
 
 setup()
 
-# needed so that the script being invoked behaves like the main one
-slipcover_globals['__name__'] = '__main__'
+from importlib.abc import MetaPathFinder, Loader
+from importlib.util import spec_from_loader
+
+class SlipcoverLoader(Loader):
+    def __init__(self, orig_loader):
+        self.orig_loader = orig_loader
+
+    def create_module(self, spec):
+        return self.orig_loader.create_module(spec)
+
+    def exec_module(self, module):
+        code = self.orig_loader.get_code(module.__name__)
+        code = instrument(code)
+        # FIXME no module de-instrumentation is done yet
+        exec(code, module.__dict__)
+
+class SlipcoverMetaPathFinder(MetaPathFinder):
+    def __init__(self, script_path, meta_path):
+        self.script_path = script_path
+        self.meta_path = meta_path
+
+    def find_spec(self, fullname, path, target=None):
+        for f in self.meta_path:
+            found = f.find_spec(fullname, path, target)
+            if (found):
+                # instrument iff the module's path is related to the original script's
+                if (self.script_path in Path(found.origin).parents):
+                    found.loader = SlipcoverLoader(found.loader)
+                return found
+
+        return None
 
 sys.argv = sys.argv[1:]  # delete ourselves so as not to confuse others
-# XXX do we really need a loop? what does python do with multiple files?  What about other modules?
-for file in sys.argv:
-    slipcover_globals["__file__"] = file
-    with open(file, "r") as f:
-        code = compile(f.read(), file, "exec")
-        code = instrument(code)
-        # dis.dis(code)
-        exec(code, slipcover_globals)
+filename = sys.argv[0] # FIXME process options
+
+sys.meta_path = [SlipcoverMetaPathFinder(Path(filename).resolve().parent, sys.meta_path)]
+
+# needed so that the script being invoked behaves like the main one
+slipcover_globals['__name__'] = '__main__'
+slipcover_globals['__file__'] = filename
+
+# the 1st item in sys.path is always the main script's directory
+sys.path.pop(0)
+sys.path.insert(0, str(Path(filename).parent))
+
+with open(filename, "r") as f:
+    code = compile(f.read(), filename, "exec")
+
+code = instrument(code)
+# dis.dis(code)
+exec(code, slipcover_globals)
