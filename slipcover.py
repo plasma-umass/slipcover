@@ -38,6 +38,9 @@ def instrument(co: CodeType) -> CodeType:
     lines = list(dis.findlinestarts(co))
     consts = list(co.co_consts)
 
+    note_coverage_index = len(consts)
+    consts.append(note_coverage)
+
     filename_index = len(consts)
     consts.append(co.co_filename)
 
@@ -60,15 +63,14 @@ def instrument(co: CodeType) -> CodeType:
 
     def mk_trampoline(offset, after_jump):
         tr = list(co.co_code[offset: offset + after_jump])
-        # 'slipcover'
-        tr.extend(opcode_arg("LOAD_GLOBAL", len(co.co_names)))
-        # 'note_coverage'
-        tr.extend(opcode_arg("LOAD_METHOD", len(co.co_names)+1))
+        # note_coverage
+        tr.extend(opcode_arg("LOAD_CONST", note_coverage_index))
         # filename
         tr.extend(opcode_arg("LOAD_CONST", filename_index))
         # line number (will be added)
         tr.extend(opcode_arg("LOAD_CONST", len(consts)))
-        tr.extend([dis.opmap["CALL_METHOD"], 2, dis.opmap["POP_TOP"], 0])
+        tr.extend([dis.opmap["CALL_FUNCTION"], 2,
+                   dis.opmap["POP_TOP"], 0])
         tr.extend(opcode_arg("JUMP_ABSOLUTE", offset + after_jump))
         return tr
 
@@ -93,7 +95,6 @@ def instrument(co: CodeType) -> CodeType:
         patch,
         stacksize=co.co_stacksize + 2,  # use dis.stack_effect?
         consts=consts,
-        names=co.co_names + ("slipcover",) + ("note_coverage",),
     )
 
 
@@ -274,9 +275,6 @@ def all_functions():
 
 
 setup()
-
-# linkage back to this module
-slipcover_globals["slipcover"] = sys.modules[__name__]
 
 # needed so that the script being invoked behaves like the main one
 slipcover_globals['__name__'] = '__main__'
