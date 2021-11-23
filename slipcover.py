@@ -176,9 +176,21 @@ def print_coverage():
             for g in [list(g) for _, g in groups]
         ]
 
-    for file in lines_seen:
-        print(f"coverage: {file}:", merge_consecutives(lines_seen[file]))
+    def get_nonempty_lines(filename):
+        import ast
+        nonempty_lines = set()
 
+        with open(filename, "r") as f:
+            tree = ast.parse(f.read(), mode="exec")
+
+        for f in ast.walk(tree):
+            if (hasattr(f, 'lineno')):
+                nonempty_lines.add(f.lineno)
+
+        return nonempty_lines
+
+    for file in lines_seen:
+        print(f"not covered: {file}:", merge_consecutives(get_nonempty_lines(file) - lines_seen[file]))
 
 def setup():
     """Sets up for coverage tracking"""
