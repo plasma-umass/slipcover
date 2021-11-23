@@ -8,7 +8,7 @@ from collections import defaultdict
 replace_map = dict()
 
 
-def newCodeType(
+def new_CodeType(
     orig: CodeType, code: bytes, stacksize=None, consts=None, names=None
 ) -> CodeType:
     """Instantiates a new CodeType, modifying it from the original"""
@@ -60,14 +60,15 @@ def instrument(co: CodeType) -> CodeType:
 
     def mk_trampoline(offset, after_jump):
         tr = list(co.co_code[offset: offset + after_jump])
-        tr.extend(
-            opcode_arg("LOAD_GLOBAL", len(co.co_names)) # <- '___noteCoverage'
-        )
-        tr.extend(opcode_arg("LOAD_CONST", filename_index))  # <- filename
-        tr.extend(
-            opcode_arg("LOAD_CONST", len(consts))  # line number (will be added)
-        )
-        tr.extend([dis.opmap["CALL_FUNCTION"], 2, dis.opmap["POP_TOP"], 0])
+        # 'slipcover'
+        tr.extend(opcode_arg("LOAD_GLOBAL", len(co.co_names)))
+        # 'note_coverage'
+        tr.extend(opcode_arg("LOAD_METHOD", len(co.co_names)+1))
+        # filename
+        tr.extend(opcode_arg("LOAD_CONST", filename_index))
+        # line number (will be added)
+        tr.extend(opcode_arg("LOAD_CONST", len(consts)))
+        tr.extend([dis.opmap["CALL_METHOD"], 2, dis.opmap["POP_TOP"], 0])
         tr.extend(opcode_arg("JUMP_ABSOLUTE", offset + after_jump))
         return tr
 
@@ -87,12 +88,12 @@ def instrument(co: CodeType) -> CodeType:
 
     assert(last_offset is None or last_offset + last_jump_len <= len(co.co_code))
 
-    return newCodeType(
+    return new_CodeType(
         co,
         patch,
         stacksize=co.co_stacksize + 2,  # use dis.stack_effect?
         consts=consts,
-        names=co.co_names + ("___noteCoverage",),
+        names=co.co_names + ("slipcover",) + ("note_coverage",),
     )
 
 
@@ -139,7 +140,7 @@ def deinstrument(co, lines):
     return (
         co
         if (not patch and not consts)
-        else newCodeType(co, patch, consts=consts)
+        else new_CodeType(co, patch, consts=consts)
     )
 
 
@@ -150,7 +151,7 @@ lines_seen: Dict[str, set] = defaultdict(lambda: set())
 new_lines_seen: Dict[str, set] = defaultdict(lambda: set())
 
 
-def ___noteCoverage(filename, lineno):
+def note_coverage(filename, lineno):
     """Invoked to mark a line as having executed."""
     new_lines_seen[filename].add(lineno)
 
@@ -267,16 +268,15 @@ def all_functions():
     funcs = [
         slipcover_globals[c]
         for c in slipcover_globals
-        if c != "___noteCoverage"
-        and isinstance(slipcover_globals[c], types.FunctionType)
+        if isinstance(slipcover_globals[c], types.FunctionType)
     ]
     return methods + funcs
 
 
 setup()
 
-# linkage back to this module  XXX use module name?
-slipcover_globals["___noteCoverage"] = ___noteCoverage
+# linkage back to this module
+slipcover_globals["slipcover"] = sys.modules[__name__]
 
 # needed so that the script being invoked behaves like the main one
 slipcover_globals['__name__'] = '__main__'
@@ -288,5 +288,5 @@ for file in sys.argv:
     with open(file, "r") as f:
         code = compile(f.read(), file, "exec")
         code = instrument(code)
-        #        dis.dis(code)
+        # dis.dis(code)
         exec(code, slipcover_globals)
