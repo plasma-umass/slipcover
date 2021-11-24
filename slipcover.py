@@ -5,6 +5,24 @@ from types import CodeType
 from typing import Any, Dict
 from collections import defaultdict
 
+
+# Python 3.10a7 changed jump opcodes' argument to mean instruction
+# (word) offset, rather than bytecode offset.
+if sys.version_info[0:2] >= (3,10):
+    def offset2jump(offset: int):
+        assert offset % 2 == 0
+        return offset//2
+
+    def jump2offset(jump: int):
+        return jump*2
+else:
+    def offset2jump(offset: int):
+        return offset
+
+    def jump2offset(jump: int):
+        return jump
+
+
 # map to guide CodeType replacements on the stack
 replace_map = dict()
 
@@ -72,7 +90,8 @@ def instrument(co: CodeType) -> CodeType:
         tr.extend(opcode_arg("LOAD_CONST", len(consts)))
         tr.extend([dis.opmap["CALL_FUNCTION"], 2,
                    dis.opmap["POP_TOP"], 0])
-        tr.extend(opcode_arg("JUMP_ABSOLUTE", offset + after_jump))
+        # FIXME do we need to pad to permit jump?
+        tr.extend(opcode_arg("JUMP_ABSOLUTE", offset2jump(offset + after_jump)))
         return tr
 
     patch = bytearray(co.co_code)
@@ -81,7 +100,8 @@ def instrument(co: CodeType) -> CodeType:
     for (offset, lineno) in lines:
         assert(last_offset is None or last_offset + last_jump_len <= offset)
 
-        j = opcode_arg("JUMP_ABSOLUTE", len(patch))
+        # FIXME do we need to pad to permit jump?
+        j = opcode_arg("JUMP_ABSOLUTE", offset2jump(len(patch)))
         patch.extend(mk_trampoline(offset, len(j)))
         patch[offset: offset + len(j)] = j
 
@@ -136,7 +156,7 @@ def deinstrument(co, lines):
                     patch = bytearray(co.co_code)
 
                 patch[offset: offset + ext + 2] = patch[
-                    t_offset: t_offset + ext + 2
+                    jump2offset(t_offset) : jump2offset(t_offset) + ext + 2
                 ]
 
     return (
