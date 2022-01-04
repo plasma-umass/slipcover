@@ -23,7 +23,7 @@ else:
         return jump
 
 
-# map to guide CodeType replacements on the stack
+# map to guide CodeType replacements
 replace_map = dict()
 
 
@@ -68,7 +68,7 @@ def instrument(co: CodeType) -> CodeType:
         if isinstance(consts[i], types.CodeType):
             consts[i] = instrument(consts[i])
 
-    def opcode_arg(opcode, arg):
+    def opcode_arg(opcode: str, arg: int):
         """Emits an opcode and its (variable length) argument."""
         bytecode = []
         ext = (arg.bit_length() - 1) // 8
@@ -80,7 +80,7 @@ def instrument(co: CodeType) -> CodeType:
         bytecode.extend([dis.opmap[opcode], arg & 0xFF])
         return bytecode
 
-    def mk_trampoline(offset, after_jump):
+    def mk_trampoline(offset: int, after_jump: int):
         tr = list(co.co_code[offset: offset + after_jump])
         # note_coverage
         tr.extend(opcode_arg("LOAD_CONST", note_coverage_index))
@@ -119,7 +119,7 @@ def instrument(co: CodeType) -> CodeType:
     )
 
 
-def deinstrument(co, lines):
+def deinstrument(co, lines: set):
     """De-instruments a code object previously instrumented for coverage detection.
     If invoked on a function, de-instruments its code."""
     import types
@@ -173,7 +173,7 @@ lines_seen: Dict[str, set] = defaultdict(lambda: set())
 new_lines_seen: Dict[str, set] = defaultdict(lambda: set())
 
 
-def note_coverage(filename, lineno):
+def note_coverage(filename: str, lineno: int):
     """Invoked to mark a line as having executed."""
     new_lines_seen[filename].add(lineno)
 
@@ -216,6 +216,11 @@ def print_coverage():
     for file in lines_seen:
         print(" " * 5, file, merge_consecutives(get_nonempty_lines(file) - lines_seen[file]))
 
+
+# python 'globals' for the script being executed
+script_globals: Dict[str, Any] = defaultdict(None)
+
+
 def setup():
     """Sets up for coverage tracking"""
     import atexit
@@ -230,9 +235,29 @@ def setup():
         import inspect
         import types
         nonlocal INTERVAL
+
+        def all_functions():
+            """Introspects, returning all functions (that may be pointing to
+               instrumented code) to deinstrument"""
+            classes = [
+                c
+                for c in script_globals.values()
+                if isinstance(c, type) or isinstance(c, types.ModuleType)
+            ]
+            methods = [
+                f[1]
+                for c in classes
+                for f in inspect.getmembers(c, inspect.isfunction)
+            ]
+            funcs = [
+                o
+                for o in script_globals.values()
+                if isinstance(o, types.FunctionType)
+            ]
+            return methods + funcs
+
     
         for file in new_lines_seen:
-            # XXX this could be better guided, rather than go through all_functions
             for f in all_functions():
                 deinstrument(f, new_lines_seen[file])
 
@@ -267,35 +292,6 @@ def setup():
     signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
 
-#    for f in all_functions():
-#        instrument(f)
-
-slipcover_globals: Dict[str, Any] = defaultdict(None)  # XXX rename
-
-
-def all_functions():
-    """Introspects, returning all functions to instrument"""
-    import inspect
-    import types
-
-    classes = [
-        slipcover_globals[c]
-        for c in slipcover_globals
-        if isinstance(slipcover_globals[c], type)
-    ]
-    methods = [
-        f[1]
-        for c in classes
-        for f in inspect.getmembers(c, inspect.isfunction)
-    ]
-    funcs = [
-        slipcover_globals[c]
-        for c in slipcover_globals
-        if isinstance(slipcover_globals[c], types.FunctionType)
-    ]
-    return methods + funcs
-
-
 setup()
 
 from importlib.abc import MetaPathFinder, Loader
@@ -311,7 +307,6 @@ class SlipcoverLoader(Loader):
     def exec_module(self, module):
         code = self.orig_loader.get_code(module.__name__)
         code = instrument(code)
-        # FIXME no module de-instrumentation is done yet
         exec(code, module.__dict__)
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
@@ -330,14 +325,14 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 
         return None
 
-sys.argv = sys.argv[1:]  # delete ourselves so as not to confuse others
-filename = sys.argv[0] # FIXME process options
+sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
+filename = sys.argv[0]  # XXX process slipcover options
 
 sys.meta_path = [SlipcoverMetaPathFinder(Path(filename).resolve().parent, sys.meta_path)]
 
 # needed so that the script being invoked behaves like the main one
-slipcover_globals['__name__'] = '__main__'
-slipcover_globals['__file__'] = filename
+script_globals['__name__'] = '__main__'
+script_globals['__file__'] = filename
 
 # the 1st item in sys.path is always the main script's directory
 sys.path.pop(0)
@@ -348,4 +343,4 @@ with open(filename, "r") as f:
 
 code = instrument(code)
 # dis.dis(code)
-exec(code, slipcover_globals)
+exec(code, script_globals)

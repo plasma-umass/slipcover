@@ -54,9 +54,9 @@ def stuff():
             x = 1.01
     return x
 
-import sys
-print("TESTME")
-print(sys.argv)
-print(__file__)
-stuff()
-
+if __name__ == '__main__':
+    import sys
+    print("TESTME")
+    print(sys.argv)
+    print(__file__)
+    stuff()
