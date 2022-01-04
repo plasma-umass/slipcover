@@ -178,13 +178,25 @@ def note_coverage(filename: str, lineno: int):
     new_lines_seen[filename].add(lineno)
 
 
+def get_coverage() -> Dict[str, set]:
+    # in case any haven't been merged in yet
+    for file in new_lines_seen:
+        lines_seen[file].update(new_lines_seen[file])
+
+    return lines_seen
+
+
+def clear():
+    lines_seen.clear()
+    new_lines_seen.clear()
+    replace_map.clear()
+
+
 def print_coverage():
     import signal
     signal.setitimer(signal.ITIMER_VIRTUAL, 0)
 
-    # in case any haven't been merged in yet
-    for file in new_lines_seen:
-        lines_seen[file].update(new_lines_seen[file])
+    lines_seen = get_coverage()
 
     print("printing coverage")
 
@@ -244,6 +256,7 @@ def deinstrument_seen(script_globals: dict):
 
     for file in new_lines_seen:
         for f in all_functions():
+            ### FIXME we're invoking deinstrument with every file's line number set
             deinstrument(f, new_lines_seen[file])
 
         lines_seen[file].update(new_lines_seen[file])
