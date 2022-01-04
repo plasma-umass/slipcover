@@ -217,130 +217,53 @@ def print_coverage():
         print(" " * 5, file, merge_consecutives(get_nonempty_lines(file) - lines_seen[file]))
 
 
-# python 'globals' for the script being executed
-script_globals: Dict[str, Any] = defaultdict(None)
+def deinstrument_seen(script_globals: dict):
+    import inspect
+    import types
+
+    def all_functions():
+        """Introspects, returning all functions (that may be pointing to
+           instrumented code) to deinstrument"""
+        classes = [
+            c
+            for c in script_globals.values()
+            if isinstance(c, type) or isinstance(c, types.ModuleType)
+        ]
+        methods = [
+            f[1]
+            for c in classes
+            for f in inspect.getmembers(c, inspect.isfunction)
+        ]
+        funcs = [
+            o
+            for o in script_globals.values()
+            if isinstance(o, types.FunctionType)
+        ]
+        return methods + funcs
 
 
-def setup():
-    """Sets up for coverage tracking"""
-    import atexit
-    import signal
-    
-    INTERVAL = 0.1
+    for file in new_lines_seen:
+        for f in all_functions():
+            deinstrument(f, new_lines_seen[file])
 
-    atexit.register(print_coverage)
+        lines_seen[file].update(new_lines_seen[file])
+    new_lines_seen.clear()
 
-    def deinstrument_callback(signum, this_frame):
-        """Periodically de-instruments lines that were already reached."""
-        import inspect
-        import types
-        nonlocal INTERVAL
+    # Replace inner functions and any other function variables
+    # XXX this could be better guided
+    if replace_map:
+        frame = inspect.currentframe()
+        while frame:
+            # list() avoids 'dictionary changed size during iter.'
+            for var in list(frame.f_locals.keys()):
+                if isinstance(frame.f_locals[var], types.FunctionType):
+                    f = frame.f_locals[var]
+                    if f.__code__ in replace_map:
+                        f.__code__ = replace_map[f.__code__]
 
-        def all_functions():
-            """Introspects, returning all functions (that may be pointing to
-               instrumented code) to deinstrument"""
-            classes = [
-                c
-                for c in script_globals.values()
-                if isinstance(c, type) or isinstance(c, types.ModuleType)
-            ]
-            methods = [
-                f[1]
-                for c in classes
-                for f in inspect.getmembers(c, inspect.isfunction)
-            ]
-            funcs = [
-                o
-                for o in script_globals.values()
-                if isinstance(o, types.FunctionType)
-            ]
-            return methods + funcs
+            frame = frame.f_back
 
-    
-        for file in new_lines_seen:
-            for f in all_functions():
-                deinstrument(f, new_lines_seen[file])
+        # all references should have been replaced now... right?
+        replace_map.clear()
 
-            lines_seen[file].update(new_lines_seen[file])
-        new_lines_seen.clear()
-
-        # Replace inner functions and any other function variables
-        # XXX this could be better guided
-        if replace_map:
-            frame = inspect.currentframe()
-            while frame:
-                # list() avoids 'dictionary changed size during iter.'
-                for var in list(frame.f_locals.keys()):
-                    if isinstance(frame.f_locals[var], types.FunctionType):
-                        f = frame.f_locals[var]
-                        if f.__code__ in replace_map:
-                            f.__code__ = replace_map[f.__code__]
-
-                frame = frame.f_back
-
-            # all references should have been replaced now... right?
-            replace_map.clear()
-
-        # stackpatch.patch(replace_map)
-
-        # Increase the interval geometrically
-        INTERVAL *= 2
-        signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
-
-    signal.siginterrupt(signal.SIGVTALRM, False)
-    signal.signal(signal.SIGVTALRM, deinstrument_callback)
-    signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
-
-
-setup()
-
-from importlib.abc import MetaPathFinder, Loader
-from importlib.util import spec_from_loader
-
-class SlipcoverLoader(Loader):
-    def __init__(self, orig_loader):
-        self.orig_loader = orig_loader
-
-    def create_module(self, spec):
-        return self.orig_loader.create_module(spec)
-
-    def exec_module(self, module):
-        code = self.orig_loader.get_code(module.__name__)
-        code = instrument(code)
-        exec(code, module.__dict__)
-
-class SlipcoverMetaPathFinder(MetaPathFinder):
-    def __init__(self, script_path, meta_path):
-        self.script_path = script_path
-        self.meta_path = meta_path
-
-    def find_spec(self, fullname, path, target=None):
-        for f in self.meta_path:
-            found = f.find_spec(fullname, path, target)
-            if (found):
-                # instrument iff the module's path is related to the original script's
-                if (self.script_path in Path(found.origin).parents):
-                    found.loader = SlipcoverLoader(found.loader)
-                return found
-
-        return None
-
-sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
-filename = sys.argv[0]  # XXX process slipcover options
-
-sys.meta_path = [SlipcoverMetaPathFinder(Path(filename).resolve().parent, sys.meta_path)]
-
-# needed so that the script being invoked behaves like the main one
-script_globals['__name__'] = '__main__'
-script_globals['__file__'] = filename
-
-# the 1st item in sys.path is always the main script's directory
-sys.path.pop(0)
-sys.path.insert(0, str(Path(filename).parent))
-
-with open(filename, "r") as f:
-    code = compile(f.read(), filename, "exec")
-
-code = instrument(code)
-# dis.dis(code)
-exec(code, script_globals)
+    # stackpatch.patch(replace_map)
