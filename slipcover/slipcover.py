@@ -98,7 +98,7 @@ def instrument(co: CodeType) -> CodeType:
     last_offset = None
     last_jump_len = None
     for (offset, lineno) in lines:
-        assert(last_offset is None or last_offset + last_jump_len <= offset)
+        assert last_offset is None or last_offset + last_jump_len <= offset, "jump overflow"
 
         # FIXME do we need to pad to permit jump?
         j = opcode_arg("JUMP_ABSOLUTE", offset2jump(len(patch)))
@@ -109,7 +109,8 @@ def instrument(co: CodeType) -> CodeType:
         last_offset = offset
         last_jump_len = len(j)
 
-    assert(last_offset is None or last_offset + last_jump_len <= len(co.co_code))
+    assert last_offset is None or last_offset + last_jump_len <= len(co.co_code),\
+           "jump overflow"
 
     return new_CodeType(
         co,
