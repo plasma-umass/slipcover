@@ -1,14 +1,14 @@
 import sys
 import dis
-from pathlib import Path
 from types import CodeType
-from typing import Any, Dict
+from typing import Dict
 from collections import defaultdict
 
+PYTHON_VERSION = sys.version_info[0:2]
 
 # Python 3.10a7 changed jump opcodes' argument to mean instruction
 # (word) offset, rather than bytecode offset.
-if sys.version_info[0:2] >= (3,10):
+if PYTHON_VERSION >= (3,10):
     def offset2jump(offset: int):
         assert offset % 2 == 0
         return offset//2
@@ -46,6 +46,9 @@ def instrument(co: CodeType) -> CodeType:
     """Instruments a code object for coverage detection.
     If invoked on a function, instruments its code."""
     import types
+
+    if not ((3,6) <= PYTHON_VERSION <= (3,10)):
+        raise RuntimeError("Unsupported Python version; please use 3.6 to 3.10")
 
     if isinstance(co, types.FunctionType):
         co.__code__ = instrument(co.__code__)
@@ -90,7 +93,6 @@ def instrument(co: CodeType) -> CodeType:
         tr.extend(opcode_arg("LOAD_CONST", len(consts)))
         tr.extend([dis.opmap["CALL_FUNCTION"], 2,
                    dis.opmap["POP_TOP"], 0])
-        # FIXME do we need to pad to permit jump?
         tr.extend(opcode_arg("JUMP_ABSOLUTE", offset2jump(offset + after_jump)))
         return tr
 
@@ -100,7 +102,6 @@ def instrument(co: CodeType) -> CodeType:
     for (offset, lineno) in lines:
         assert last_offset is None or last_offset + last_jump_len <= offset, "jump overflow"
 
-        # FIXME do we need to pad to permit jump?
         j = opcode_arg("JUMP_ABSOLUTE", offset2jump(len(patch)))
         patch.extend(mk_trampoline(offset, len(j)))
         patch[offset: offset + len(j)] = j
@@ -144,7 +145,6 @@ def deinstrument(co, lines: set):
                 consts[i] = nc
 
     for (offset, lineno) in dis.findlinestarts(co):
-        # FIXME this assumes all lines are on the same file
         if lineno in lines:
             ext = 0
             t_offset = co.co_code[offset + 1]
@@ -264,7 +264,6 @@ def deinstrument_seen(script_globals: dict):
     new_lines_seen.clear()
 
     # Replace inner functions and any other function variables
-    # XXX this could be better guided
     if replace_map:
         frame = inspect.currentframe()
         while frame:
