@@ -32,7 +32,7 @@ def test_instrument():
     assert {current_file(): {*range(first_line, last_line)}} == sc.get_coverage()
 
 
-@pytest.mark.parametrize("N", [0, 20, 256, 512, 65536, 131072])
+@pytest.mark.parametrize("N", [0, 20, 256, 512, 4096])#, 8192, 65536, 131072])
 def test_instrument_long_jump(N):
     first_line = current_line()+2
     src = "x = 0\n" + "x += 1\n" * N 
@@ -79,7 +79,7 @@ def test_deinstrument_some():
     assert {current_file(): {*range(first_line+1, last_line-1)}} == sc.get_coverage()
 
 
-@pytest.mark.parametrize("N", [0, 20, 256, 512, 65536, 131072])
+@pytest.mark.parametrize("N", [0, 20, 256, 512, 4096])#, 8192, 65536, 131072])
 def test_deinstrument_long_jump(N):
     first_line = current_line()+2
     src = "x = 0\n" + "x += 1\n" * N 
