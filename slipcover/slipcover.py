@@ -6,6 +6,8 @@ from collections import defaultdict
 
 PYTHON_VERSION = sys.version_info[0:2]
 
+# FIXME provide __all__
+
 # Python 3.10a7 changed jump opcodes' argument to mean instruction
 # (word) offset, rather than bytecode offset.
 if PYTHON_VERSION >= (3,10):
@@ -28,7 +30,7 @@ replace_map = dict()
 
 
 def new_CodeType(
-    orig: CodeType, code: bytes, stacksize=None, consts=None, names=None
+    orig: CodeType, code: bytes, stacksize=None, consts=None, names=None, lnotab=None
 ) -> CodeType:
     """Instantiates a new CodeType, modifying it from the original"""
     new = orig.replace(
@@ -36,10 +38,144 @@ def new_CodeType(
         co_code=orig.co_code if not code else bytes(code),
         co_consts=(orig.co_consts if not consts else tuple(consts)),
         co_names=(orig.co_names if not names else tuple(names)),
+        co_lnotab=(orig.co_lnotab if not lnotab else bytes(lnotab))
     )
     replace_map[orig] = new
     # print("->", new)
     return new
+
+op_EXTENDED_ARG = dis.EXTENDED_ARG
+op_LOAD_CONST = dis.opmap["LOAD_CONST"]
+op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
+op_POP_TOP = dis.opmap["POP_TOP"]
+op_JUMP_ABSOLUTE = dis.opmap["JUMP_ABSOLUTE"]
+op_JUMP_FORWARD = dis.opmap["JUMP_FORWARD"]
+op_NOP = dis.opmap["NOP"]
+
+
+def arg_ext_needed(arg: int):
+    """Returns the number of EXTENDED_ARGs needed for an argument."""
+    return (arg.bit_length() - 1) // 8
+
+
+def opcode_arg(opcode: int, arg: int):
+    """Emits an opcode and its (variable length) argument."""
+    bytecode = []
+    ext = arg_ext_needed(arg)
+    assert ext <= 3
+    for i in range(ext):
+        bytecode.extend(
+            [op_EXTENDED_ARG, (arg >> (ext - i) * 8) & 0xFF]
+        )
+    bytecode.extend([opcode, arg & 0xFF])
+    return bytecode
+
+
+class JumpOp:
+    def __init__(self, offset : int, length : int, opcode : int, arg : int):
+        self.offset = offset
+        self.length = length
+        self.opcode = opcode
+        self.is_relative = (opcode in dis.hasjrel)
+        self.target = jump2offset(arg) if not self.is_relative \
+                      else offset + 2 + jump2offset(arg)
+
+    def adjust(self, insert_offset : int, insert_length : int) -> None:
+        """Adjusts this jump after a code insertion."""
+        assert insert_length > 0
+        if self.offset >= insert_offset:
+            self.offset += insert_length
+        if self.target > insert_offset:
+            self.target += insert_length
+
+    def arg(self) -> int:
+        """Returns this jump's opcode argument."""
+        if self.is_relative:
+            return offset2jump(self.target - 2 - self.offset)
+        return offset2jump(self.target)
+
+    # FIXME tests missing
+    def adjust_length(self) -> int:
+        """Adjusts this jump's length, if needed, assuming the returned number of
+           bytes will be inserted (or deleted) at this jump's offset.
+           Returns the number of bytes by which the length changed."""
+        length_needed = 2 + 2*arg_ext_needed(self.arg())
+        change = length_needed - self.length
+        if change:
+            if self.target > self.offset:
+                self.target += change
+            self.length = length_needed
+
+        return change
+
+    # FIXME tests missing
+    def code(self) -> bytes:
+        """Emits this jump's code."""
+        assert self.length == 2 + 2*arg_ext_needed(self.arg())
+        return opcode_arg(self.opcode, self.arg())
+
+
+def get_jumps(code):
+    """Extracts all the JumpOps in code."""
+    jumps = []
+
+    def unpack_opargs(code):
+        ext_arg = 0
+        next_off = 0
+        for off in range(0, len(code), 2):
+            op = code[off]
+            if op == op_EXTENDED_ARG:
+                ext_arg = (ext_arg | code[off+1]) << 8
+            else:
+                arg = (ext_arg | code[off+1])
+                yield (next_off, off+2-next_off, op, arg)
+                ext_arg = 0
+                next_off = off+2
+
+    jump_opcodes = set(dis.hasjrel).union(dis.hasjabs)
+
+    for (off, length, op, arg) in unpack_opargs(code):
+        if op in jump_opcodes:
+            jumps.append(JumpOp(off, length, op, arg))
+
+    return jumps
+
+
+def make_lnotab(firstlineno, lines):
+    """Generates the line number table used by Python to map offsets to line numbers."""
+    assert (3,6) <= PYTHON_VERSION <= (3,9) # 3.10+ has a new format
+    # FIXME add python 3.10 support
+
+    lnotab = []
+
+    prev_offset = 0
+    prev_line = firstlineno
+
+    for (offset, line) in lines:
+        delta_offset = offset - prev_offset
+        delta_line = line - prev_line
+
+        while delta_offset > 255:
+            lnotab.extend([255, 0])
+            delta_offset -= 255
+
+        if delta_line >= 0:
+            while delta_line > 127:
+                lnotab.extend([delta_offset, 127])
+                delta_line -= 127
+                delta_offset = 0
+        else:
+            while delta_line < -128:
+                lnotab.extend([delta_offset, -128])
+                delta_line += 128
+                delta_offset = 0
+
+        lnotab.extend([delta_offset, delta_line])
+
+        prev_offset = offset
+        prev_line = line
+
+    return lnotab
 
 
 def instrument(co: CodeType) -> CodeType:
@@ -57,7 +193,6 @@ def instrument(co: CodeType) -> CodeType:
     assert isinstance(co, types.CodeType)
     #    print(f"instrumenting {co.co_name}")
 
-    lines = list(dis.findlinestarts(co))
     consts = list(co.co_consts)
 
     note_coverage_index = len(consts)
@@ -71,53 +206,61 @@ def instrument(co: CodeType) -> CodeType:
         if isinstance(consts[i], types.CodeType):
             consts[i] = instrument(consts[i])
 
-    def opcode_arg(opcode: str, arg: int):
-        """Emits an opcode and its (variable length) argument."""
-        bytecode = []
-        ext = (arg.bit_length() - 1) // 8
-        assert ext <= 3
-        for i in range(ext):
-            bytecode.extend(
-                [dis.opmap["EXTENDED_ARG"], (arg >> (ext - i) * 8) & 0xFF]
-            )
-        bytecode.extend([dis.opmap[opcode], arg & 0xFF])
-        return bytecode
-
-    def mk_trampoline(offset: int, after_jump: int):
-        tr = list(co.co_code[offset: offset + after_jump])
-        # note_coverage
-        tr.extend(opcode_arg("LOAD_CONST", note_coverage_index))
-        # filename
-        tr.extend(opcode_arg("LOAD_CONST", filename_index))
-        # line number (will be added)
-        tr.extend(opcode_arg("LOAD_CONST", len(consts)))
-        tr.extend([dis.opmap["CALL_FUNCTION"], 2,
-                   dis.opmap["POP_TOP"], 0])
-        tr.extend(opcode_arg("JUMP_ABSOLUTE", offset2jump(offset + after_jump)))
-        return tr
-
+    jumps = get_jumps(co.co_code)
     patch = bytearray(co.co_code)
-    last_offset = None
-    last_jump_len = None
-    for (offset, lineno) in lines:
-        assert last_offset is None or last_offset + last_jump_len <= offset, "jump overflow"
+    added = 0
 
-        j = opcode_arg("JUMP_ABSOLUTE", offset2jump(len(patch)))
-        patch.extend(mk_trampoline(offset, len(j)))
-        patch[offset: offset + len(j)] = j
-
+    lines = []
+    for (offset, lineno) in dis.findlinestarts(co):
+        insert = []
+        insert.extend([op_NOP, 0])  # for deinstrument jump
+        insert.extend(opcode_arg(op_LOAD_CONST, note_coverage_index))
+        insert.extend(opcode_arg(op_LOAD_CONST, filename_index))
+        insert.extend(opcode_arg(op_LOAD_CONST, len(consts)))
         consts.append(lineno)
-        last_offset = offset
-        last_jump_len = len(j)
+        insert.extend([op_CALL_FUNCTION, 2,
+                       op_POP_TOP, 0])    # ignore return
+        assert len(insert)-2 <= 255
+        insert[1] = len(insert)-2
 
-    assert last_offset is None or last_offset + last_jump_len <= len(co.co_code),\
-           "jump overflow"
+        patch[offset+added:offset+added] = insert   # XXX will this cost too much time?
+        lines.append((offset+added, lineno))
+
+        for j in jumps:
+            j.adjust(offset+added, len(insert))
+
+        added += len(insert)
+
+    # A jump's new target may now require more EXTENDED_ARG opcodes to be expressed.
+    # Inserting space for those may in turn trigger needing more space for others...
+    # FIXME missing test for length adjustment triggering other length adjustments
+    any_adjusted = True
+    while any_adjusted:
+        any_adjusted = False
+
+        for j in jumps:
+            change = j.adjust_length()
+            if change:
+#                print(f"adjusted jump {j.offset} to {j.target} by {change} to {j.length}")
+                # FIXME what if change < 0?
+                patch[j.offset:j.offset] = [0] * change
+                for k in jumps:
+                    if j != k:
+                        k.adjust(j.offset, change)
+                any_adjusted = True
+
+    for j in jumps:
+        assert patch[j.offset+j.length-2] == j.opcode
+        patch[j.offset:j.offset+j.length] = j.code()
+
+    lnotab = make_lnotab(co.co_firstlineno, lines)
 
     return new_CodeType(
         co,
         patch,
         stacksize=co.co_stacksize + 2,  # use dis.stack_effect?
         consts=consts,
+        lnotab=lnotab
     )
 
 
@@ -145,20 +288,10 @@ def deinstrument(co, lines: set):
                 consts[i] = nc
 
     for (offset, lineno) in dis.findlinestarts(co):
-        if lineno in lines:
-            ext = 0
-            t_offset = co.co_code[offset + 1]
-            while co.co_code[offset + ext] == dis.opmap["EXTENDED_ARG"]:
-                ext += 2
-                t_offset = (t_offset << 8) | co.co_code[offset + ext + 1]
-
-            if co.co_code[offset + ext] == dis.opmap["JUMP_ABSOLUTE"]:
-                if not patch:
-                    patch = bytearray(co.co_code)
-
-                patch[offset: offset + ext + 2] = patch[
-                    jump2offset(t_offset) : jump2offset(t_offset) + ext + 2
-                ]
+        if lineno in lines and co.co_code[offset] == op_NOP:
+            if not patch:
+                patch = bytearray(co.co_code)
+            patch[offset] = op_JUMP_FORWARD
 
     return (
         co
@@ -188,6 +321,7 @@ def get_coverage() -> Dict[str, set]:
 
 
 def clear():
+    """Clears accumulated coverage information."""
     lines_seen.clear()
     new_lines_seen.clear()
     replace_map.clear()
@@ -257,7 +391,7 @@ def deinstrument_seen(script_globals: dict):
 
     for file in new_lines_seen:
         for f in all_functions():
-            ### FIXME we're invoking deinstrument with every file's line number set
+            # FIXME we're invoking deinstrument with every file's line number set
             deinstrument(f, new_lines_seen[file])
 
         lines_seen[file].update(new_lines_seen[file])
