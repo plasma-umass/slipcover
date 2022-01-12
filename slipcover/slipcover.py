@@ -207,29 +207,34 @@ def instrument(co: CodeType) -> CodeType:
             consts[i] = instrument(consts[i])
 
     jumps = get_jumps(co.co_code)
-    patch = bytearray(co.co_code)
-    added = 0
-
+    patch = bytearray()
     lines = []
-    for (offset, lineno) in dis.findlinestarts(co):
-        insert = []
-        insert.extend([op_NOP, 0])  # for deinstrument jump
-        insert.extend(opcode_arg(op_LOAD_CONST, note_coverage_index))
-        insert.extend(opcode_arg(op_LOAD_CONST, filename_index))
-        insert.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-        consts.append(lineno)
-        insert.extend([op_CALL_FUNCTION, 2,
-                       op_POP_TOP, 0])    # ignore return
-        assert len(insert)-2 <= 255
-        insert[1] = len(insert)-2
 
-        patch[offset+added:offset+added] = insert   # XXX will this cost too much time?
-        lines.append((offset+added, lineno))
+    prev_offset = None
+    for (offset, lineno) in dis.findlinestarts(co):
+        if prev_offset != None:
+            patch.extend(co.co_code[prev_offset:offset])
+        prev_offset = offset
+
+        patch_offset = len(patch)
+        patch.extend([op_NOP, 0])       # for deinstrument jump
+        patch.extend(opcode_arg(op_LOAD_CONST, note_coverage_index))
+        patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
+        patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
+        consts.append(lineno)
+        patch.extend([op_CALL_FUNCTION, 2,
+                      op_POP_TOP, 0])    # ignore return
+        inserted = len(patch) - patch_offset
+        assert inserted <= 255
+        patch[patch_offset+1] = inserted-2
+
+        lines.append((patch_offset, lineno))
 
         for j in jumps:
-            j.adjust(offset+added, len(insert))
+            j.adjust(patch_offset, inserted)
 
-        added += len(insert)
+    if prev_offset != None:
+        patch.extend(co.co_code[prev_offset:])
 
     # A jump's new target may now require more EXTENDED_ARG opcodes to be expressed.
     # Inserting space for those may in turn trigger needing more space for others...
@@ -258,7 +263,7 @@ def instrument(co: CodeType) -> CodeType:
     return new_CodeType(
         co,
         patch,
-        stacksize=co.co_stacksize + 2,  # use dis.stack_effect?
+        stacksize=co.co_stacksize + 2,  # FIXME update dis.stack_effect
         consts=consts,
         lnotab=lnotab
     )
