@@ -221,7 +221,7 @@ def instrument(co: CodeType) -> CodeType:
         assert inserted <= 255
         patch[patch_offset+1] = inserted-2
 
-        lines.append((patch_offset, lineno))
+        lines.append([patch_offset, lineno])
 
         for j in jumps:
             j.adjust(patch_offset, inserted)
@@ -245,6 +245,11 @@ def instrument(co: CodeType) -> CodeType:
                 for k in jumps:
                     if j != k:
                         k.adjust(j.offset, change)
+
+                for i in range(len(lines)):
+                    if lines[i][0] > j.offset:
+                        lines[i][0] += change
+
                 any_adjusted = True
 
     for j in jumps:
