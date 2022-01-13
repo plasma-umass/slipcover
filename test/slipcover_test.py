@@ -256,6 +256,11 @@ def test_instrument():
     last_line = current_line()
 
     sc.instrument(foo)
+
+    # Are all lines where we expect?
+    for (offset, _) in dis.findlinestarts(foo.__code__):
+        assert sc.op_NOP == foo.__code__.co_code[offset]
+
     dis.dis(foo)
     assert 6 == foo(3)
 
@@ -277,8 +282,10 @@ def test_instrument_long_jump(N):
 
     code = sc.instrument(code)
 
+    # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(code):
-        # this catches any lines not adjusted after adjusting jump lengths
+        # This catches any lines not where we expect,
+        # such as any not adjusted after adjusting jump lengths
         assert sc.op_NOP == code.co_code[offset]
 
     exec(code, locals(), globals())
