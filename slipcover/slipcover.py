@@ -29,20 +29,13 @@ else:
 replace_map = dict()
 
 
-def new_CodeType(
-    orig: CodeType, code: bytes, stacksize=None, consts=None, names=None, lnotab=None
-) -> CodeType:
+def new_CodeType(orig: CodeType, **kwargs) -> CodeType:
     """Instantiates a new CodeType, modifying it from the original"""
-    new = orig.replace(
-        co_stacksize=orig.co_stacksize if not stacksize else stacksize,
-        co_code=orig.co_code if not code else bytes(code),
-        co_consts=(orig.co_consts if not consts else tuple(consts)),
-        co_names=(orig.co_names if not names else tuple(names)),
-        co_lnotab=(orig.co_lnotab if not lnotab else bytes(lnotab))
-    )
+    new = orig.replace(**kwargs)
     replace_map[orig] = new
     # print("->", new)
     return new
+
 
 op_EXTENDED_ARG = dis.EXTENDED_ARG
 op_LOAD_CONST = dis.opmap["LOAD_CONST"]
@@ -143,7 +136,7 @@ def get_jumps(code):
 
 def make_lnotab(firstlineno, lines):
     """Generates the line number table used by Python to map offsets to line numbers."""
-    assert (3,6) <= PYTHON_VERSION <= (3,9) # 3.10+ has a new format
+    assert (3,8) <= PYTHON_VERSION <= (3,9) # 3.10+ has a new format
     # FIXME add python 3.10 support
 
     lnotab = []
@@ -183,8 +176,8 @@ def instrument(co: CodeType) -> CodeType:
     If invoked on a function, instruments its code."""
     import types
 
-    if not ((3,6) <= PYTHON_VERSION <= (3,10)):
-        raise RuntimeError("Unsupported Python version; please use 3.6 to 3.10")
+    if not ((3,8) <= PYTHON_VERSION <= (3,10)):
+        raise RuntimeError("Unsupported Python version; please use 3.8 to 3.10")
 
     if isinstance(co, types.FunctionType):
         co.__code__ = instrument(co.__code__)
@@ -262,10 +255,10 @@ def instrument(co: CodeType) -> CodeType:
 
     return new_CodeType(
         co,
-        patch,
-        stacksize=co.co_stacksize + 2,  # FIXME update dis.stack_effect
-        consts=consts,
-        lnotab=lnotab
+        co_code=bytes(patch),
+        co_stacksize=co.co_stacksize + 2,  # FIXME use dis.stack_effect
+        co_consts=tuple(consts),
+        co_lnotab=bytes(lnotab)
     )
 
 
@@ -298,11 +291,13 @@ def deinstrument(co, lines: set):
                 patch = bytearray(co.co_code)
             patch[offset] = op_JUMP_FORWARD
 
-    return (
-        co
-        if (not patch and not consts)
-        else new_CodeType(co, patch, consts=consts)
-    )
+    if not patch and not consts:
+        return co
+
+    changed = {}
+    if patch: changed["co_code"] = bytes(patch)
+    if consts: changed["co_consts"] = tuple(consts)
+    return new_CodeType(co, **changed)
 
 
 # Notes which lines have been seen.

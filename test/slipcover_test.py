@@ -20,38 +20,43 @@ def from_set(s: set):
 
 @pytest.fixture(autouse=True)
 def clear_slipcover():
-    # XXX have slipcover use an object, so that it's destroyed and this isn't needed?
     sc.clear()
 
 def test_get_jumps():
-    # FIXME breaks in 3.10 because only one jump is generated
     def foo(x):
-        if x: print(True)
-        else: print(False)
+        for _ in range(2):      # FOR_ITER is relative
+            if x: print(True)
+            else: print(False)
 
     code = foo.__code__.co_code
     jumps = sc.get_jumps(code)
     dis.dis(foo)
-    assert 2 == len(jumps)
+    assert 4 == len(jumps)  # may be brittle
 
-    j = jumps[0]
-    assert 2 == j.length
-    assert code[j.offset+j.length-2] == j.opcode
-    assert (j.opcode in dis.hasjabs) or (j.opcode in dis.hasjrel)
-    assert (j.opcode in dis.hasjrel) == j.is_relative
-    # XXX check target
+    for i, j in enumerate(jumps):
+        assert 2 == j.length
+        assert code[j.offset+j.length-2] == j.opcode
+        assert (j.opcode in dis.hasjabs) or (j.opcode in dis.hasjrel)
+        assert (j.opcode in dis.hasjrel) == j.is_relative
+        if i > 0: assert jumps[i-1].offset < j.offset
 
-    j = jumps[1]
-    assert 2 == j.length
-    assert j.opcode == code[j.offset+j.length-2]
-    assert (j.opcode in dis.hasjabs) or (j.opcode in dis.hasjrel)
-    assert (j.opcode in dis.hasjrel) == j.is_relative
-    # XXX check target
+    # the tests below are more brittle... they rely on a 'for' loop
+    # being created with
+    #
+    #   loop: FOR_ITER done
+    #            ...
+    #         JUMP_ABSOLUTE loop
+    #   done: ...
 
-    assert jumps[0].offset < jumps[1].offset
+    assert dis.opmap["FOR_ITER"] == jumps[0].opcode
+    assert dis.opmap["JUMP_ABSOLUTE"] == jumps[-1].opcode
 
+    assert jumps[0].is_relative
+    assert not jumps[-1].is_relative
 
-# XXX test_get_jumps_ext_jumps
+    assert jumps[0].target == jumps[-1].offset+2    # to finish loop
+    assert jumps[-1].target == jumps[0].offset      # to continue loop
+
 
 # Test case building rationale:
 #
@@ -213,7 +218,6 @@ def test_make_lnotab():
              (361, 208),
              (370, 50)]
 
-
     lnotab = sc.make_lnotab(0, lines)
 
     assert [0, 1,
@@ -252,7 +256,7 @@ def test_instrument():
     last_line = current_line()
 
     sc.instrument(foo)
-#    dis.dis(foo)
+    dis.dis(foo)
     assert 6 == foo(3)
 
     assert {current_file(): {*range(first_line, last_line)}} == sc.get_coverage()
