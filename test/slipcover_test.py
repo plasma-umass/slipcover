@@ -276,6 +276,11 @@ def test_instrument_long_jump(N):
     assert 2 <= len(sc.get_jumps(code.co_code))
 
     code = sc.instrument(code)
+
+    for (offset, _) in dis.findlinestarts(code):
+        # this catches any lines not adjusted after adjusting jump lengths
+        assert sc.op_NOP == code.co_code[offset]
+
     exec(code, locals(), globals())
     assert N == x
     assert {"foo": {*range(1, 1+N+3)}} == sc.get_coverage()
