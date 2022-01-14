@@ -136,39 +136,77 @@ def get_jumps(code):
 
 def make_lnotab(firstlineno, lines):
     """Generates the line number table used by Python to map offsets to line numbers."""
-    assert (3,8) <= PYTHON_VERSION <= (3,9) # 3.10+ has a new format
-    # FIXME add python 3.10 support
 
     lnotab = []
 
-    prev_offset = 0
+    prev_start = 0
     prev_line = firstlineno
 
-    for (offset, line) in lines:
-        delta_offset = offset - prev_offset
+    for start, _, line in lines:
+        delta_start = start - prev_start
         delta_line = line - prev_line
 
-        while delta_offset > 255:
+        while delta_start > 255:
             lnotab.extend([255, 0])
-            delta_offset -= 255
+            delta_start -= 255
 
-        if delta_line >= 0:
-            while delta_line > 127:
-                lnotab.extend([delta_offset, 127])
-                delta_line -= 127
-                delta_offset = 0
-        else:
-            while delta_line < -128:
-                lnotab.extend([delta_offset, -128])
-                delta_line += 128
-                delta_offset = 0
+        while delta_line > 127:
+            lnotab.extend([delta_start, 127])
+            delta_start = 0
+            delta_line -= 127
 
-        lnotab.extend([delta_offset, delta_line])
+        while delta_line < -128:
+            lnotab.extend([delta_start, -128 & 0xFF])
+            delta_start = 0
+            delta_line += 128
 
-        prev_offset = offset
+        lnotab.extend([delta_start, delta_line & 0xFF])
+
+        prev_start = start
         prev_line = line
 
-    return lnotab
+    return bytes(lnotab)
+
+
+def make_linetable(firstlineno, lines):
+    """Generates the line number table used by Python 3.10+ to map offsets to line numbers."""
+
+    linetable = []
+
+    prev_end = 0
+    prev_line = firstlineno
+
+    for start, end, line in lines:
+        delta_end = end - prev_end
+
+        if line is None:
+            while delta_end > 254:
+                linetable.extend([254, -128 & 0xFF])
+                delta_end -= 254
+
+            linetable.extend([delta_end, -128 & 0xFF])
+        else:
+            delta_line = line - prev_line
+
+            while delta_line > 127:
+                linetable.extend([0, 127])
+                delta_line -= 127
+
+            while delta_line < -127:
+                linetable.extend([0, -127 & 0xFF])
+                delta_line += 127
+
+            while delta_end > 254:
+                linetable.extend([254, delta_line & 0xFF])
+                delta_line = 0
+                delta_end -= 254
+
+            linetable.extend([delta_end, delta_line & 0xFF])
+            prev_line = line
+
+        prev_end = end
+
+    return bytes(linetable)
 
 
 def instrument(co: CodeType) -> CodeType:
@@ -204,10 +242,13 @@ def instrument(co: CodeType) -> CodeType:
     lines = []
 
     prev_offset = None
+    prev_lineno = None
     for (offset, lineno) in dis.findlinestarts(co):
         if prev_offset != None:
             patch.extend(co.co_code[prev_offset:offset])
+            lines.append([patch_offset, len(patch), prev_lineno])
         prev_offset = offset
+        prev_lineno = lineno
 
         patch_offset = len(patch)
         patch.extend([op_NOP, 0])       # for deinstrument jump
@@ -219,15 +260,14 @@ def instrument(co: CodeType) -> CodeType:
                       op_POP_TOP, 0])    # ignore return
         inserted = len(patch) - patch_offset
         assert inserted <= 255
-        patch[patch_offset+1] = inserted-2
-
-        lines.append([patch_offset, lineno])
+        patch[patch_offset+1] = offset2jump(inserted-2)
 
         for j in jumps:
             j.adjust(patch_offset, inserted)
 
     if prev_offset != None:
         patch.extend(co.co_code[prev_offset:])
+        lines.append([patch_offset, len(patch), prev_lineno])
 
     # A jump's new target may now require more EXTENDED_ARG opcodes to be expressed.
     # Inserting space for those may in turn trigger needing more space for others...
@@ -248,7 +288,9 @@ def instrument(co: CodeType) -> CodeType:
 
                 for i in range(len(lines)):
                     if lines[i][0] > j.offset:
-                        lines[i][0] += change
+                        lines[i][0] += change # line start
+                    if lines[i][1] > j.offset:
+                        lines[i][1] += change # line end
 
                 any_adjusted = True
 
@@ -256,14 +298,18 @@ def instrument(co: CodeType) -> CodeType:
         assert patch[j.offset+j.length-2] == j.opcode
         patch[j.offset:j.offset+j.length] = j.code()
 
-    lnotab = make_lnotab(co.co_firstlineno, lines)
+    kwargs = {}
+    if PYTHON_VERSION < (3,10):
+        kwargs["co_lnotab"] = make_lnotab(co.co_firstlineno, lines)
+    else:
+        kwargs["co_linetable"] = make_linetable(co.co_firstlineno, lines)
 
     return new_CodeType(
         co,
         co_code=bytes(patch),
         co_stacksize=co.co_stacksize + 2,  # FIXME use dis.stack_effect
         co_consts=tuple(consts),
-        co_lnotab=bytes(lnotab)
+        **kwargs
     )
 
 

@@ -2,9 +2,10 @@ import pytest
 from slipcover import slipcover as sc
 import dis
 import sys
+import struct
 
 
-#PYTHON_VERSION = sys.version_info[0:2]
+PYTHON_VERSION = sys.version_info[0:2]
 
 
 def current_line():
@@ -210,13 +211,17 @@ def test_jump_adjust_rel_fw_after_target():
     assert sc.offset2jump(30) == j.arg()
 
 
+def unpack_lnotab(lnotab: bytes) -> list:
+    return list(struct.unpack("Bb" * (len(lnotab)//2), lnotab))
+
+
 def test_make_lnotab():
-    lines = [(0, 1),
-             (6, 2),
-             (50, 7),
-             (350, 207),
-             (361, 208),
-             (370, 50)]
+    lines = [(0, 6, 1),
+             (6, 50, 2),
+             (50, 350, 7),
+             (350, 361, 207),
+             (361, 370, 208),
+             (370, 380, 50)]
 
     lnotab = sc.make_lnotab(0, lines)
 
@@ -228,10 +233,33 @@ def test_make_lnotab():
             0, 73,
             11, 1,
             9, -128,
-            0, -30] == lnotab
+            0, -30] == unpack_lnotab(lnotab)
 
 
-def test_make_lnotab_compare():
+def test_make_linetable():
+    lines = [(0, 6, 1),
+             (6, 50, 2),
+             (50, 350, 7),
+             (350, 360, None),
+             (360, 376, 8),
+             (376, 380, 208),
+             (380, 390, 50)]
+
+    linetable = sc.make_linetable(0, lines)
+
+    assert [6, 1,
+            44, 1,
+            254, 5,
+            46, 0,
+            10, -128,
+            16, 1,
+            0, 127,
+            4, 73,
+            0, -127,
+            10, -31] == unpack_lnotab(linetable)
+
+
+def test_make_lines_and_compare():
     def foo(n):
         x = 0
 
@@ -240,10 +268,19 @@ def test_make_lnotab_compare():
 
         return x
 
+    if PYTHON_VERSION >= (3,10):
+        my_linetable = sc.make_linetable(foo.__code__.co_firstlineno,
+                                         foo.__code__.co_lines())
+        assert list(foo.__code__.co_linetable) == list(my_linetable)
+
     lines = list(dis.findlinestarts(foo.__code__))
+    for i in range(len(lines)-1):
+        lines[i] = [lines[i][0], lines[i+1][0], lines[i][1]]
+    lines[-1] = [lines[-1][0], len(foo.__code__.co_code), lines[-1][1]]
+
     my_lnotab = sc.make_lnotab(foo.__code__.co_firstlineno, lines)
 
-    assert list(foo.__code__.co_lnotab) == my_lnotab
+    assert list(foo.__code__.co_lnotab) == list(my_lnotab)
 
 
 def test_instrument():
