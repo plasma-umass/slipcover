@@ -134,36 +134,52 @@ def get_jumps(code):
     return jumps
 
 
+class LineEntry:
+    def __init__(self, start : int, end : int, number : int):
+        self.start = start
+        self.end = end
+        self.number = number
+
+    # FIXME tests missing
+    def adjust(self, insert_offset : int, insert_length : int) -> None:
+        """Adjusts this jump after a code insertion."""
+        assert insert_length > 0
+        if self.start > insert_offset:
+            self.start += insert_length
+        if self.end > insert_offset:
+            self.end += insert_length
+
+
 def make_lnotab(firstlineno, lines):
     """Generates the line number table used by Python to map offsets to line numbers."""
 
     lnotab = []
 
     prev_start = 0
-    prev_line = firstlineno
+    prev_number = firstlineno
 
-    for start, _, line in lines:
-        delta_start = start - prev_start
-        delta_line = line - prev_line
+    for l in lines:
+        delta_start = l.start - prev_start
+        delta_number = l.number - prev_number
 
         while delta_start > 255:
             lnotab.extend([255, 0])
             delta_start -= 255
 
-        while delta_line > 127:
+        while delta_number > 127:
             lnotab.extend([delta_start, 127])
             delta_start = 0
-            delta_line -= 127
+            delta_number -= 127
 
-        while delta_line < -128:
+        while delta_number < -128:
             lnotab.extend([delta_start, -128 & 0xFF])
             delta_start = 0
-            delta_line += 128
+            delta_number += 128
 
-        lnotab.extend([delta_start, delta_line & 0xFF])
+        lnotab.extend([delta_start, delta_number & 0xFF])
 
-        prev_start = start
-        prev_line = line
+        prev_start = l.start
+        prev_number = l.number
 
     return bytes(lnotab)
 
@@ -174,37 +190,37 @@ def make_linetable(firstlineno, lines):
     linetable = []
 
     prev_end = 0
-    prev_line = firstlineno
+    prev_number = firstlineno
 
-    for start, end, line in lines:
-        delta_end = end - prev_end
+    for l in lines:
+        delta_end = l.end - prev_end
 
-        if line is None:
+        if l.number is None:
             while delta_end > 254:
                 linetable.extend([254, -128 & 0xFF])
                 delta_end -= 254
 
             linetable.extend([delta_end, -128 & 0xFF])
         else:
-            delta_line = line - prev_line
+            delta_number = l.number - prev_number
 
-            while delta_line > 127:
+            while delta_number > 127:
                 linetable.extend([0, 127])
-                delta_line -= 127
+                delta_number -= 127
 
-            while delta_line < -127:
+            while delta_number < -127:
                 linetable.extend([0, -127 & 0xFF])
-                delta_line += 127
+                delta_number += 127
 
             while delta_end > 254:
-                linetable.extend([254, delta_line & 0xFF])
-                delta_line = 0
+                linetable.extend([254, delta_number & 0xFF])
+                delta_number = 0
                 delta_end -= 254
 
-            linetable.extend([delta_end, delta_line & 0xFF])
-            prev_line = line
+            linetable.extend([delta_end, delta_number & 0xFF])
+            prev_number = l.number
 
-        prev_end = end
+        prev_end = l.end
 
     return bytes(linetable)
 
@@ -246,7 +262,7 @@ def instrument(co: CodeType) -> CodeType:
     for (offset, lineno) in dis.findlinestarts(co):
         if prev_offset != None:
             patch.extend(co.co_code[prev_offset:offset])
-            lines.append([patch_offset, len(patch), prev_lineno])
+            lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
         prev_offset = offset
         prev_lineno = lineno
 
@@ -267,7 +283,7 @@ def instrument(co: CodeType) -> CodeType:
 
     if prev_offset != None:
         patch.extend(co.co_code[prev_offset:])
-        lines.append([patch_offset, len(patch), prev_lineno])
+        lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
 
     # A jump's new target may now require more EXTENDED_ARG opcodes to be expressed.
     # Inserting space for those may in turn trigger needing more space for others...
@@ -286,11 +302,8 @@ def instrument(co: CodeType) -> CodeType:
                     if j != k:
                         k.adjust(j.offset, change)
 
-                for i in range(len(lines)):
-                    if lines[i][0] > j.offset:
-                        lines[i][0] += change # line start
-                    if lines[i][1] > j.offset:
-                        lines[i][1] += change # line end
+                for l in lines:
+                    l.adjust(j.offset, change)
 
                 any_adjusted = True
 

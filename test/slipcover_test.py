@@ -216,12 +216,12 @@ def unpack_lnotab(lnotab: bytes) -> list:
 
 
 def test_make_lnotab():
-    lines = [(0, 6, 1),
-             (6, 50, 2),
-             (50, 350, 7),
-             (350, 361, 207),
-             (361, 370, 208),
-             (370, 380, 50)]
+    lines = [sc.LineEntry(0, 6, 1),
+             sc.LineEntry(6, 50, 2),
+             sc.LineEntry(50, 350, 7),
+             sc.LineEntry(350, 361, 207),
+             sc.LineEntry(361, 370, 208),
+             sc.LineEntry(370, 380, 50)]
 
     lnotab = sc.make_lnotab(0, lines)
 
@@ -237,13 +237,13 @@ def test_make_lnotab():
 
 
 def test_make_linetable():
-    lines = [(0, 6, 1),
-             (6, 50, 2),
-             (50, 350, 7),
-             (350, 360, None),
-             (360, 376, 8),
-             (376, 380, 208),
-             (380, 390, 50)]
+    lines = [sc.LineEntry(0, 6, 1),
+             sc.LineEntry(6, 50, 2),
+             sc.LineEntry(50, 350, 7),
+             sc.LineEntry(350, 360, None),
+             sc.LineEntry(360, 376, 8),
+             sc.LineEntry(376, 380, 208),
+             sc.LineEntry(380, 390, 50)]    # XXX this is presumptive, check for accuracy
 
     linetable = sc.make_linetable(0, lines)
 
@@ -259,7 +259,20 @@ def test_make_linetable():
             10, -31] == unpack_lnotab(linetable)
 
 
+def lines_from_code(code):
+    if PYTHON_VERSION >= (3,10):
+        return [sc.LineEntry(*l) for l in code.co_lines()]
+
+    lines = [sc.LineEntry(start, 0, number) \
+            for start, number in dis.findlinestarts(code)]
+    for i in range(len(lines)-1):
+        lines[i].end = lines[i+1].start
+    lines[-1].end = len(code.co_code)
+    return lines
+
+
 def test_make_lines_and_compare():
+    # XXX test with more code!
     def foo(n):
         x = 0
 
@@ -270,16 +283,12 @@ def test_make_lines_and_compare():
 
     if PYTHON_VERSION >= (3,10):
         my_linetable = sc.make_linetable(foo.__code__.co_firstlineno,
-                                         foo.__code__.co_lines())
+                                         lines_from_code(foo.__code__))
         assert list(foo.__code__.co_linetable) == list(my_linetable)
 
-    lines = list(dis.findlinestarts(foo.__code__))
-    for i in range(len(lines)-1):
-        lines[i] = [lines[i][0], lines[i+1][0], lines[i][1]]
-    lines[-1] = [lines[-1][0], len(foo.__code__.co_code), lines[-1][1]]
 
-    my_lnotab = sc.make_lnotab(foo.__code__.co_firstlineno, lines)
-
+    my_lnotab = sc.make_lnotab(foo.__code__.co_firstlineno,
+                               lines_from_code(foo.__code__))
     assert list(foo.__code__.co_lnotab) == list(my_lnotab)
 
 
