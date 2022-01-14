@@ -23,6 +23,22 @@ def from_set(s: set):
 def clear_slipcover():
     sc.clear()
 
+def test_opcode_arg():
+    JUMP = sc.op_JUMP_ABSOLUTE
+    EXT = sc.op_EXTENDED_ARG
+
+    assert [JUMP, 0x42] == list(sc.opcode_arg(JUMP, 0x42))
+    assert [EXT, 0xBA, JUMP, 0xBE] == list(sc.opcode_arg(JUMP, 0xBABE))
+    assert [EXT, 0xBA, EXT, 0xBE, JUMP, 0xFA] == \
+           list(sc.opcode_arg(JUMP, 0xBABEFA))
+    assert [EXT, 0xBA, EXT, 0xBE, EXT, 0xFA, JUMP, 0xCE] == \
+           list(sc.opcode_arg(JUMP, 0xBABEFACE))
+
+    assert [EXT, 0, JUMP, 0x42] == list(sc.opcode_arg(JUMP, 0x42, min_ext=1))
+    assert [EXT, 0, EXT, 0, JUMP, 0x42] == list(sc.opcode_arg(JUMP, 0x42, min_ext=2))
+    assert [EXT, 0, EXT, 0, EXT, 0, JUMP, 0x42] == \
+           list(sc.opcode_arg(JUMP, 0x42, min_ext=3))
+
 def test_get_jumps():
     def foo(x):
         for _ in range(2):      # FOR_ITER is relative
@@ -209,6 +225,33 @@ def test_jump_adjust_rel_fw_after_target():
     assert 2 == j.length
     assert 132 == j.target
     assert sc.offset2jump(30) == j.arg()
+
+
+def test_jump_adjust_length_no_change():
+    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
+    j.adjust(10, 50)
+
+    change = j.adjust_length()
+    assert 0 == change
+    assert 2 == j.length
+
+
+@pytest.mark.parametrize("N, increase_by", [(0x100, 2), (0x10000, 4)])
+def test_jump_adjust_length_increases(N, increase_by):
+    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
+    j.adjust(102, sc.jump2offset(N))
+
+    change = j.adjust_length()
+    assert increase_by == change
+    assert 2+change == j.length
+
+
+def test_jump_adjust_length_decreases():
+    j = sc.JumpOp(100, 4, from_set(dis.hasjrel), arg=sc.offset2jump(30))
+
+    change = j.adjust_length()
+    assert 0 == change
+    assert 4 == j.length
 
 
 def unpack_lnotab(lnotab: bytes) -> list:

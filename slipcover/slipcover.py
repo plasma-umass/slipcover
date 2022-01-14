@@ -51,10 +51,10 @@ def arg_ext_needed(arg: int):
     return (arg.bit_length() - 1) // 8
 
 
-def opcode_arg(opcode: int, arg: int):
+def opcode_arg(opcode: int, arg: int, min_ext=0):
     """Emits an opcode and its (variable length) argument."""
     bytecode = []
-    ext = arg_ext_needed(arg)
+    ext = max(arg_ext_needed(arg), min_ext)
     assert ext <= 3
     for i in range(ext):
         bytecode.extend(
@@ -93,7 +93,7 @@ class JumpOp:
            bytes will be inserted (or deleted) at this jump's offset.
            Returns the number of bytes by which the length changed."""
         length_needed = 2 + 2*arg_ext_needed(self.arg())
-        change = length_needed - self.length
+        change = max(0, length_needed - self.length)
         if change:
             if self.target > self.offset:
                 self.target += change
@@ -296,7 +296,6 @@ def instrument(co: CodeType) -> CodeType:
             change = j.adjust_length()
             if change:
 #                print(f"adjusted jump {j.offset} to {j.target} by {change} to {j.length}")
-                # FIXME what if change < 0?
                 patch[j.offset:j.offset] = [0] * change
                 for k in jumps:
                     if j != k:
