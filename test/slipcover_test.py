@@ -39,23 +39,22 @@ def test_opcode_arg():
     assert [EXT, 0, EXT, 0, EXT, 0, JUMP, 0x42] == \
            list(sc.opcode_arg(JUMP, 0x42, min_ext=3))
 
-def test_get_jumps():
+def test_branch_from_code():
     def foo(x):
         for _ in range(2):      # FOR_ITER is relative
             if x: print(True)
             else: print(False)
 
-    code = foo.__code__.co_code
-    jumps = sc.get_jumps(code)
+    branches = sc.Branch.from_code(foo.__code__)
     dis.dis(foo)
-    assert 4 == len(jumps)  # may be brittle
+    assert 4 == len(branches)  # may be brittle
 
-    for i, j in enumerate(jumps):
-        assert 2 == j.length
-        assert code[j.offset+j.length-2] == j.opcode
-        assert (j.opcode in dis.hasjabs) or (j.opcode in dis.hasjrel)
-        assert (j.opcode in dis.hasjrel) == j.is_relative
-        if i > 0: assert jumps[i-1].offset < j.offset
+    for i, b in enumerate(branches):
+        assert 2 == b.length
+        assert foo.__code__.co_code[b.offset+b.length-2] == b.opcode
+        assert (b.opcode in dis.hasjabs) or (b.opcode in dis.hasjrel)
+        assert (b.opcode in dis.hasjrel) == b.is_relative
+        if i > 0: assert branches[i-1].offset < b.offset
 
     # the tests below are more brittle... they rely on a 'for' loop
     # being created with
@@ -65,193 +64,248 @@ def test_get_jumps():
     #         JUMP_ABSOLUTE loop
     #   done: ...
 
-    assert dis.opmap["FOR_ITER"] == jumps[0].opcode
-    assert dis.opmap["JUMP_ABSOLUTE"] == jumps[-1].opcode
+    assert dis.opmap["FOR_ITER"] == branches[0].opcode
+    assert dis.opmap["JUMP_ABSOLUTE"] == branches[-1].opcode
 
-    assert jumps[0].is_relative
-    assert not jumps[-1].is_relative
+    assert branches[0].is_relative
+    assert not branches[-1].is_relative
 
-    assert jumps[0].target == jumps[-1].offset+2    # to finish loop
-    assert jumps[-1].target == jumps[0].offset      # to continue loop
+    assert branches[0].target == branches[-1].offset+2    # to finish loop
+    assert branches[-1].target == branches[0].offset      # to continue loop
 
+
+@pytest.mark.parametrize("length, arg",
+                         [(length, arg) for length in range(2, 8+1, 2) \
+                                        for arg in [0x02, 0x102, 0x10203, 0x1020304] \
+                                        if length >= 2+2*sc.arg_ext_needed(arg)])
+def test_branch_init(length, arg):
+    abs_opcode = from_set(dis.hasjabs)
+    rel_opcode = from_set(dis.hasjrel)
+
+    b = sc.Branch(100, length, abs_opcode, arg)
+    assert 100 == b.offset
+    assert length == b.length
+    assert abs_opcode == b.opcode
+    assert not b.is_relative
+    assert sc.branch2offset(arg) == b.target
+    assert arg == b.arg()
+
+    b = sc.Branch(100, length, rel_opcode, arg)
+    assert 100 == b.offset
+    assert length == b.length
+    assert rel_opcode == b.opcode
+    assert b.is_relative
+    assert b.offset + b.length + sc.branch2offset(arg) == b.target
+    assert arg == b.arg()
 
 # Test case building rationale:
 #
-# There are relative and absolute jumps; both kinds have an offset (where
-# the operation is located) and a target (absolute offset for the jump,
+# There are relative and absolute branches; both kinds have an offset (where
+# the operation is located) and a target (absolute offset for the branch,
 # resolved from the argument).
 # 
-# On forward jumps, an insertion can happen before the offset, at the offset,
+# On forward branches, an insertion can happen before the offset, at the offset,
 # between the offset and the target, at the target, or after the target.
-# On backward jumps, an insertion can happen before the target, between the
+# On backward branches, an insertion can happen before the target, between the
 # target and the offset, at the offset, or after the offset.
 #
-# Jumps have an offset (op address) and a target (absolute jump address).
-# There are relative and absolute jumps; absolute jumps may jump forward
-# or backward.  In absolute forward jumps, the offset (op address) precedes
+# Branches have an offset (op address) and a target (absolute branch address).
+# There are relative and absolute branches; absolute branches may branch forward
+# or backward.  In absolute forward branches, the offset (op address) precedes
 # the target and in backwards
 
-def test_jump_adjust_abs_fw_before_offset():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(108))
-    j.adjust(90, 2)
+def test_branch_adjust_abs_fw_before_offset():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(108))
+    b.adjust(90, 2)
 
-    assert 102 == j.offset
-    assert 2 == j.length
-    assert 110 == j.target
-    assert sc.offset2jump(108) != j.arg()
+    assert 102 == b.offset
+    assert 2 == b.length
+    assert 110 == b.target
+    assert sc.offset2branch(108) != b.arg()
 
-def test_jump_adjust_abs_fw_at_offset():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(108))
-    j.adjust(100, 2)
+def test_branch_adjust_abs_fw_at_offset():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(108))
+    b.adjust(100, 2)
 
-    assert 102 == j.offset
-    assert 2 == j.length
-    assert 110 == j.target
-    assert sc.offset2jump(108) != j.arg()
+    assert 102 == b.offset
+    assert 2 == b.length
+    assert 110 == b.target
+    assert sc.offset2branch(108) != b.arg()
 
-def test_jump_adjust_abs_fw_after_offset_before_target():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(108))
-    j.adjust(105, 2)
+def test_branch_adjust_abs_fw_after_offset_before_target():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(108))
+    b.adjust(105, 2)
 
-    assert 100 == j.offset
-    assert 2 == j.length
-    assert 110 == j.target
-    assert sc.offset2jump(108) != j.arg()
+    assert 100 == b.offset
+    assert 2 == b.length
+    assert 110 == b.target
+    assert sc.offset2branch(108) != b.arg()
 
-def test_jump_adjust_abs_fw_at_target():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(108))
-    j.adjust(108, 2)
+def test_branch_adjust_abs_fw_at_target():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(108))
+    b.adjust(108, 2)
 
-    assert 100 == j.offset
-    assert 2 == j.length
-    assert 108 == j.target
-    assert sc.offset2jump(108) == j.arg()
+    assert 100 == b.offset
+    assert 2 == b.length
+    assert 108 == b.target
+    assert sc.offset2branch(108) == b.arg()
 
-def test_jump_adjust_abs_fw_after_target():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(108))
-    j.adjust(110, 2)
+def test_branch_adjust_abs_fw_after_target():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(108))
+    b.adjust(110, 2)
 
-    assert 100 == j.offset
-    assert 2 == j.length
-    assert 108 == j.target
-    assert sc.offset2jump(108) == j.arg()
+    assert 100 == b.offset
+    assert 2 == b.length
+    assert 108 == b.target
+    assert sc.offset2branch(108) == b.arg()
 
-def test_jump_adjust_abs_bw_before_target():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(90))
-    j.adjust(50, 2)
+def test_branch_adjust_abs_bw_before_target():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(90))
+    b.adjust(50, 2)
 
-    assert 102 == j.offset
-    assert 2 == j.length
-    assert 92 == j.target
-    assert sc.offset2jump(90) != j.arg()
+    assert 102 == b.offset
+    assert 2 == b.length
+    assert 92 == b.target
+    assert sc.offset2branch(90) != b.arg()
 
-def test_jump_adjust_abs_bw_at_target():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(90))
-    j.adjust(90, 2)
+def test_branch_adjust_abs_bw_at_target():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(90))
+    b.adjust(90, 2)
 
-    assert 102 == j.offset
-    assert 2 == j.length
-    assert 90 == j.target
-    assert sc.offset2jump(90) == j.arg()
+    assert 102 == b.offset
+    assert 2 == b.length
+    assert 90 == b.target
+    assert sc.offset2branch(90) == b.arg()
 
-def test_jump_adjust_abs_bw_after_target_before_offset():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(90))
-    j.adjust(96, 2)
+def test_branch_adjust_abs_bw_after_target_before_offset():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(90))
+    b.adjust(96, 2)
 
-    assert 102 == j.offset
-    assert 2 == j.length
-    assert 90 == j.target
-    assert sc.offset2jump(90) == j.arg()
+    assert 102 == b.offset
+    assert 2 == b.length
+    assert 90 == b.target
+    assert sc.offset2branch(90) == b.arg()
 
-def test_jump_adjust_abs_bw_at_offset():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(90))
-    j.adjust(100, 2)
+def test_branch_adjust_abs_bw_at_offset():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(90))
+    b.adjust(100, 2)
 
-    assert 102 == j.offset
-    assert 2 == j.length
-    assert 90 == j.target
-    assert sc.offset2jump(90) == j.arg()
+    assert 102 == b.offset
+    assert 2 == b.length
+    assert 90 == b.target
+    assert sc.offset2branch(90) == b.arg()
 
-def test_jump_adjust_abs_bw_after_offset():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjabs), arg=sc.offset2jump(90))
-    j.adjust(110, 2)
+def test_branch_adjust_abs_bw_after_offset():
+    b = sc.Branch(100, 2, from_set(dis.hasjabs), arg=sc.offset2branch(90))
+    b.adjust(110, 2)
 
-    assert 100 == j.offset
-    assert 2 == j.length
-    assert 90 == j.target
-    assert sc.offset2jump(90) == j.arg()
+    assert 100 == b.offset
+    assert 2 == b.length
+    assert 90 == b.target
+    assert sc.offset2branch(90) == b.arg()
 
-def test_jump_adjust_rel_fw_before_offset():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
-    j.adjust(90, 2)
+def test_branch_adjust_rel_fw_before_offset():
+    b = sc.Branch(100, 2, from_set(dis.hasjrel), arg=sc.offset2branch(30))
+    b.adjust(90, 2)
 
-    assert 102 == j.offset
-    assert 2 == j.length
-    assert 134 == j.target
-    assert sc.offset2jump(30) == j.arg()
+    assert 102 == b.offset
+    assert 2 == b.length
+    assert 134 == b.target
+    assert sc.offset2branch(30) == b.arg()
 
-def test_jump_adjust_rel_fw_at_offset():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
-    j.adjust(100, 2)
+def test_branch_adjust_rel_fw_at_offset():
+    b = sc.Branch(100, 2, from_set(dis.hasjrel), arg=sc.offset2branch(30))
+    b.adjust(100, 2)
 
-    assert 102 == j.offset
-    assert 2 == j.length
-    assert 134 == j.target
-    assert sc.offset2jump(30) == j.arg()
+    assert 102 == b.offset
+    assert 2 == b.length
+    assert 134 == b.target
+    assert sc.offset2branch(30) == b.arg()
 
-def test_jump_adjust_rel_fw_after_offset_before_target():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
-    j.adjust(105, 2)
+def test_branch_adjust_rel_fw_after_offset_before_target():
+    b = sc.Branch(100, 2, from_set(dis.hasjrel), arg=sc.offset2branch(30))
+    b.adjust(105, 2)
 
-    assert 100 == j.offset
-    assert 2 == j.length
-    assert 134 == j.target
-    assert sc.offset2jump(30) != j.arg()
+    assert 100 == b.offset
+    assert 2 == b.length
+    assert 134 == b.target
+    assert sc.offset2branch(30) != b.arg()
 
-def test_jump_adjust_rel_fw_at_target():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
-    j.adjust(132, 2)
+def test_branch_adjust_rel_fw_at_target():
+    b = sc.Branch(100, 2, from_set(dis.hasjrel), arg=sc.offset2branch(30))
+    b.adjust(132, 2)
 
-    assert 100 == j.offset
-    assert 2 == j.length
-    assert 132 == j.target
-    assert sc.offset2jump(30) == j.arg()
+    assert 100 == b.offset
+    assert 2 == b.length
+    assert 132 == b.target
+    assert sc.offset2branch(30) == b.arg()
 
-def test_jump_adjust_rel_fw_after_target():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
-    j.adjust(140, 2)
+def test_branch_adjust_rel_fw_after_target():
+    b = sc.Branch(100, 2, from_set(dis.hasjrel), arg=sc.offset2branch(30))
+    b.adjust(140, 2)
 
-    assert 100 == j.offset
-    assert 2 == j.length
-    assert 132 == j.target
-    assert sc.offset2jump(30) == j.arg()
+    assert 100 == b.offset
+    assert 2 == b.length
+    assert 132 == b.target
+    assert sc.offset2branch(30) == b.arg()
 
 
-def test_jump_adjust_length_no_change():
-    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
-    j.adjust(10, 50)
+def test_branch_adjust_length_no_change():
+    b = sc.Branch(100, 2, from_set(dis.hasjrel), arg=sc.offset2branch(30))
+    b.adjust(10, 50)
 
-    change = j.adjust_length()
+    change = b.adjust_length()
     assert 0 == change
-    assert 2 == j.length
+    assert 2 == b.length
 
 
-@pytest.mark.parametrize("N, increase_by", [(0x100, 2), (0x10000, 4)])
-def test_jump_adjust_length_increases(N, increase_by):
-    j = sc.JumpOp(100, 2, from_set(dis.hasjrel), arg=sc.offset2jump(30))
-    j.adjust(102, sc.jump2offset(N))
+@pytest.mark.parametrize("prev_size, shift, increase_by", [
+                            (2, 0x100, 2), (2, 0x10000, 4), (2, 0x1000000, 6),
+                            (4, 0x100, 0), (4, 0x10000, 2), (4, 0x1000000, 4),
+                            (6, 0x100, 0), (6, 0x10000, 0), (6, 0x1000000, 2),
+                            (8, 0x100, 0), (8, 0x10000, 0), (8, 0x1000000, 0)
+                         ])
+def test_branch_adjust_length_increases(prev_size, shift, increase_by):
+    b = sc.Branch(100, prev_size, from_set(dis.hasjrel), arg=sc.offset2branch(30))
+    b.adjust(b.offset+prev_size, sc.branch2offset(shift))
 
-    change = j.adjust_length()
+    change = b.adjust_length()
     assert increase_by == change
-    assert 2+change == j.length
+    assert prev_size+change == b.length
 
 
-def test_jump_adjust_length_decreases():
-    j = sc.JumpOp(100, 4, from_set(dis.hasjrel), arg=sc.offset2jump(30))
+def test_branch_adjust_length_decreases():
+    b = sc.Branch(100, 4, from_set(dis.hasjrel), arg=sc.offset2branch(30))
 
-    change = j.adjust_length()
+    change = b.adjust_length()
     assert 0 == change
-    assert 4 == j.length
+    assert 4 == b.length
+
+
+
+@pytest.mark.parametrize("length, arg",
+                         [(length, arg) for length in range(2, 8+1, 2) \
+                                        for arg in [0x02, 0x102, 0x10203, 0x1020304] \
+                                        if length >= 2+2*sc.arg_ext_needed(arg)])
+def test_branch_code_unchanged(length, arg):
+    opcode = from_set(dis.hasjrel)
+
+    b = sc.Branch(100, length, opcode, arg=arg)
+    assert sc.opcode_arg(opcode, arg, (length-2)//2) == b.code()
+
+
+@pytest.mark.parametrize("length, arg",
+                         [(length, arg) for length in range(2, 8+1, 2) \
+                                        for arg in [0x02, 0x102, 0x10203, 0x1020304] \
+                                        if length >= 2+2*sc.arg_ext_needed(arg)])
+def test_branch_code_adjusted(length, arg):
+    opcode = from_set(dis.hasjrel)
+
+    b = sc.Branch(100, length, opcode, arg=arg)
+    b.adjust(b.offset+b.length, sc.branch2offset(arg))
+    b.adjust_length()
+
+    assert sc.opcode_arg(opcode, 2*arg, (length-2)//2) == b.code()
 
 
 def unpack_lnotab(lnotab: bytes) -> list:
@@ -304,6 +358,7 @@ def test_make_linetable():
 
 def lines_from_code(code):
     if PYTHON_VERSION >= (3,10):
+        # XXX might co_lines() return the same line multiple times?
         return [sc.LineEntry(*l) for l in code.co_lines()]
 
     lines = [sc.LineEntry(start, 0, number) \
@@ -356,9 +411,11 @@ def test_instrument():
     assert {current_file(): {*range(first_line, last_line)}} == sc.get_coverage()
 
 
+some_branches_grew = None
+
 @pytest.mark.parametrize("N", [2, 20, 128, 256, 512, 4096, 8192, 65536, 131072])
 def test_instrument_long_jump(N):
-    # each 'if' adds a jump
+    # each 'if' adds a branch
     first_line = current_line()+2
     src = "x = 0\n" + \
           "while x == 0:\n" + \
@@ -367,19 +424,36 @@ def test_instrument_long_jump(N):
 
     code = compile(src, "foo", "exec")
 
-    assert 2 <= len(sc.get_jumps(code.co_code))
+    orig_branches = sc.Branch.from_code(code)
+    assert 2 <= len(orig_branches)
 
     code = sc.instrument(code)
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(code):
         # This catches any lines not where we expect,
-        # such as any not adjusted after adjusting jump lengths
+        # such as any not adjusted after adjusting branch lengths
         assert sc.op_NOP == code.co_code[offset]
 
     exec(code, locals(), globals())
     assert N == x
     assert {"foo": {*range(1, 1+N+3)}} == sc.get_coverage()
+    
+
+    global some_branches_grew
+    if some_branches_grew == None:
+        some_branches_grew = False
+
+    for i, b in enumerate(sc.Branch.from_code(code)):
+        assert b.opcode == orig_branches[i].opcode
+        if b.length > orig_branches[i].length:
+            some_branches_grew = True
+
+
+def test_some_branches_grew():
+    # if the above test ran, check that we're getting some
+    # branches to grow in size
+    assert some_branches_grew == None or some_branches_grew
 
 
 def test_deinstrument():

@@ -8,21 +8,21 @@ PYTHON_VERSION = sys.version_info[0:2]
 
 # FIXME provide __all__
 
-# Python 3.10a7 changed jump opcodes' argument to mean instruction
+# Python 3.10a7 changed branch opcodes' argument to mean instruction
 # (word) offset, rather than bytecode offset.
 if PYTHON_VERSION >= (3,10):
-    def offset2jump(offset: int):
+    def offset2branch(offset: int):
         assert offset % 2 == 0
         return offset//2
 
-    def jump2offset(jump: int):
-        return jump*2
+    def branch2offset(arg: int):
+        return arg*2
 else:
-    def offset2jump(offset: int):
+    def offset2branch(offset: int):
         return offset
 
-    def jump2offset(jump: int):
-        return jump
+    def branch2offset(arg: int):
+        return arg
 
 
 # map to guide CodeType replacements
@@ -64,34 +64,34 @@ def opcode_arg(opcode: int, arg: int, min_ext=0):
     return bytecode
 
 
-class JumpOp:
+class Branch:
     def __init__(self, offset : int, length : int, opcode : int, arg : int):
         self.offset = offset
         self.length = length
         self.opcode = opcode
         self.is_relative = (opcode in dis.hasjrel)
-        self.target = jump2offset(arg) if not self.is_relative \
-                      else offset + 2 + jump2offset(arg)
+        self.target = branch2offset(arg) if not self.is_relative \
+                      else offset + length + branch2offset(arg)
+
+    def arg(self) -> int:
+        """Returns this branch's opcode argument."""
+        if self.is_relative:
+            return offset2branch(self.target - (self.offset + self.length))
+        return offset2branch(self.target)
 
     def adjust(self, insert_offset : int, insert_length : int) -> None:
-        """Adjusts this jump after a code insertion."""
+        """Adjusts this branch after a code insertion."""
         assert insert_length > 0
         if self.offset >= insert_offset:
             self.offset += insert_length
         if self.target > insert_offset:
             self.target += insert_length
 
-    def arg(self) -> int:
-        """Returns this jump's opcode argument."""
-        if self.is_relative:
-            return offset2jump(self.target - 2 - self.offset)
-        return offset2jump(self.target)
-
-    # FIXME tests missing
     def adjust_length(self) -> int:
-        """Adjusts this jump's length, if needed, assuming the returned number of
-           bytes will be inserted (or deleted) at this jump's offset.
-           Returns the number of bytes by which the length changed."""
+        """Adjusts this branch's opcode length, if needed.
+
+        Returns the number of bytes by which the length increased.
+        """
         length_needed = 2 + 2*arg_ext_needed(self.arg())
         change = max(0, length_needed - self.length)
         if change:
@@ -101,37 +101,36 @@ class JumpOp:
 
         return change
 
-    # FIXME tests missing
     def code(self) -> bytes:
-        """Emits this jump's code."""
-        assert self.length == 2 + 2*arg_ext_needed(self.arg())
-        return opcode_arg(self.opcode, self.arg())
+        """Emits this branch's code."""
+        assert self.length >= 2 + 2*arg_ext_needed(self.arg())
+        return opcode_arg(self.opcode, self.arg(), (self.length-2)//2)
 
+    @staticmethod
+    def from_code(code : CodeType):
+        """Finds all Branches in code."""
+        branches = []
 
-def get_jumps(code):
-    """Extracts all the JumpOps in code."""
-    jumps = []
+        def unpack_opargs(code):
+            ext_arg = 0
+            next_off = 0
+            for off in range(0, len(code), 2):
+                op = code[off]
+                if op == op_EXTENDED_ARG:
+                    ext_arg = (ext_arg | code[off+1]) << 8
+                else:
+                    arg = (ext_arg | code[off+1])
+                    yield (next_off, off+2-next_off, op, arg)
+                    ext_arg = 0
+                    next_off = off+2
 
-    def unpack_opargs(code):
-        ext_arg = 0
-        next_off = 0
-        for off in range(0, len(code), 2):
-            op = code[off]
-            if op == op_EXTENDED_ARG:
-                ext_arg = (ext_arg | code[off+1]) << 8
-            else:
-                arg = (ext_arg | code[off+1])
-                yield (next_off, off+2-next_off, op, arg)
-                ext_arg = 0
-                next_off = off+2
+        branch_opcodes = set(dis.hasjrel).union(dis.hasjabs)
 
-    jump_opcodes = set(dis.hasjrel).union(dis.hasjabs)
+        for (off, length, op, arg) in unpack_opargs(code.co_code):
+            if op in branch_opcodes:
+                branches.append(Branch(off, length, op, arg))
 
-    for (off, length, op, arg) in unpack_opargs(code):
-        if op in jump_opcodes:
-            jumps.append(JumpOp(off, length, op, arg))
-
-    return jumps
+        return branches
 
 
 class LineEntry:
@@ -142,7 +141,7 @@ class LineEntry:
 
     # FIXME tests missing
     def adjust(self, insert_offset : int, insert_length : int) -> None:
-        """Adjusts this jump after a code insertion."""
+        """Adjusts this branch after a code insertion."""
         assert insert_length > 0
         if self.start > insert_offset:
             self.start += insert_length
@@ -253,7 +252,7 @@ def instrument(co: CodeType) -> CodeType:
         if isinstance(consts[i], types.CodeType):
             consts[i] = instrument(consts[i])
 
-    jumps = get_jumps(co.co_code)
+    branches = Branch.from_code(co)
     patch = bytearray()
     lines = []
 
@@ -276,39 +275,39 @@ def instrument(co: CodeType) -> CodeType:
                       op_POP_TOP, 0])    # ignore return
         inserted = len(patch) - patch_offset
         assert inserted <= 255
-        patch[patch_offset+1] = offset2jump(inserted-2)
+        patch[patch_offset+1] = offset2branch(inserted-2)
 
-        for j in jumps:
-            j.adjust(patch_offset, inserted)
+        for b in branches:
+            b.adjust(patch_offset, inserted)
 
     if prev_offset != None:
         patch.extend(co.co_code[prev_offset:])
         lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
 
-    # A jump's new target may now require more EXTENDED_ARG opcodes to be expressed.
+    # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
     # Inserting space for those may in turn trigger needing more space for others...
     # FIXME missing test for length adjustment triggering other length adjustments
     any_adjusted = True
     while any_adjusted:
         any_adjusted = False
 
-        for j in jumps:
-            change = j.adjust_length()
+        for b in branches:
+            change = b.adjust_length()
             if change:
-#                print(f"adjusted jump {j.offset} to {j.target} by {change} to {j.length}")
-                patch[j.offset:j.offset] = [0] * change
-                for k in jumps:
-                    if j != k:
-                        k.adjust(j.offset, change)
+#                print(f"adjusted branch {b.offset} to {b.target} by {change} to {b.length}")
+                patch[b.offset:b.offset] = [0] * change
+                for c in branches:
+                    if b != c:
+                        c.adjust(b.offset, change)
 
                 for l in lines:
-                    l.adjust(j.offset, change)
+                    l.adjust(b.offset, change)
 
                 any_adjusted = True
 
-    for j in jumps:
-        assert patch[j.offset+j.length-2] == j.opcode
-        patch[j.offset:j.offset+j.length] = j.code()
+    for b in branches:
+        assert patch[b.offset+b.length-2] == b.opcode
+        patch[b.offset:b.offset+b.length] = b.code()
 
     kwargs = {}
     if PYTHON_VERSION < (3,10):
