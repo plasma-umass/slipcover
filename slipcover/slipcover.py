@@ -1,6 +1,6 @@
 import sys
 import dis
-from types import CodeType
+import types
 from typing import Dict, Set
 from collections import defaultdict
 
@@ -29,7 +29,7 @@ else:
 replace_map = dict()
 
 
-def new_CodeType(orig: CodeType, **kwargs) -> CodeType:
+def new_CodeType(orig: types.CodeType, **kwargs) -> types.CodeType:
     """Instantiates a new CodeType, modifying it from the original"""
     new = orig.replace(**kwargs)
     replace_map[orig] = new
@@ -107,7 +107,7 @@ class Branch:
         return opcode_arg(self.opcode, self.arg(), (self.length-2)//2)
 
     @staticmethod
-    def from_code(code : CodeType):
+    def from_code(code : types.CodeType):
         """Finds all Branches in code."""
         branches = []
 
@@ -228,12 +228,11 @@ def make_linetable(firstlineno, lines):
 code_lines: Dict[str, set] = defaultdict(lambda: set())
 
 
-def instrument(co: CodeType) -> CodeType:
+def instrument(co: types.CodeType) -> types.CodeType:
     """Instruments a code object for coverage detection.
 
     If invoked on a function, instruments its code.
     """
-    import types
 
     if not ((3,8) <= PYTHON_VERSION <= (3,10)):
         raise RuntimeError("Unsupported Python version; please use 3.8 to 3.10")
@@ -334,8 +333,9 @@ def instrument(co: CodeType) -> CodeType:
 
 def deinstrument(co, lines: set):
     """De-instruments a code object previously instrumented for coverage detection.
-    If invoked on a function, de-instruments its code."""
-    import types
+
+    If invoked on a function, de-instruments its code.
+    """
 
     if isinstance(co, types.FunctionType):
         co.__code__ = deinstrument(co.__code__, lines)
@@ -428,7 +428,6 @@ def print_coverage():
 
 def deinstrument_seen(script_globals: dict):
     import inspect
-    import types
 
     def all_functions():
         """Introspects, returning all functions (that may be pointing to
