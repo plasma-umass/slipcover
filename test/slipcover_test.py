@@ -391,7 +391,7 @@ def test_make_lines_and_compare():
 
 
 def test_instrument():
-    first_line = current_line()+2
+    first_line = current_line()+1
     def foo(n):
         x = 0
         for i in range(n):
@@ -408,7 +408,33 @@ def test_instrument():
     dis.dis(foo)
     assert 6 == foo(3)
 
-    assert {current_file(): {*range(first_line, last_line)}} == sc.get_coverage()
+    assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_coverage()
+    assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_code_lines()
+
+
+def test_get_code_lines():
+    first_line = current_line()
+    def foo(n):             # 1
+        """Foo.
+
+        Bar baz.
+        """
+        x = 0               # 6
+
+        def bar():          # 8
+            x += 42
+
+        # now we loop
+        for i in range(n):  # 12
+            x += (i+1)
+
+        return x
+
+    sc.instrument(foo)
+    lines = sc.get_code_lines()[current_file()]
+    lines = set(map(lambda line: line-first_line, lines))
+
+    assert set([6, 8, 9, 12, 13, 15]) == lines
 
 
 some_branches_grew = None
@@ -489,3 +515,6 @@ def test_deinstrument_some():
 
     assert 6 == foo(3)
     assert {current_file(): {*range(first_line+1, last_line-1)}} == sc.get_coverage()
+
+
+# XXX test deinstrument_seen

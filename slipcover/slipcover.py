@@ -1,7 +1,7 @@
 import sys
 import dis
 from types import CodeType
-from typing import Dict
+from typing import Dict, Set
 from collections import defaultdict
 
 PYTHON_VERSION = sys.version_info[0:2]
@@ -224,9 +224,15 @@ def make_linetable(firstlineno, lines):
     return bytes(linetable)
 
 
+# Notes which code lines have been instrumented
+code_lines: Dict[str, set] = defaultdict(lambda: set())
+
+
 def instrument(co: CodeType) -> CodeType:
     """Instruments a code object for coverage detection.
-    If invoked on a function, instruments its code."""
+
+    If invoked on a function, instruments its code.
+    """
     import types
 
     if not ((3,8) <= PYTHON_VERSION <= (3,10)):
@@ -239,6 +245,8 @@ def instrument(co: CodeType) -> CodeType:
     assert isinstance(co, types.CodeType)
     #    print(f"instrumenting {co.co_name}")
 
+    code_lines[co.co_filename].update(map(lambda line: line[1], dis.findlinestarts(co)))
+
     consts = list(co.co_consts)
 
     note_coverage_index = len(consts)
@@ -248,9 +256,9 @@ def instrument(co: CodeType) -> CodeType:
     consts.append(co.co_filename)
 
     # handle functions-within-functions
-    for i in range(len(consts)):
-        if isinstance(consts[i], types.CodeType):
-            consts[i] = instrument(consts[i])
+    for i, c in enumerate(consts):
+        if isinstance(c, types.CodeType):
+            consts[i] = instrument(c)
 
     branches = Branch.from_code(co)
     patch = bytearray()
@@ -374,7 +382,7 @@ def note_coverage(filename: str, lineno: int):
     new_lines_seen[filename].add(lineno)
 
 
-def get_coverage() -> Dict[str, set]:
+def get_coverage() -> Dict[str, Set[int]]:
     # in case any haven't been merged in yet
     for file in new_lines_seen:
         lines_seen[file].update(new_lines_seen[file])
@@ -382,8 +390,13 @@ def get_coverage() -> Dict[str, set]:
     return lines_seen
 
 
+def get_code_lines() -> Dict[str, Set[int]]:
+    return code_lines
+
+
 def clear():
     """Clears accumulated coverage information."""
+    code_lines.clear()
     lines_seen.clear()
     new_lines_seen.clear()
     replace_map.clear()
@@ -408,22 +421,9 @@ def print_coverage():
             for g in [list(g) for _, g in groups]
         ]
 
-    def get_nonempty_lines(filename):
-        import ast
-        nonempty_lines = set()
-
-        with open(filename, "r") as f:
-            tree = ast.parse(f.read(), mode="exec")
-
-        for f in ast.walk(tree):
-            if (hasattr(f, 'lineno')):
-                nonempty_lines.add(f.lineno)
-
-        return nonempty_lines
-
     print("not covered:")
     for file in lines_seen:
-        print(" " * 5, file, merge_consecutives(get_nonempty_lines(file) - lines_seen[file]))
+        print(" " * 5, file, merge_consecutives(code_lines[file] - lines_seen[file]))
 
 
 def deinstrument_seen(script_globals: dict):
