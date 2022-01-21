@@ -1,7 +1,8 @@
+from __future__ import annotations
 import sys
 import dis
 import types
-from typing import Dict, Set
+from typing import Dict, Set, List
 from collections import defaultdict
 
 PYTHON_VERSION = sys.version_info[0:2]
@@ -11,17 +12,17 @@ PYTHON_VERSION = sys.version_info[0:2]
 # Python 3.10a7 changed branch opcodes' argument to mean instruction
 # (word) offset, rather than bytecode offset.
 if PYTHON_VERSION >= (3,10):
-    def offset2branch(offset: int):
+    def offset2branch(offset: int) -> int:
         assert offset % 2 == 0
         return offset//2
 
-    def branch2offset(arg: int):
+    def branch2offset(arg: int) -> int:
         return arg*2
 else:
-    def offset2branch(offset: int):
+    def offset2branch(offset: int) -> int:
         return offset
 
-    def branch2offset(arg: int):
+    def branch2offset(arg: int) -> int:
         return arg
 
 
@@ -46,12 +47,12 @@ op_JUMP_FORWARD = dis.opmap["JUMP_FORWARD"]
 op_NOP = dis.opmap["NOP"]
 
 
-def arg_ext_needed(arg: int):
+def arg_ext_needed(arg: int) -> int:
     """Returns the number of EXTENDED_ARGs needed for an argument."""
     return (arg.bit_length() - 1) // 8
 
 
-def opcode_arg(opcode: int, arg: int, min_ext=0):
+def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
     """Emits an opcode and its (variable length) argument."""
     bytecode = []
     ext = max(arg_ext_needed(arg), min_ext)
@@ -65,7 +66,17 @@ def opcode_arg(opcode: int, arg: int, min_ext=0):
 
 
 class Branch:
+    """Describes a branch instruction."""
+
     def __init__(self, offset : int, length : int, opcode : int, arg : int):
+        """Initializes a new Branch.
+
+        offset - offset in code where the instruction starts; if EXTENDED_ARGs are
+            used, it should be the offset of the first EXTENDED_ARG
+        length - instruction length, including that of any EXTENDED_ARGs
+        opcode - the instruction's opcode
+        arg - the instruction's argument (decoded if using EXTENDED_ARGs)
+        """
         self.offset = offset
         self.length = length
         self.opcode = opcode
@@ -107,7 +118,7 @@ class Branch:
         return opcode_arg(self.opcode, self.arg(), (self.length-2)//2)
 
     @staticmethod
-    def from_code(code : types.CodeType):
+    def from_code(code : types.CodeType) -> List[Branch]:
         """Finds all Branches in code."""
         branches = []
 
@@ -135,13 +146,18 @@ class Branch:
 
 class LineEntry:
     def __init__(self, start : int, end : int, number : int):
+        """Initializes a new line entry.
+
+        start, end: start and end offsets in the code
+        number: line number
+        """
         self.start = start
         self.end = end
         self.number = number
 
     # FIXME tests missing
     def adjust(self, insert_offset : int, insert_length : int) -> None:
-        """Adjusts this branch after a code insertion."""
+        """Adjusts this line after a code insertion."""
         assert insert_length > 0
         if self.start > insert_offset:
             self.start += insert_length
@@ -149,8 +165,8 @@ class LineEntry:
             self.end += insert_length
 
 
-def make_lnotab(firstlineno, lines):
-    """Generates the line number table used by Python to map offsets to line numbers."""
+def make_lnotab(firstlineno : int, lines : List[LineEntry]) -> bytes:
+    """Generates the line number table used by Python 3.9- to map offsets to line numbers."""
 
     lnotab = []
 
@@ -183,7 +199,7 @@ def make_lnotab(firstlineno, lines):
     return bytes(lnotab)
 
 
-def make_linetable(firstlineno, lines):
+def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
     """Generates the line number table used by Python 3.10+ to map offsets to line numbers."""
 
     linetable = []
@@ -331,7 +347,7 @@ def instrument(co: types.CodeType) -> types.CodeType:
     )
 
 
-def deinstrument(co, lines: set):
+def deinstrument(co, lines: set) -> types.CodeType:
     """De-instruments a code object previously instrumented for coverage detection.
 
     If invoked on a function, de-instruments its code.
@@ -339,7 +355,7 @@ def deinstrument(co, lines: set):
 
     if isinstance(co, types.FunctionType):
         co.__code__ = deinstrument(co.__code__, lines)
-        return
+        return co.__code__
 
     assert isinstance(co, types.CodeType)
     # print(f"de-instrumenting {co.co_name}")
@@ -371,13 +387,13 @@ def deinstrument(co, lines: set):
 
 
 # Notes which lines have been seen.
-lines_seen: Dict[str, set] = defaultdict(lambda: set())
+lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
 # Notes lines seen since last de-instrumentation
-new_lines_seen: Dict[str, set] = defaultdict(lambda: set())
+new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
 
-def note_coverage(filename: str, lineno: int):
+def note_coverage(filename: str, lineno: int) -> None:
     """Invoked to mark a line as having executed."""
     new_lines_seen[filename].add(lineno)
 
@@ -394,7 +410,7 @@ def get_code_lines() -> Dict[str, Set[int]]:
     return code_lines
 
 
-def clear():
+def clear() -> None:
     """Clears accumulated coverage information."""
     code_lines.clear()
     lines_seen.clear()
@@ -402,7 +418,7 @@ def clear():
     replace_map.clear()
 
 
-def print_coverage():
+def print_coverage() -> None:
     import signal
     signal.setitimer(signal.ITIMER_VIRTUAL, 0)
 
@@ -426,7 +442,7 @@ def print_coverage():
         print(" " * 5, file, merge_consecutives(code_lines[file] - lines_seen[file]))
 
 
-def deinstrument_seen(script_globals: dict):
+def deinstrument_seen(script_globals: dict) -> None:
     import inspect
 
     def all_functions():
