@@ -26,6 +26,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         self.meta_path = meta_path
 
     def find_spec(self, fullname, path, target=None):
+        #print(f"Looking for {fullname}")
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target)
             if (found):
@@ -62,24 +63,38 @@ def setup_deinstrument():
     signal.signal(signal.SIGVTALRM, deinstrument_callback)
     signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
-
 sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
-filename = sys.argv[0]  # XXX process slipcover options
 
-sys.meta_path = [SlipcoverMetaPathFinder(Path(filename).resolve().parent, sys.meta_path)]
+import argparse
+ap = argparse.ArgumentParser(prog='slipcover')
+ap_g = ap.add_mutually_exclusive_group(required=True)
+ap_g.add_argument('script', nargs='?', help="run script")
+ap_g.add_argument('-m', dest='module', nargs=argparse.REMAINDER, help="run module")
+args = ap.parse_args(sys.argv)
 
-# needed so that the script being invoked behaves like the main one
-script_globals['__name__'] = '__main__'
-script_globals['__file__'] = filename
+base_path = Path(args.script).resolve().parent if args.script \
+            else Path('.').resolve()
 
-# the 1st item in sys.path is always the main script's directory
-sys.path.pop(0)
-sys.path.insert(0, str(Path(filename).parent))
+sys.meta_path = [SlipcoverMetaPathFinder(base_path, sys.meta_path)]
 
-with open(filename, "r") as f:
-    code = compile(f.read(), filename, "exec")
+if args.script:
+    # needed so that the script being invoked behaves like the main one
+    script_globals['__name__'] = '__main__'
+    script_globals['__file__'] = args.script
 
-code = sc.instrument(code)
+    # the 1st item in sys.path is always the main script's directory
+    sys.path.pop(0)
+    sys.path.insert(0, str(base_path))
 
-setup_deinstrument()
-exec(code, script_globals)
+    with open(args.script, "r") as f:
+        code = compile(f.read(), args.script, "exec")
+
+    code = sc.instrument(code)
+
+    setup_deinstrument()
+    exec(code, script_globals)
+else:
+    assert args.module
+    import runpy
+    sys.argv = args.module
+    runpy.run_module(args.module[0], run_name='__main__', alter_sys=False)
