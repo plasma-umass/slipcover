@@ -63,14 +63,12 @@ def setup_deinstrument():
     signal.signal(signal.SIGVTALRM, deinstrument_callback)
     signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
-sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
-
 import argparse
 ap = argparse.ArgumentParser(prog='slipcover')
 ap_g = ap.add_mutually_exclusive_group(required=True)
 ap_g.add_argument('script', nargs='?', help="run script")
 ap_g.add_argument('-m', dest='module', nargs=argparse.REMAINDER, help="run module")
-args = ap.parse_args(sys.argv)
+args = ap.parse_args(sys.argv[1:])
 
 base_path = Path(args.script).resolve().parent if args.script \
             else Path('.').resolve()
@@ -81,6 +79,8 @@ if args.script:
     # needed so that the script being invoked behaves like the main one
     script_globals['__name__'] = '__main__'
     script_globals['__file__'] = args.script
+
+    sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
 
     # the 1st item in sys.path is always the main script's directory
     sys.path.pop(0)
