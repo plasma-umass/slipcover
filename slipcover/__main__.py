@@ -26,12 +26,12 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         self.meta_path = meta_path
 
     def find_spec(self, fullname, path, target=None):
-        #print(f"Looking for {fullname}")
+#        print(f"Looking for {fullname}")
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target)
             if (found):
                 # instrument iff the module's path is related to the original script's
-                if (self.script_path in Path(found.origin).parents):
+                if self.script_path in Path(found.origin).parents:
                     found.loader = SlipcoverLoader(found.loader)
                 return found
 
@@ -97,4 +97,5 @@ else:
     assert args.module
     import runpy
     sys.argv = args.module
-    runpy.run_module(args.module[0], run_name='__main__', alter_sys=False)
+    setup_deinstrument()
+    runpy.run_module(args.module[0], run_name='__main__', alter_sys=True)
