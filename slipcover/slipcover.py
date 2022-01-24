@@ -419,9 +419,6 @@ def clear() -> None:
 
 
 def print_coverage() -> None:
-    import signal
-    signal.setitimer(signal.ITIMER_VIRTUAL, 0)
-
     lines_seen = get_coverage()
 
     print("printing coverage")

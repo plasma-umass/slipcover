@@ -41,13 +41,18 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 # python 'globals' for the script being executed
 script_globals: Dict[str, Any] = defaultdict(None)
 
+
 def setup_deinstrument():
     import atexit
     import signal
     
     INTERVAL = 0.1
 
-    atexit.register(sc.print_coverage)
+    def at_exit():
+        signal.setitimer(signal.ITIMER_VIRTUAL, 0)
+        sc.print_coverage()
+
+    atexit.register(at_exit)
 
     def deinstrument_callback(signum, this_frame):
         """Periodically de-instruments lines that were already reached."""
