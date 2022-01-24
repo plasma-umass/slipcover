@@ -63,12 +63,28 @@ def setup_deinstrument():
     signal.signal(signal.SIGVTALRM, deinstrument_callback)
     signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
+#
+# The intended usage is:
+#
+#   slipcover.py [options] (script | -m module [module_args...])
+#
+# but argparse doesn't seem to support this.  We work around that by only
+# showing it what we need.
+#
 import argparse
-ap = argparse.ArgumentParser(prog='slipcover')
-ap_g = ap.add_mutually_exclusive_group(required=True)
-ap_g.add_argument('script', nargs='?', help="run script")
-ap_g.add_argument('-m', dest='module', nargs=argparse.REMAINDER, help="run module")
-args = ap.parse_args(sys.argv[1:])
+ap = argparse.ArgumentParser(prog='slipcover', add_help=False)
+# XXX add options here
+if '-m' in sys.argv:
+    ap.add_argument('script', nargs=argparse.SUPPRESS)
+    ap.add_argument('-m', dest='module', nargs=1, required=True)
+    ap.add_argument('module_args', nargs=argparse.REMAINDER)
+
+    minus_m = sys.argv.index('-m')
+    args = ap.parse_args(sys.argv[1:minus_m+2])
+    args.module_args = sys.argv[minus_m+2:]
+else:
+    ap.add_argument('script')
+    args = ap.parse_args(sys.argv[1:])
 
 base_path = Path(args.script).resolve().parent if args.script \
             else Path('.').resolve()
@@ -94,8 +110,7 @@ if args.script:
     setup_deinstrument()
     exec(code, script_globals)
 else:
-    assert args.module
     import runpy
-    sys.argv = args.module
+    sys.argv = [*args.module, *args.module_args]
     setup_deinstrument()
-    runpy.run_module(args.module[0], run_name='__main__', alter_sys=True)
+    runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
