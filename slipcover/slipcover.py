@@ -28,6 +28,7 @@ else:
 
 # map to guide CodeType replacements
 replace_map = dict()
+instrumented: Dict[str, set] = defaultdict(lambda: set())
 
 
 def new_CodeType(orig: types.CodeType, **kwargs) -> types.CodeType:
@@ -244,7 +245,7 @@ def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
 code_lines: Dict[str, set] = defaultdict(lambda: set())
 
 
-def instrument(co: types.CodeType) -> types.CodeType:
+def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
     """Instruments a code object for coverage detection.
 
     If invoked on a function, instruments its code.
@@ -273,7 +274,7 @@ def instrument(co: types.CodeType) -> types.CodeType:
     # handle functions-within-functions
     for i, c in enumerate(consts):
         if isinstance(c, types.CodeType):
-            consts[i] = instrument(c)
+            consts[i] = instrument(c, co)
 
     branches = Branch.from_code(co)
     patch = bytearray()
@@ -338,13 +339,18 @@ def instrument(co: types.CodeType) -> types.CodeType:
     else:
         kwargs["co_linetable"] = make_linetable(co.co_firstlineno, lines)
 
-    return new_CodeType(
+    new_code = new_CodeType(
         co,
         co_code=bytes(patch),
         co_stacksize=co.co_stacksize + 2,  # FIXME use dis.stack_effect
         co_consts=tuple(consts),
         **kwargs
     )
+
+    if not parent:
+        instrumented[co.co_filename].add(new_code)
+
+    return new_code
 
 
 def deinstrument(co, lines: set) -> types.CodeType:
@@ -383,7 +389,14 @@ def deinstrument(co, lines: set) -> types.CodeType:
     changed = {}
     if patch: changed["co_code"] = bytes(patch)
     if consts: changed["co_consts"] = tuple(consts)
-    return new_CodeType(co, **changed)
+
+    new_code = new_CodeType(co, **changed)
+
+    if new_code != co and co in instrumented[co.co_filename]:
+        instrumented[co.co_filename].remove(co)
+        instrumented[co.co_filename].add(new_code)
+
+    return new_code
 
 
 # Notes which lines have been seen.
@@ -416,6 +429,7 @@ def clear() -> None:
     lines_seen.clear()
     new_lines_seen.clear()
     replace_map.clear()
+    instrumented.clear()
 
 
 def print_coverage() -> None:
@@ -439,15 +453,34 @@ def print_coverage() -> None:
         print(" " * 5, file, merge_consecutives(code_lines[file] - lines_seen[file]))
 
 
-def deinstrument_seen(script_globals: dict) -> None:
+def print_stats() -> None:
+    def count_deinstrumented(co: CodeType) -> (int, int):
+        count = 0
+
+        for c in co.co_consts:
+            if isinstance(c, types.CodeType):
+                count += count_deinstrumented(c)
+
+        for offset, lineno in dis.findlinestarts(co):
+            if co.co_code[offset] == op_JUMP_FORWARD:
+                count += 1
+
+        return count
+
+    for file in instrumented:
+        count = sum([count_deinstrumented(co) for co in instrumented[file]])
+        print(f"{file:50} {count}/{len(code_lines[file])}")
+
+
+def deinstrument_seen() -> None:
     import inspect
 
-    def all_functions():
+    def all_functions(source):
         """Introspects, returning all functions (that may be pointing to
            instrumented code) to deinstrument"""
         classes = [
             c
-            for c in script_globals.values()
+            for c in source
             if isinstance(c, type) or isinstance(c, types.ModuleType)
         ]
         methods = [
@@ -457,30 +490,31 @@ def deinstrument_seen(script_globals: dict) -> None:
         ]
         funcs = [
             o
-            for o in script_globals.values()
+            for o in source
             if isinstance(o, types.FunctionType)
         ]
         return methods + funcs
 
-
     for file in new_lines_seen:
-        for f in all_functions():
-            # FIXME we're invoking deinstrument with every file's line number set
-            deinstrument(f, new_lines_seen[file])
+        for co in instrumented[file]:
+            deinstrument(co, new_lines_seen[file])
 
         lines_seen[file].update(new_lines_seen[file])
+
     new_lines_seen.clear()
 
-    # Replace inner functions and any other function variables
+    # Replace references to code
     if replace_map:
+        # FIXME what about other threads?
         frame = inspect.currentframe()
         while frame:
-            # list() avoids 'dictionary changed size during iter.'
-            for var in list(frame.f_locals.keys()):
-                if isinstance(frame.f_locals[var], types.FunctionType):
-                    f = frame.f_locals[var]
-                    if f.__code__ in replace_map:
-                        f.__code__ = replace_map[f.__code__]
+            for f in all_functions(frame.f_globals.values()):
+                if f.__code__ in replace_map:
+                    f.__code__ = replace_map[f.__code__]
+
+            for f in all_functions(frame.f_locals.values()):
+                if f.__code__ in replace_map:
+                    f.__code__ = replace_map[f.__code__]
 
             frame = frame.f_back
 

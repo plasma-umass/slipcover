@@ -38,11 +38,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         return None
 
 
-# python 'globals' for the script being executed
-script_globals: Dict[str, Any] = defaultdict(None)
-
-
-def setup_deinstrument():
+def setup_deinstrument(args):
     import atexit
     import signal
     
@@ -51,6 +47,9 @@ def setup_deinstrument():
     def at_exit():
         signal.setitimer(signal.ITIMER_VIRTUAL, 0)
         sc.print_coverage()
+        if args.stats:
+            print("\n---")
+            sc.print_stats()
 
     atexit.register(at_exit)
 
@@ -58,7 +57,7 @@ def setup_deinstrument():
         """Periodically de-instruments lines that were already reached."""
         nonlocal INTERVAL
 
-        sc.deinstrument_seen(script_globals)
+        sc.deinstrument_seen()
 
         # Increase the interval geometrically
         INTERVAL *= 2
@@ -78,7 +77,7 @@ def setup_deinstrument():
 #
 import argparse
 ap = argparse.ArgumentParser(prog='slipcover', add_help=False)
-# XXX add options here
+ap.add_argument('--stats', action='store_true')
 if '-m' in sys.argv:
     ap.add_argument('script', nargs=argparse.SUPPRESS)
     ap.add_argument('-m', dest='module', nargs=1, required=True)
@@ -97,6 +96,9 @@ base_path = Path(args.script).resolve().parent if args.script \
 sys.meta_path = [SlipcoverMetaPathFinder(base_path, sys.meta_path)]
 
 if args.script:
+    # python 'globals' for the script being executed
+    script_globals: Dict[str, Any] = defaultdict(None)
+
     # needed so that the script being invoked behaves like the main one
     script_globals['__name__'] = '__main__'
     script_globals['__file__'] = args.script
@@ -112,10 +114,11 @@ if args.script:
 
     code = sc.instrument(code)
 
-    setup_deinstrument()
+    setup_deinstrument(args)
     exec(code, script_globals)
+
 else:
     import runpy
     sys.argv = [*args.module, *args.module_args]
-    setup_deinstrument()
+    setup_deinstrument(args)
     runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
