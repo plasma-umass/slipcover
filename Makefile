@@ -12,4 +12,4 @@ test-all:
 clean:
 	- rm -rf *.so
 	- rm -rf *.egg-info
-	- rm -rf build
+	- rm -rf build dist
