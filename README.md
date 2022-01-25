@@ -1,14 +1,16 @@
 # Slipcover: Zero-Overhead Python Code Coverage
 by [Juan Altmayer Pizzorno](https://github.com/jaltmayerpizzorno) and [Emery Berger](https://emeryberger.com).
 
+[![license](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
+
 ## About Slipcover
 Slipcover is a [code coverage](https://en.wikipedia.org/wiki/Code_coverage) tool.
 It keeps tracks of which parts are executing as a Python program runs, and then reports
 on them as well as well as on the parts that didn't execute.
-You could use that information to guide your testing, your debugging, or a
+You could use that information to guide your testing, debugging, or a
 [fuzzing](https://en.wikipedia.org/wiki/Fuzzing) tool.
 
-Tools to gather coverage information often make programs significantly slower;
+Tools that gather coverage information often make programs significantly slower;
 it is not uncommon for them to take twice as long to execute.
 Slipcover aims to provide the information with near-zero overhead, essentially
 indistinguishable from measurement noise.
@@ -24,18 +26,18 @@ Care is taken thoughout slipcover to keep things as efficient as possible.
 ## Getting started
 Slipcover is available from [PyPI](https://pypi.org/project/slipcover).
 You can install it like any other Python module with
-```python
+```console
 pip3 install slipcover
 ```
 
 You could then run your Python script with:
-```python
+```console
 python3 -m slipcover myscript.py
 ```
 
 ## Using it with a test harness
 Slipcover can also execute a Python module, as in:
-```python
+```console
 python3 -m slipcover -m pytest -x -v
 ```
 which starts `pytest` passing it any options (such as `-x -v` in this example)
