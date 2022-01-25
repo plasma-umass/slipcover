@@ -435,8 +435,6 @@ def clear() -> None:
 def print_coverage() -> None:
     lines_seen = get_coverage()
 
-    print("printing coverage")
-
     def merge_consecutives(L):
         # Neat little trick due to John La Rooy: the difference between the numbers
         # on a list and a counter is constant for consecutive items :)
@@ -448,9 +446,27 @@ def print_coverage() -> None:
             for g in [list(g) for _, g in groups]
         ]
 
-    print("not covered:")
-    for file in lines_seen:
-        print(" " * 5, file, merge_consecutives(code_lines[file] - lines_seen[file]))
+    from pathlib import Path
+    from tabulate import tabulate
+
+    cwd = Path.cwd()
+
+    def simplify_path(file: str) -> str:
+        f = Path(file)
+        if f.is_relative_to(cwd): return f.relative_to(cwd)
+        return file
+
+    def table(files):
+        for f in files:
+            seen_count = len(lines_seen[f])
+            total_count = len(code_lines[f])
+            yield [simplify_path(f), seen_count, total_count,
+                   round(100*seen_count/total_count),
+                   ', '.join(merge_consecutives(code_lines[f] - lines_seen[f]))]
+
+    print("")
+    print(tabulate(table(lines_seen.keys()),
+          headers=["File", "exec.", "total", "%", "missing"]))
 
 
 def print_stats() -> None:

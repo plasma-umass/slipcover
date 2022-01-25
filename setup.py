@@ -23,5 +23,8 @@ setup(
     author="Juan Altmayer Pizzorno, Emery Berger",
     author_email="juan@altmayer.com, emery@cs.umass.edu",
     license="Apache License 2.0",
-    python_requires=">=3.8,<3.11"
+    python_requires=">=3.8,<3.11",
+    install_requires=[
+        "tabulate"
+    ],
 )
