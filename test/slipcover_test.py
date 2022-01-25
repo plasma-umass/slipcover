@@ -517,4 +517,5 @@ def test_deinstrument_some():
     assert {current_file(): {*range(first_line+1, last_line-1)}} == sc.get_coverage()
 
 
-# XXX test deinstrument_seen
+# FIXME test deinstrument_seen
+# FIXME test module loading & instrumentation
