@@ -1,0 +1,30 @@
+name: run-tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+#        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        python: [ '3.8', '3.9', '3.10' ]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python }}
+
+    - name: install dependencies
+      run: |
+        python3 -m pip install pytest
+        python3 -m pip install -e .
+
+    - name: run tests
+      run: python3 -m pytest
