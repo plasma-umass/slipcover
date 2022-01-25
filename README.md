@@ -3,26 +3,27 @@
 [![license](https://img.shields.io/pypi/l/slipcover)](LICENSE)
 
 # Slipcover: Zero-Overhead Python Code Coverage
-by [Juan Altmayer Pizzorno](https://www.linkedin.com/in/juan-altmayer-pizzorno/) and [Emery Berger](https://emeryberger.com).
+by [Juan Altmayer Pizzorno](https://www.linkedin.com/in/juan-altmayer-pizzorno/) and [Emery Berger](https://emeryberger.com)
+at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
 
 ## About Slipcover
 Slipcover is a [code coverage](https://en.wikipedia.org/wiki/Code_coverage) tool.
-It keeps tracks of which parts are executing as a Python program runs, and then reports
-on them as well as well as on the parts that didn't execute.
-You could use that information to guide your testing, debugging, or a
-[fuzzing](https://en.wikipedia.org/wiki/Fuzzing) tool.
+It tracks a Python program as it runs and reports on the parts that executed and
+those that didn't.
+That can help guide your testing (showing code that isn't being tested), debugging,
+or [fuzzing](https://en.wikipedia.org/wiki/Fuzzing).
 
 Tools that gather coverage information often make programs significantly slower;
 it is not uncommon for them to take twice as long to execute.
-Slipcover aims to provide the information with near-zero overhead, essentially
-indistinguishable from measurement noise.
+Slipcover aims to provide the information with near-zero overhead, i.e., overhead
+that is indistinguishable from measurement noise.
 
 ## How it works
 Slipcover uses just-in-time instrumentation and de-instrumentation.
 When a program is started with slipcover, it modifies the program's Python byte codes,
 inserting instructions that allows it to keep track of where the program is.
-Then, while the program executes, slipcover gradually removes instrumentation of those
-parts that it already saw executing, allowing those to run faster.
+Then, while the program executes, slipcover gradually removes instrumentation that
+is no longer needed, allowing those parts to run faster.
 Care is taken thoughout slipcover to keep things as efficient as possible.
 
 ## Getting started
