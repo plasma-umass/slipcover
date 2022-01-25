@@ -1,5 +1,5 @@
 all:
-	python3 setup.py develop
+	python3 setup.py bdist_wheel
 
 # obtained with e.g. "brew install python@3.10"
 HOMEBREW_PYTHON=/usr/local/opt/python@
