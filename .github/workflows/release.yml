@@ -8,9 +8,6 @@ on:
 jobs:
   build-wheel:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python_version: [ '3.8' ]
     steps:
       - if: github.event.type == 'ReleaseEvent'
         run: |
@@ -22,7 +19,7 @@ jobs:
       - name: set up python
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python_version }}
+          python-version: '3.10'
 
       - name: install dependencies
         run: |
