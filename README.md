@@ -1,7 +1,9 @@
-# Slipcover: Zero-Overhead Python Code Coverage
-by [Juan Altmayer Pizzorno](https://github.com/jaltmayerpizzorno) and [Emery Berger](https://emeryberger.com).
+![pypi](https://img.shields.io/pypi/v/slipcover)
+![pyversions](https://img.shields.io/pypi/pyversions/slipcover)
+[![license](https://img.shields.io/pypi/l/slipcover)](LICENSE)
 
-[![license](https://img.shields.io/packagist/l/jaltmayerpizzorno/slipcover)](LICENSE)
+# Slipcover: Zero-Overhead Python Code Coverage
+by [Juan Altmayer Pizzorno](https://www.linkedin.com/in/juan-altmayer-pizzorno/) and [Emery Berger](https://emeryberger.com).
 
 ## About Slipcover
 Slipcover is a [code coverage](https://en.wikipedia.org/wiki/Code_coverage) tool.
