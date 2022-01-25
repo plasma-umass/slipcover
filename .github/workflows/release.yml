@@ -13,7 +13,7 @@ jobs:
         if: github.event.type != 'ReleaseEvent'
         run: |
           echo "DEV_BUILD=$(TZ='America/New_York' date '+%Y%m%d%H%M')" >> $GITHUB_ENV  # for setup.py
-          echo "TWINE_REPOSITORY='testpypi'" >> $GITHUB_ENV
+          echo "TWINE_REPOSITORY=testpypi" >> $GITHUB_ENV
 
       - uses: actions/checkout@v2
 
@@ -33,4 +33,4 @@ jobs:
         env:
           TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-        run: twine upload dist/*
+        run: python3 -m twine upload dist/*
