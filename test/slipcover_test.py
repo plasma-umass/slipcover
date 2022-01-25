@@ -23,9 +23,6 @@ def from_set(s: set):
 def clear_slipcover():
     sc.clear()
 
-def test_fail():
-    assert False
-
 def test_opcode_arg():
     JUMP = sc.op_JUMP_ABSOLUTE
     EXT = sc.op_EXTENDED_ARG
