@@ -1,7 +1,7 @@
 # Slipcover: Zero-Overhead Python Code Coverage
 by [Juan Altmayer Pizzorno](https://github.com/jaltmayerpizzorno) and [Emery Berger](https://emeryberger.com).
 
-[![license](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
+[![license](https://img.shields.io/packagist/l/jaltmayerpizzorno/slipcover)](LICENSE)
 
 ## About Slipcover
 Slipcover is a [code coverage](https://en.wikipedia.org/wiki/Code_coverage) tool.
@@ -40,7 +40,7 @@ Slipcover can also execute a Python module, as in:
 ```console
 python3 -m slipcover -m pytest -x -v
 ```
-which starts `pytest` passing it any options (such as `-x -v` in this example)
+which starts `pytest` passing it any options (`-x -v` in this example)
 after the module name.
 
 ## Contributing
