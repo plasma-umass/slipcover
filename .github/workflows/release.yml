@@ -1,0 +1,38 @@
+name: release
+
+on:
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+jobs:
+  build-wheel:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python_version: [ '3.8' ]
+    steps:
+      - if: github.event.type != 'ReleaseEvent'
+        run: |
+          echo "DEV_BUILD=$(TZ='America/New_York' date '+%Y%m%d%H%M')" >> $GITHUB_ENV  # for setup.py
+          echo "TWINE_REPOSITORY='testpypi'" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v2
+
+      - name: set up python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python_version }}
+
+      - name: install dependencies
+        run: |
+          python3 -m pip install setuptools wheel twine
+
+      - name: build wheel
+        run: python3 setup.py bdist_wheel
+
+#      - name: upload
+#        env:
+#          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+#          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+#        run: python3 -m twine upload dist/*
