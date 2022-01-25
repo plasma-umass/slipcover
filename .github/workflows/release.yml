@@ -12,7 +12,7 @@ jobs:
       matrix:
         python_version: [ '3.8' ]
     steps:
-      - if: github.event.type != 'ReleaseEvent'
+      - if: github.event.type == 'ReleaseEvent'
         run: |
           echo "DEV_BUILD=$(TZ='America/New_York' date '+%Y%m%d%H%M')" >> $GITHUB_ENV  # for setup.py
           echo "TWINE_REPOSITORY='testpypi'" >> $GITHUB_ENV
