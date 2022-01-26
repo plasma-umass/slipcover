@@ -1,4 +1,4 @@
-name: test
+name: tests
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  run-tests:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
