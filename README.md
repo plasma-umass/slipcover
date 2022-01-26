@@ -19,7 +19,7 @@ it is not uncommon for them to take twice as long to execute.
 Slipcover aims to provide the same information with **near-zero overhead**, that is, 
 just as fast as running the original Python program.
 
-## How it works
+### How it works
 Slipcover uses just-in-time instrumentation and de-instrumentation.
 When Slipcover is used to gather coverage information, it modifies the program's Python byte codes,
 inserting instructions that let it keep track the lines executed by the program.
@@ -39,7 +39,7 @@ You could then run your Python script with:
 python3 -m slipcover myscript.py
 ```
 
-## Using it with a test harness
+### Using it with a test harness
 Slipcover can also execute a Python module, as in:
 ```console
 python3 -m slipcover -m pytest -x -v
