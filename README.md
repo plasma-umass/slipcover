@@ -1,6 +1,7 @@
 ![pypi](https://img.shields.io/pypi/v/slipcover)
 ![pyversions](https://img.shields.io/pypi/pyversions/slipcover)
 [![license](https://img.shields.io/pypi/l/slipcover)](LICENSE)
+![tests](https://github.com/jaltmayerpizzorno/slipcover/workflows/tests/badge.svg)
 
 # Slipcover: Zero-Overhead Python Code Coverage
 by [Juan Altmayer Pizzorno](https://www.linkedin.com/in/juan-altmayer-pizzorno/) and [Emery Berger](https://emeryberger.com)
