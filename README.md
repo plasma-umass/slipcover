@@ -46,6 +46,37 @@ python3 -m slipcover -m pytest -x -v
 which starts `pytest`, passing it any options (`-x -v` in this example)
 after the module name.
 
+## Usage example
+```console
+[juan@sam d2k]$ python3 -m slipcover -m pytest -k 'not test_mish' --disable-warnings
+============================================================================== test session starts ===============================================================================
+platform darwin -- Python 3.9.9, pytest-6.2.5, py-1.11.0, pluggy-1.0.0
+rootdir: /Users/juan/project/wally/d2k-5
+collected 543 items / 1 deselected / 542 selected                                                                                                                                
+
+tests/box_test.py .........................                                                                                                                                [  4%]
+tests/image_test.py ...............                                                                                                                                        [  7%]
+tests/network_equivalence_test.py ........................................................................................................................................ [ 32%]
+........................................................................................................................................................                   [ 60%]
+tests/network_test.py .................................................................................................................................................... [ 87%]
+..................................................................                                                                                                         [100%]
+
+=========================================================== 542 passed, 1 deselected, 71 warnings in 103.61s (0:01:43) ===========================================================
+
+ seen 64, trained: 0 K-images (0 Kilo-batches_64) 
+
+File                #lines    total    %  lines
+                      seen    lines       missing
+----------------  --------  -------  ---  ---------------------------------------------------------------------------------------------------
+d2k/__init__.py          3        3  100
+d2k/network.py         358      359  100  236
+d2k/box.py              78      105   74  73, 142, 144-146, 148-149, 151, 154, 156-159, 161, 163-166, 168, 170-171, 173-174, 176-177, 180-181
+d2k/image.py            34       38   89  70-73
+tests/darknet.py       121      132   92  146, 179-181, 183-187, 189, 191
+
+[juan@sam d2k]$
+```
+
 ## Contributing
 Slipcover is alpha software, and under active development.
 Please feel free to [create a new issue](https://github.com/jaltmayerpizzorno/slipcover/issues/new)
