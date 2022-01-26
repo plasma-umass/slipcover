@@ -1,12 +1,20 @@
-name: run-tests
+name: test
 
 on:
   push:
+    paths:
+      - slipcover/**
+      - test/**
+      - setup.py
+      - requirements.txt
+      - Makefile
+
   pull_request:
+
   workflow_dispatch:
 
 jobs:
-  tests:
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
