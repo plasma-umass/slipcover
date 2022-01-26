@@ -48,7 +48,7 @@ after the module name.
 
 ## Usage example
 ```console
-[juan@sam d2k]$ python3 -m slipcover -m pytest -k 'not test_mish' --disable-warnings
+[juan@sam d2k]$ python3 -m slipcover -m pytest --disable-warnings
 ============================================================================== test session starts ===============================================================================
 platform darwin -- Python 3.9.9, pytest-6.2.5, py-1.11.0, pluggy-1.0.0
 rootdir: /Users/juan/project/wally/d2k-5
@@ -61,7 +61,7 @@ tests/network_equivalence_test.py ..............................................
 tests/network_test.py .................................................................................................................................................... [ 87%]
 ..................................................................                                                                                                         [100%]
 
-=========================================================== 542 passed, 1 deselected, 71 warnings in 103.61s (0:01:43) ===========================================================
+=========================================================== 543 passed, 71 warnings in 103.61s (0:01:43) ===========================================================
 
  seen 64, trained: 0 K-images (0 Kilo-batches_64) 
 
@@ -76,6 +76,8 @@ tests/darknet.py       121      132   92  146, 179-181, 183-187, 189, 191
 
 [juan@sam d2k]$
 ```
+As can be seen in the coverage report, this project lacks some coverage, especially in
+its `box.py` and `image.py` components.
 
 ## Contributing
 Slipcover is alpha software, and under active development.
