@@ -404,7 +404,8 @@ if __name__ == "__main__":
     runner.metadata['description'] = "Simple raytracer"
     runner.metadata['raytrace_width'] = args.width
     runner.metadata['raytrace_height'] = args.height
-    bench_raytrace(5, args.width, args.height, args.filename)
+    for _ in range(4):
+        bench_raytrace(5, args.width, args.height, args.filename)
 
 #    runner.bench_time_func('raytrace', bench_raytrace,
 #                           args.width, args.height,

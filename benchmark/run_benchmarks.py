@@ -50,8 +50,7 @@ def path2name(p: Path) -> str:
     match = re.search('^(bm_)?(.*?)\.py$', p.name)
     return match.group(2) if match else p.name
 
-benchmarks = [Benchmark(path2name(p), p) for p in [
-                *Path('benchmark').glob('bm_*.py'), Path('test/testme.py')]]
+benchmarks = [Benchmark(path2name(p), p) for p in Path('benchmark').glob('bm_*.py')]
 
 ran_any = False
 for case in cases:

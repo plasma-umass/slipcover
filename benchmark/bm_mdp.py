@@ -297,7 +297,7 @@ if __name__ == "__main__":
     start = time.perf_counter()
     runner = pyperf.Runner()
     runner.metadata['description'] = "MDP benchmark"
-    bench_mdp(1)
+    bench_mdp(3)
     stop = time.perf_counter()
     print("Time elapsed: ", stop - start)
     
