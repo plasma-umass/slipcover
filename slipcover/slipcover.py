@@ -403,17 +403,29 @@ def deinstrument(co, lines: set) -> types.CodeType:
 lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
 # Notes lines seen since last de-instrumentation
+#new_lines_seen: Dict[str, List[int]] = defaultdict(lambda: list())
 new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+
+# Lines seen again
+misses: Dict[str, int] = defaultdict(lambda: 0)
+reported: Dict[str, int] = defaultdict(lambda: 0)
 
 
 def note_coverage(filename: str, lineno: int) -> None:
     """Invoked to mark a line as having executed."""
+#    new_lines_seen[filename].append(lineno)
     new_lines_seen[filename].add(lineno)
+
+
+def _update_stats(file: str, new_lines_seen_list: List[int]) -> None:
+    reported[file] += len(new_lines_seen_list)
+    misses[file] += sum(map(lambda l: l in lines_seen[file], new_lines_seen_list))
 
 
 def get_coverage() -> Dict[str, Set[int]]:
     # in case any haven't been merged in yet
     for file in new_lines_seen:
+#        _update_stats(file, new_lines_seen[file])
         lines_seen[file].update(new_lines_seen[file])
 
     return lines_seen
@@ -470,23 +482,31 @@ def print_coverage() -> None:
 
 
 def print_stats() -> None:
-    def count_deinstrumented(co: CodeType) -> (int, int):
+    def count_instrumented(co: CodeType) -> (int, int):
         count = 0
 
         for c in co.co_consts:
             if isinstance(c, types.CodeType):
-                count += count_deinstrumented(c)
+                count += count_instrumented(c)
 
         for offset, lineno in dis.findlinestarts(co):
-            if co.co_code[offset] == op_JUMP_FORWARD:
+            # NOP isn't normally emitted in Python code,
+            # so it's relatively safe to look for
+            if co.co_code[offset] == op_NOP:
                 count += 1
 
         return count
 
-    for file in instrumented:
-        count = sum([count_deinstrumented(co) for co in instrumented[file]])
-        print(f"{file:50} {count}/{len(code_lines[file])}")
+    def get_stats():
+        for file in instrumented:
+            instr = sum([count_instrumented(co) for co in instrumented[file]])
+            lines = len(code_lines[file])
+            yield (file, lines, instr, reported[file], round(misses[file]/reported[file]*100))
 
+    from tabulate import tabulate
+
+    print(tabulate(get_stats(),
+                   headers=["\nFile", "\n#lines", "Still\ninstr.", "\nReported", "\nMiss%"]))
 
 def deinstrument_seen() -> None:
     import inspect
@@ -512,10 +532,13 @@ def deinstrument_seen() -> None:
         return methods + funcs
 
     for file in new_lines_seen:
+#        new_set = set(new_lines_seen[file])
+        new_set = new_lines_seen[file]
         for co in instrumented[file]:
-            deinstrument(co, new_lines_seen[file])
+            deinstrument(co, new_set)
 
-        lines_seen[file].update(new_lines_seen[file])
+#        _update_stats(file, new_lines_seen[file])
+        lines_seen[file].update(new_set)
 
     new_lines_seen.clear()
 
