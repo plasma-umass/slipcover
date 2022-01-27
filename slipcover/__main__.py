@@ -60,7 +60,7 @@ def setup_deinstrument(args):
         sc.deinstrument_seen()
 
         # Increase the interval geometrically
-        INTERVAL *= 2
+        INTERVAL = min(2*INTERVAL, 1)
         signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
     signal.siginterrupt(signal.SIGVTALRM, False)
@@ -88,6 +88,7 @@ if '-m' in sys.argv:
     args.module_args = sys.argv[minus_m+2:]
 else:
     ap.add_argument('script')
+    ap.add_argument('script_args', nargs=argparse.REMAINDER)
     args = ap.parse_args(sys.argv[1:])
 
 base_path = Path(args.script).resolve().parent if args.script \
@@ -103,7 +104,7 @@ if args.script:
     script_globals['__name__'] = '__main__'
     script_globals['__file__'] = args.script
 
-    sys.argv = sys.argv[1:] # delete ourselves so as not to confuse others
+    sys.argv = [args.script, *args.script_args]
 
     # the 1st item in sys.path is always the main script's directory
     sys.path.pop(0)
