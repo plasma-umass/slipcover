@@ -460,13 +460,13 @@ def print_coverage() -> None:
         for f in files:
             seen_count = len(lines_seen[f])
             total_count = len(code_lines[f])
-            yield [simplify_path(f), seen_count, total_count,
+            yield [simplify_path(f), total_count, total_count - seen_count,
                    round(100*seen_count/total_count),
                    ', '.join(merge_consecutives(code_lines[f] - lines_seen[f]))]
 
     print("")
     print(tabulate(table(lines_seen.keys()),
-          headers=["File", "#lines\nseen", "total\nlines", "%", "lines\nmissing"]))
+          headers=["\nFile", "total\nlines", "lines\nmissed", "Cover\n%", "lines\nmissing"]))
 
 
 def print_stats() -> None:
