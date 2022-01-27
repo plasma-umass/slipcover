@@ -466,7 +466,7 @@ def print_coverage() -> None:
 
     print("")
     print(tabulate(table(lines_seen.keys()),
-          headers=["\nFile", "total\nlines", "lines\nmissed", "Cover\n%", "lines\nmissing"]))
+          headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
 
 
 def print_stats() -> None:
