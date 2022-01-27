@@ -33,9 +33,9 @@ Care is taken thoughout Slipcover to keep things as efficient as possible.
 ### Performance
 <img src="benchmark/benchmark.png" align="right" width="50%"/>
 
-The image on the right shows the execution time of a few sample
-programs when ran by themselves (without any coverage
-tracking), tracking coverage using [coverage.py](https://github.com/nedbat/coveragepy)
+The image on the right shows the execution time of 
+programs. It compares their execution without any coverage
+tracking, tracking coverage using [coverage.py](https://github.com/nedbat/coveragepy)
 and tracking coverage using Slipcover.
 While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original;
