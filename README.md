@@ -27,6 +27,21 @@ As the program executes, Slipcover gradually removes instrumentation that
 is no longer needed, allowing those parts to run at full speed.
 Care is taken thoughout Slipcover to keep things as efficient as possible.
 
+### Performance
+<img src="benchmark/benchmark.png" align="right" width="50%"/>
+
+The image on the right shows the execution time of a few sample
+programs when ran by themselves (without any coverage
+tracking), tracking coverage using [coverage.py](https://github.com/nedbat/coveragepy)
+and tracking coverage using Slipcover.
+As you can see, while each program's structure can affect Slipcover's
+ability to de-instrument, it comes very close to the original
+execution time.
+
+Some of the sample programs are our own, while others were derived
+from the [Python Benchmark Suite](https://github.com/python/pyperformance).
+<br clear="right"/>
+
 ## Getting started
 Slipcover is available from [PyPI](https://pypi.org/project/slipcover).
 You can install it like any other Python module with
