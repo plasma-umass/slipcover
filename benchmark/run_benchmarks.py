@@ -56,7 +56,7 @@ benchmarks = [Benchmark(path2name(p), p) for p in [
 ran_any = False
 for case in cases:
     for bench in benchmarks:
-        if bench.name in results[case.name]:
+        if bench.name in results[case.name] and case.name != 'Slipcover':
             continue
 
         results[case.name][bench.name] = run_command(case.command.format(bench=bench.file))
