@@ -20,9 +20,10 @@ Slipcover aims to provide the same information with **near-zero overhead**, that
 just as fast as running the original Python program.
 
 ### How it works
-Unlike previous coverage tools like [coverage.py](https://github.com/nedbat/coveragepy), which rely on 
+Previous coverage tools like [coverage.py](https://github.com/nedbat/coveragepy) rely on 
 [Python's tracing facilities](https://docs.python.org/3/library/sys.html?highlight=settrace#sys.settrace),
-Slipcover relies on just-in-time instrumentation and de-instrumentation.
+which add significant overhead.
+Instead, Slipcover uses just-in-time instrumentation and de-instrumentation.
 When Slipcover gathers coverage information, it modifies the program's Python byte codes,
 inserting instructions that let it keep track the lines executed by the program.
 As the program executes, Slipcover gradually removes instrumentation that
