@@ -59,7 +59,7 @@ def setup_deinstrument(args):
 
         sc.deinstrument_seen()
 
-        # Increase the interval geometrically
+        # Increase the interval geometrically, to a point
         INTERVAL = min(2*INTERVAL, 1)
         signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
 
