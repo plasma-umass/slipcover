@@ -2,6 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 import re
+from pathlib import Path
+from collections import namedtuple
+
+BENCHMARK_FILE = 'benchmark/benchmark.pkl'
 
 def run_command(command: str):
     import subprocess
@@ -23,45 +27,71 @@ def run_command(command: str):
 
 
 try:
-    with open('benchmark.pkl', 'rb') as f:
+    with open(BENCHMARK_FILE, 'rb') as f:
         results = pickle.load(f)
 
 except FileNotFoundError:
-    from pathlib import Path
-
     results = dict()
 
-    for bench in [*Path('benchmark').glob('*.py'), Path('test/testme.py')]:
-        match = re.search('^(bm_)?(.*?)\.py$', bench.name)
-        name = match.group(2) if match else bench.name
-        if bench not in results:
-            results[name] = dict()
+Case = namedtuple('Case', 'name command')
 
-        results[name]['(no coverage)'] = run_command(f"python3 {bench}")
-        results[name]['coverage.py'] = \
-                run_command(f"python3 -m coverage run --include={bench} {bench}")
-        results[name]['Slipcover'] = run_command(f"python3 -m slipcover {bench}")
+cases = [Case("(no coverage)", "python3 {bench}"),
+         Case("coverage.py", "python3 -m coverage run --include={bench} {bench}"),
+         Case("Slipcover", "python3 -m slipcover {bench}")
+]
 
-    with open('benchmark.pkl', 'wb') as f:
+for case in cases:
+    if case.name not in results:
+        results[case.name] = dict()  # can't pickle defaultdict(lambda: dict())
+
+Benchmark = namedtuple('Benchmark', 'name file')
+
+def path2name(p: Path) -> str:
+    match = re.search('^(bm_)?(.*?)\.py$', p.name)
+    return match.group(2) if match else p.name
+
+benchmarks = [Benchmark(path2name(p), p) for p in [
+                *Path('benchmark').glob('bm_*.py'), Path('test/testme.py')]]
+
+ran_any = False
+for case in cases:
+    for bench in benchmarks:
+        if bench.name in results[case.name]:
+            continue
+
+        results[case.name][bench.name] = run_command(case.command.format(bench=bench.file))
+        ran_any = True
+
+if ran_any:
+    with open(BENCHMARK_FILE, 'wb') as f:
         pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
-bars = list(results[next(iter(results))].keys())
 
-benchmarks = list(results.keys())
+base = cases[0]
+base_times = [sum(results[base.name][b.name]) for b in benchmarks]
+for case in cases:
+    if case == base:
+        continue
+
+    times = [sum(results[case.name][b.name]) for b in benchmarks]
+    rel_times = [((t/bt)-1)*100 for t, bt in zip(times, base_times)]
+
+    print(f"Overhead for {case.name}: {min(rel_times):.0f}% - {max(rel_times):.0f}%")
+
 x = np.arange(len(benchmarks))
-n_bars = len(bars)
+n_bars = len(cases)
 width = .70 # of all bars
-bar_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
+bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
 fig, ax = plt.subplots()
-for i, bar in enumerate(bars):
-    rects = ax.bar(x + bar_x[i], [sum(results[bench][bar]) for bench in benchmarks],
-                   width/n_bars, label=bar)
+for case, bar_x in zip(cases, bars_x):
+    rects = ax.bar(x + bar_x, [sum(results[case.name][b.name]) for b in benchmarks],
+                   width/n_bars, label=case.name)
     ax.bar_label(rects, padding=3)
 
 #ax.set_title('Execution time')
 ax.set_ylabel('CPU seconds')
-ax.set_xticks(x, labels=benchmarks)
+ax.set_xticks(x, labels=[b.name for b in benchmarks])
 ax.legend()
 
 fig.tight_layout()
