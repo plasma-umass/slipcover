@@ -16,8 +16,8 @@ or [fuzzing](https://en.wikipedia.org/wiki/Fuzzing).
 
 Past code coverage tools can make programs significantly slower;
 it is not uncommon for them to take twice as long to execute.
-Slipcover aims to provide the same information with **near-zero overhead**, that is, 
-just as fast as running the original Python program.
+Slipcover aims to provide the same information with **near-zero overhead**, often 
+almost as fast as running the original Python program.
 
 ### How it works
 Previous coverage tools like [coverage.py](https://github.com/nedbat/coveragepy) rely on 
