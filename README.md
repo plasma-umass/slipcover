@@ -35,8 +35,7 @@ programs when ran by themselves (without any coverage
 tracking), tracking coverage using [coverage.py](https://github.com/nedbat/coveragepy)
 and tracking coverage using Slipcover.
 As you can see, while each program's structure can affect Slipcover's
-ability to de-instrument, it comes very close to the original
-execution time.
+ability to de-instrument, its running time comes very close to the original.
 
 Some of the sample programs are our own, while others were derived
 from the [Python Benchmark Suite](https://github.com/python/pyperformance).
