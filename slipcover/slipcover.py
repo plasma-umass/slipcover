@@ -508,6 +508,7 @@ def print_stats() -> None:
     print(tabulate(get_stats(),
                    headers=["\nFile", "\n#lines", "Still\ninstr.", "\nReported", "\nMiss%"]))
 
+
 def deinstrument_seen() -> None:
     import inspect
 
@@ -559,5 +560,3 @@ def deinstrument_seen() -> None:
 
         # all references should have been replaced now... right?
         replace_map.clear()
-
-    # stackpatch.patch(replace_map)
