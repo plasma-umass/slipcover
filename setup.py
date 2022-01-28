@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 from os import path, environ
 
 def read_file(name):
@@ -23,6 +23,7 @@ setup(
     author="Juan Altmayer Pizzorno, Emery Berger",
     author_email="juan@altmayer.com, emery@cs.umass.edu",
     license="Apache License 2.0",
+    packages=['slipcover'],
     python_requires=">=3.8,<3.11",
     install_requires=[
         "tabulate"
