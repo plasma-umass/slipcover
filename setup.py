@@ -19,7 +19,7 @@ setup(
     keywords="coverage testing",
     long_description=read_file("README.md"),
     long_description_content_type="text/markdown",
-    url="https://github.com/jaltmayerpizzorno/slipcover",
+    url="https://github.com/plasma-umass/slipcover",
     author="Juan Altmayer Pizzorno, Emery Berger",
     author_email="juan@altmayer.com, emery@cs.umass.edu",
     license="Apache License 2.0",
