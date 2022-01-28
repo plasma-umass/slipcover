@@ -412,6 +412,32 @@ def test_instrument():
     assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_code_lines()
 
 
+def test_instrument_threads():
+    result = None
+
+    first_line = current_line()+1
+    def foo(n):
+        nonlocal result
+        x = 0
+        for i in range(n):
+            x += (i+1)
+        result = x
+    last_line = current_line()
+
+    sc.instrument(foo)
+
+    import threading
+
+    t = threading.Thread(target=foo, args=(3,))
+    t.start()
+    t.join()
+
+    assert 6 == result
+
+    assert {current_file(): {*range(first_line+2, last_line)}} == sc.get_coverage()
+    assert {current_file(): {*range(first_line+2, last_line)}} == sc.get_code_lines()
+
+
 def test_get_code_lines():
     first_line = current_line()
     def foo(n):             # 1
