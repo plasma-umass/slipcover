@@ -95,6 +95,10 @@ tests/darknet.py       132         11        92  146, 179-181, 183-187, 189, 191
 As can be seen in the coverage report, d2k lacks some coverage, especially in
 its `box.py` and `image.py` components.
 
+## Platforms
+Our GitHub workflows run the automated test suite on Linux, MacOS and Windows, but
+really it should work anywhere where CPython does.
+
 ## Contributing
 Slipcover is alpha software, and under active development.
 Please feel free to [create a new issue](https://github.com/jaltmayerpizzorno/slipcover/issues/new)
