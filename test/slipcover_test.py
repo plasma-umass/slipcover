@@ -544,4 +544,37 @@ def test_deinstrument_some():
 
 
 # FIXME test deinstrument_seen
+
+
+def test_auto_deinstrument():
+    first_line = current_line()+2
+    def foo(n):
+        if n > 0:
+            return n+1 
+        return 0
+    last_line = current_line()
+
+    assert not sc.get_coverage()
+
+    sc.instrument(foo)
+    old_code = foo.__code__
+
+    sc.auto_deinstrument()
+    foo(0)
+
+    max_attempts = 10
+    import time
+    while (foo.__code__ == old_code and max_attempts > 0):
+        max_attempts -= 1
+        time.sleep(.05)
+
+    assert max_attempts > 0, "Code never de-instrumented"
+
+    sc.lines_seen[current_file()].clear()   # FIXME breaks interface
+    foo(1)
+
+    assert {current_file(): {first_line+1}} == sc.get_coverage()
+
+
 # FIXME test module loading & instrumentation
+

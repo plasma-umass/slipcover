@@ -3,6 +3,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Any, Dict
 from slipcover import slipcover as sc
+import atexit
 
 
 from importlib.abc import MetaPathFinder, Loader
@@ -37,36 +38,6 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 
         return None
 
-
-def setup_deinstrument(args):
-    import atexit
-    import signal
-    
-    INTERVAL = 0.1
-
-    def at_exit():
-        signal.setitimer(signal.ITIMER_VIRTUAL, 0)
-        sc.print_coverage()
-        if args.stats:
-            print("\n---")
-            sc.print_stats()
-
-    atexit.register(at_exit)
-
-    def deinstrument_callback(signum, this_frame):
-        """Periodically de-instruments lines that were already reached."""
-        nonlocal INTERVAL
-
-        sc.deinstrument_seen()
-
-        # Increase the interval geometrically, to a point
-        INTERVAL = min(2*INTERVAL, 1)
-        signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
-
-    signal.siginterrupt(signal.SIGVTALRM, False)
-    signal.signal(signal.SIGVTALRM, deinstrument_callback)
-    signal.setitimer(signal.ITIMER_VIRTUAL, INTERVAL)
-
 #
 # The intended usage is:
 #
@@ -96,6 +67,16 @@ base_path = Path(args.script).resolve().parent if args.script \
 
 sys.meta_path = [SlipcoverMetaPathFinder(base_path, sys.meta_path)]
 
+    
+def print_coverage():
+    sc.print_coverage()
+    if args.stats:
+        print("\n---")
+        sc.print_stats()
+
+atexit.register(print_coverage)
+sc.auto_deinstrument()
+
 if args.script:
     # python 'globals' for the script being executed
     script_globals: Dict[str, Any] = defaultdict(None)
@@ -114,12 +95,9 @@ if args.script:
         code = compile(f.read(), args.script, "exec")
 
     code = sc.instrument(code)
-
-    setup_deinstrument(args)
     exec(code, script_globals)
 
 else:
     import runpy
     sys.argv = [*args.module, *args.module_args]
-    setup_deinstrument(args)
     runpy.run_module(*args.module, run_name='__main__', alter_sys=True)

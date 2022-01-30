@@ -4,6 +4,7 @@ import dis
 import types
 from typing import Dict, Set, List
 from collections import defaultdict
+import threading
 
 PYTHON_VERSION = sys.version_info[0:2]
 
@@ -510,11 +511,9 @@ def print_stats() -> None:
 
 
 def deinstrument_seen() -> None:
-    import inspect
-
     def all_functions(source):
-        """Introspects, returning all functions (that may be pointing to
-           instrumented code) to deinstrument"""
+        """Returns all functions (that may be pointing to instrumented code)"""
+        import inspect
         classes = [
             c
             for c in source
@@ -545,18 +544,41 @@ def deinstrument_seen() -> None:
 
     # Replace references to code
     if replace_map:
-        # FIXME what about other threads?
-        frame = inspect.currentframe()
-        while frame:
-            for f in all_functions(frame.f_globals.values()):
-                if f.__code__ in replace_map:
-                    f.__code__ = replace_map[f.__code__]
+        globals_seen = []
+        for frame in sys._current_frames().values():
+            while frame:
+                if not frame.f_globals in globals_seen:
+                    globals_seen.append(frame.f_globals)
+                    for f in all_functions(frame.f_globals.values()):
+                        if f.__code__ in replace_map:
+                            f.__code__ = replace_map[f.__code__]
 
-            for f in all_functions(frame.f_locals.values()):
-                if f.__code__ in replace_map:
-                    f.__code__ = replace_map[f.__code__]
+                for f in all_functions(frame.f_locals.values()):
+                    if f.__code__ in replace_map:
+                        f.__code__ = replace_map[f.__code__]
 
-            frame = frame.f_back
+                frame = frame.f_back
 
         # all references should have been replaced now... right?
         replace_map.clear()
+
+
+class DeinstrumentThread(threading.Thread):
+    """Runs in the background, de-instrumenting code."""
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.interval = 0.1
+
+    def run(self):
+        import time
+
+        while True:
+            deinstrument_seen()
+
+            # Increase the interval geometrically, to a point
+            self.interval = min(2*self.interval, 1)
+            time.sleep(self.interval)
+
+
+def auto_deinstrument() -> None:
+    DeinstrumentThread().start()
