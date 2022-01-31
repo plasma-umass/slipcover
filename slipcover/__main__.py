@@ -18,7 +18,8 @@ class SlipcoverLoader(Loader):
 
     def exec_module(self, module):
         code = self.orig_loader.get_code(module.__name__)
-        code = sc.instrument(code)
+        if code:
+            code = sc.instrument(code)
         exec(code, module.__dict__)
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
@@ -37,6 +38,9 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
                 if found.origin != 'built-in' and \
                    self.pylib_path not in Path(found.origin).parents and \
                    self.base_path in Path(found.origin).parents:
+                    global args;
+                    if args.debug:
+                        print(f"adding {fullname} from {found.origin}; pylib={self.pylib_path}")
                     found.loader = SlipcoverLoader(found.loader)
                 return found
 
@@ -53,6 +57,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 import argparse
 ap = argparse.ArgumentParser(prog='slipcover', add_help=False)
 ap.add_argument('--stats', action='store_true')
+ap.add_argument('--debug', action='store_true')
 if '-m' in sys.argv:
     ap.add_argument('script', nargs=argparse.SUPPRESS)
     ap.add_argument('-m', dest='module', nargs=1, required=True)
