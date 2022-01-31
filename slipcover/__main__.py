@@ -35,7 +35,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
             found = f.find_spec(fullname, path, target)
             if (found):
                 origin = Path(found.origin)
-                # can't instrument built-in or DLL based modules; and
+                # Can't instrument built-in or DLL based modules; and
                 # probably shouldn't instrument python library modules, either.
                 if found.origin != 'built-in' and origin.suffix != '.pyd' and \
                    self.pylib_path not in origin.parents and \
