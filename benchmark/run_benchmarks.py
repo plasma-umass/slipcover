@@ -12,7 +12,7 @@ def run_command(command: str):
 
     print(command)
     cmd = "time -p " + command
-    p = subprocess.run(("time -p " + command).split(), capture_output=True)
+    p = subprocess.run(("time -p " + command).split(), capture_output=True, check=True)
 
     user_time = re.search(b'^user *([\\d\\.]+)$', p.stderr, re.M)
     sys_time = re.search(b'^sys *([\\d\\.]+)$', p.stderr, re.M)
@@ -21,7 +21,7 @@ def run_command(command: str):
         raise RuntimeError("Unable to parse " + str(p.stderr))
 
     results = (float(user_time.group(1)), float(sys_time.group(1)))
-    print(results)
+    print(results, sum(results))
 
     return results
 
