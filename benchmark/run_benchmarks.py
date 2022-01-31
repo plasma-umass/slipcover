@@ -35,9 +35,11 @@ except FileNotFoundError:
 
 Case = namedtuple('Case', 'name command')
 
-cases = [Case("(no coverage)", "python3 {bench}"),
-         Case("coverage.py", "python3 -m coverage run --include={bench} {bench}"),
-         Case("Slipcover", "python3 -m slipcover {bench}")
+python = 'python3.9'
+
+cases = [Case("(no coverage)", python + " {bench}"),
+         Case("coverage.py", python + " -m coverage run --include={bench} {bench}"),
+         Case("Slipcover", python + " -m slipcover {bench}")
 ]
 
 for case in cases:
@@ -50,7 +52,7 @@ def path2name(p: Path) -> str:
     match = re.search('^(bm_)?(.*?)\.py$', p.name)
     return match.group(2) if match else p.name
 
-benchmarks = [Benchmark(path2name(p), p) for p in Path('benchmark').glob('bm_*.py')]
+benchmarks = [Benchmark(path2name(p), p) for p in sorted(Path('benchmark').glob('bm_*.py'))]
 
 ran_any = False
 for case in cases:
