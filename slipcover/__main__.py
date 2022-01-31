@@ -18,8 +18,7 @@ class SlipcoverLoader(Loader):
 
     def exec_module(self, module):
         code = self.orig_loader.get_code(module.__name__)
-        if code:
-            code = sc.instrument(code)
+        code = sc.instrument(code)
         exec(code, module.__dict__)
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
@@ -35,9 +34,12 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target)
             if (found):
-                if found.origin != 'built-in' and \
-                   self.pylib_path not in Path(found.origin).parents and \
-                   self.base_path in Path(found.origin).parents:
+                origin = Path(found.origin)
+                # can't instrument built-in or DLL based modules; and
+                # probably shouldn't instrument python library modules, either.
+                if found.origin != 'built-in' and origin.suffix != '.pyd' and \
+                   self.pylib_path not in origin.parents and \
+                   self.base_path in origin.parents:
                     global args;
                     if args.debug:
                         print(f"adding {fullname} from {found.origin}; pylib={self.pylib_path}")
