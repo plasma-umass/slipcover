@@ -22,8 +22,8 @@ class SlipcoverLoader(Loader):
         exec(code, module.__dict__)
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
-    def __init__(self, script_path, meta_path):
-        self.script_path = script_path
+    def __init__(self, base_path, meta_path):
+        self.base_path = base_path
         self.meta_path = meta_path
 
     def find_spec(self, fullname, path, target=None):
@@ -31,8 +31,11 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target)
             if (found):
+                global args
                 # instrument iff the module's path is related to the original script's
-                if self.script_path in Path(found.origin).parents:
+                if self.base_path in Path(found.origin).parents:
+                    if args.debug:
+                        print(f"{self.base_path} in {list(Path(found.origin).parents)}")
                     found.loader = SlipcoverLoader(found.loader)
                 return found
 
@@ -49,6 +52,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 import argparse
 ap = argparse.ArgumentParser(prog='slipcover', add_help=False)
 ap.add_argument('--stats', action='store_true')
+ap.add_argument('--debug', action='store_true')
 if '-m' in sys.argv:
     ap.add_argument('script', nargs=argparse.SUPPRESS)
     ap.add_argument('-m', dest='module', nargs=1, required=True)
