@@ -412,6 +412,31 @@ def test_instrument():
     assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_code_lines()
 
 
+def test_instrument_code_before_first_line():
+    first_line = current_line()+1
+    def foo(n):
+        for i in range(n+1):
+            yield i
+    last_line = current_line()
+
+    # Generators in 3.10 start with a GEN_START that's not assigned to any lines;
+    # that's what we're trying to test here
+    first_line_offset, _ = next(dis.findlinestarts(foo.__code__))
+    assert PYTHON_VERSION < (3,10) or 0 != first_line_offset
+
+    sc.instrument(foo)
+    dis.dis(foo)
+
+    # Are all lines where we expect?
+    for (offset, _) in dis.findlinestarts(foo.__code__):
+        assert sc.op_NOP == foo.__code__.co_code[offset]
+
+    assert 6 == sum(foo(3))
+
+    assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_coverage()
+    assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_code_lines()
+
+
 def test_instrument_threads():
     result = None
 
