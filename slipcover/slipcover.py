@@ -281,11 +281,12 @@ def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType
     patch = bytearray()
     lines = []
 
-    prev_offset = None
+    prev_offset = 0
     prev_lineno = None
+    patch_offset = 0
     for (offset, lineno) in dis.findlinestarts(co):
-        if prev_offset != None:
-            patch.extend(co.co_code[prev_offset:offset])
+        patch.extend(co.co_code[prev_offset:offset])
+        if offset > prev_offset:
             lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
         prev_offset = offset
         prev_lineno = lineno
