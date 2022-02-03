@@ -7,6 +7,7 @@ from collections import defaultdict
 import threading
 
 PYTHON_VERSION = sys.version_info[0:2]
+STATS = False # FIXME
 
 # FIXME provide __all__
 
@@ -405,21 +406,28 @@ def deinstrument(co, lines: set) -> types.CodeType:
 lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
 # Notes lines seen since last de-instrumentation
-#new_lines_seen: Dict[str, List[int]] = defaultdict(lambda: list())
-new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+if STATS:
+    new_lines_seen: Dict[str, List[int]] = defaultdict(lambda: list())
+else:
+    new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
 # Lines seen again
 misses: Dict[str, int] = defaultdict(lambda: 0)
 reported: Dict[str, int] = defaultdict(lambda: 0)
 
 
-def note_coverage(filename: str, lineno: int) -> None:
-    """Invoked to mark a line as having executed."""
-#    new_lines_seen[filename].append(lineno)
-    new_lines_seen[filename].add(lineno)
+if STATS:
+    def note_coverage(filename: str, lineno: int) -> None:
+        """Invoked to mark a line as having executed."""
+        new_lines_seen[filename].append(lineno)
+else:
+    def note_coverage(filename: str, lineno: int) -> None:
+        """Invoked to mark a line as having executed."""
+        new_lines_seen[filename].add(lineno)
 
 
 def _update_stats(file: str, new_lines_seen_list: List[int]) -> None:
+#    print(f"-> reported={len(new_lines_seen_list):,} misses={sum(map(lambda l: l in lines_seen[file], new_lines_seen_list)):,}")
     reported[file] += len(new_lines_seen_list)
     misses[file] += sum(map(lambda l: l in lines_seen[file], new_lines_seen_list))
 
@@ -427,7 +435,8 @@ def _update_stats(file: str, new_lines_seen_list: List[int]) -> None:
 def get_coverage() -> Dict[str, Set[int]]:
     # in case any haven't been merged in yet
     for file in new_lines_seen:
-#        _update_stats(file, new_lines_seen[file])
+        if STATS:
+            _update_stats(file, new_lines_seen[file])
         lines_seen[file].update(new_lines_seen[file])
 
     return lines_seen
@@ -533,12 +542,12 @@ def deinstrument_seen() -> None:
         return methods + funcs
 
     for file in new_lines_seen:
-#        new_set = set(new_lines_seen[file])
-        new_set = new_lines_seen[file]
+        new_set = new_lines_seen[file] if not STATS else set(new_lines_seen[file])
         for co in instrumented[file]:
             deinstrument(co, new_set)
 
-#        _update_stats(file, new_lines_seen[file])
+        if STATS:
+            _update_stats(file, new_lines_seen[file])
         lines_seen[file].update(new_set)
 
     new_lines_seen.clear()
