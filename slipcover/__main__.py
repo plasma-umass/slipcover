@@ -79,13 +79,7 @@ base_path = Path(args.script).resolve().parent if args.script \
 sys.meta_path = [SlipcoverMetaPathFinder(base_path, sys.meta_path)]
 
     
-def print_coverage():
-    sc.print_coverage()
-    if args.stats:
-        print("\n---")
-        sc.print_stats()
-
-atexit.register(print_coverage)
+atexit.register(sc.print_coverage)
 sc.auto_deinstrument()
 
 if args.script:

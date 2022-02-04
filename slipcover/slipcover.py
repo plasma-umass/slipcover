@@ -3,7 +3,7 @@ import sys
 import dis
 import types
 from typing import Dict, Set, List
-from collections import defaultdict
+from collections import defaultdict, Counter
 import threading
 
 PYTHON_VERSION = sys.version_info[0:2]
@@ -68,6 +68,27 @@ def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
     return bytecode
 
 
+def unpack_opargs(code: bytes) -> List[(int, int, int, int)]:
+    """Unpacks opcodes and their arguments, returning:
+
+    - the beginning offset, including that of the first EXTENDED_ARG, if any
+    - the length (offset + length is where the next opcode starts)
+    - the opcode
+    - its argument (decoded)
+    """
+    ext_arg = 0
+    next_off = 0
+    for off in range(0, len(code), 2):
+        op = code[off]
+        if op == op_EXTENDED_ARG:
+            ext_arg = (ext_arg | code[off+1]) << 8
+        else:
+            arg = (ext_arg | code[off+1])
+            yield (next_off, off+2-next_off, op, arg)
+            ext_arg = 0
+            next_off = off+2
+
+
 class Branch:
     """Describes a branch instruction."""
 
@@ -124,19 +145,6 @@ class Branch:
     def from_code(code : types.CodeType) -> List[Branch]:
         """Finds all Branches in code."""
         branches = []
-
-        def unpack_opargs(code):
-            ext_arg = 0
-            next_off = 0
-            for off in range(0, len(code), 2):
-                op = code[off]
-                if op == op_EXTENDED_ARG:
-                    ext_arg = (ext_arg | code[off+1]) << 8
-                else:
-                    arg = (ext_arg | code[off+1])
-                    yield (next_off, off+2-next_off, op, arg)
-                    ext_arg = 0
-                    next_off = off+2
 
         branch_opcodes = set(dis.hasjrel).union(dis.hasjabs)
 
@@ -267,8 +275,8 @@ def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType
 
     consts = list(co.co_consts)
 
-    note_coverage_index = len(consts)
-    consts.append(note_coverage)
+    report_coverage_index = len(consts)
+    consts.append(report_coverage)
 
     filename_index = len(consts)
     consts.append(co.co_filename)
@@ -294,7 +302,7 @@ def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType
 
         patch_offset = len(patch)
         patch.extend([op_NOP, 0])       # for deinstrument jump
-        patch.extend(opcode_arg(op_LOAD_CONST, note_coverage_index))
+        patch.extend(opcode_arg(op_LOAD_CONST, report_coverage_index))
         patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
         patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
         consts.append(lineno)
@@ -382,9 +390,23 @@ def deinstrument(co, lines: set) -> types.CodeType:
 
     for (offset, lineno) in dis.findlinestarts(co):
         if lineno in lines and co.co_code[offset] == op_NOP:
-            if not patch:
-                patch = bytearray(co.co_code)
-            patch[offset] = op_JUMP_FORWARD
+            if not STATS:
+                if not patch:
+                    patch = bytearray(co.co_code)
+                patch[offset] = op_JUMP_FORWARD
+            else:
+                # Rewrite the line's number constant, making it negative
+                # (its opposite) to indicate it's not a miss if reported in.
+                # XXX can we simplify this??
+                it = iter(unpack_opargs(co.co_code[offset:]))
+                next(it) # NOP
+                next(it) # LOAD_CONST report_coverage_index
+                next(it) # LOAD_CONST filename_index
+                _, _, _, line_index = next(it)
+                if co.co_consts[line_index] > 0:
+                    if not consts:
+                        consts = list(co.co_consts)
+                    consts[line_index] =  -consts[line_index]
 
     if not patch and not consts:
         return co
@@ -407,40 +429,46 @@ lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
 # Notes lines seen since last de-instrumentation
 if STATS:
-    new_lines_seen: Dict[str, List[int]] = defaultdict(lambda: list())
+    new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 else:
     new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
-# Lines seen again
-misses: Dict[str, int] = defaultdict(lambda: 0)
-reported: Dict[str, int] = defaultdict(lambda: 0)
+# Stats
+u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 
 data_lock = threading.RLock()
 
 
 if STATS:
-    def note_coverage(filename: str, lineno: int) -> None:
+    def report_coverage(filename: str, lineno: int) -> None:
         """Invoked to mark a line as having executed."""
         with data_lock:
-            new_lines_seen[filename].append(lineno)
+            if lineno > 0:
+                new_lines_seen[filename][lineno] += 1
+            else:
+                deinstrumented[filename][-lineno] += 1
 else:
-    def note_coverage(filename: str, lineno: int) -> None:
+    def report_coverage(filename: str, lineno: int) -> None:
         """Invoked to mark a line as having executed."""
         with data_lock:
             new_lines_seen[filename].add(lineno)
 
 
-def _update_stats(file: str, new_lines_seen_list: List[int]) -> None:
-#    print(f"-> reported={len(new_lines_seen_list):,} misses={sum(map(lambda l: l in lines_seen[file], new_lines_seen_list)):,}")
-    reported[file] += len(new_lines_seen_list)
-    misses[file] += sum(map(lambda l: l in lines_seen[file], new_lines_seen_list))
+def _update_stats() -> None:
+    if STATS:
+        with data_lock:
+            for file, lines in new_lines_seen.items():
+                reported[file].update(lines)
+                u_misses[file].update({l: lines[l] for l in lines if l in lines_seen[file]})
 
 
 def get_coverage() -> Dict[str, Set[int]]:
     # in case any haven't been merged in yet
+    _update_stats()
+
     for file in new_lines_seen:
-        if STATS:
-            _update_stats(file, new_lines_seen[file])
         lines_seen[file].update(new_lines_seen[file])
 
     return lines_seen
@@ -459,6 +487,19 @@ def clear() -> None:
     instrumented.clear()
 
 
+class PathSimplifier:
+    def __init__(self):
+        from pathlib import Path
+        self.cwd = Path.cwd()
+
+    def simplify(self, path : str) -> str:
+        from pathlib import Path
+        f = Path(path)
+        if f.is_relative_to(self.cwd):
+            return str(f.relative_to(self.cwd))
+        return path 
+
+
 def print_coverage() -> None:
     lines_seen = get_coverage()
 
@@ -473,21 +514,14 @@ def print_coverage() -> None:
             for g in [list(g) for _, g in groups]
         ]
 
-    from pathlib import Path
+    simp = PathSimplifier()
     from tabulate import tabulate
-
-    cwd = Path.cwd()
-
-    def simplify_path(file: str) -> str:
-        f = Path(file)
-        if f.is_relative_to(cwd): return f.relative_to(cwd)
-        return file
 
     def table(files):
         for f in files:
             seen_count = len(lines_seen[f])
             total_count = len(code_lines[f])
-            yield [simplify_path(f), total_count, total_count - seen_count,
+            yield [simp.simplify(f), total_count, total_count - seen_count,
                    round(100*seen_count/total_count),
                    ', '.join(merge_consecutives(code_lines[f] - lines_seen[f]))]
 
@@ -495,33 +529,67 @@ def print_coverage() -> None:
     print(tabulate(table(lines_seen.keys()),
           headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
 
+    if STATS:
+        print("\n---")
+        print_stats()
+
+
+if PYTHON_VERSION >= (3,10):
+    def counter_total(c: Counter) -> int:
+        return c.total()
+else:
+    def counter_total(c: Counter) -> int:
+        return sum([c[n] for n in c])
+
 
 def print_stats() -> None:
-    def count_instrumented(co: CodeType) -> (int, int):
-        count = 0
+    def still_instrumented(co: CodeType) -> set(int):
+        lines = set()
 
         for c in co.co_consts:
             if isinstance(c, types.CodeType):
-                count += count_instrumented(c)
+                lines.update(still_instrumented(c))
 
         for offset, lineno in dis.findlinestarts(co):
             # NOP isn't normally emitted in Python code,
             # so it's relatively safe to look for
             if co.co_code[offset] == op_NOP:
-                count += 1
+                lines.add(lineno)
 
-        return count
+        return lines
+
+    # Once a line reports in, it's available for deinstrumentation.
+    # Each time it reports in after that, we consider it a miss (like a cache miss).
+    # We differentiate between (de-instrument) "D misses", where a line
+    # reports in after it _could_ have been de-instrumented and (use) "U misses"
+    # and where a line reports in after it _has_ been de-instrumented, but
+    # didn't use the code object where it's deinstrumented.
+
+    simp = PathSimplifier()
 
     def get_stats():
         for file in instrumented:
-            instr = sum([count_instrumented(co) for co in instrumented[file]])
-            lines = len(code_lines[file])
-            yield (file, lines, instr, reported[file], round(misses[file]/reported[file]*100))
+            still_instr = set().union(*[still_instrumented(co) for co in instrumented[file]])
+            d_misses = reported[file] - u_misses[file]
+            d_misses.subtract(reported[file].keys())  # 1st time is normal, not a d miss
+            d_misses = +d_misses    # drop any 0 counts
+            all_for_file = reported[file] + deinstrumented[file]
+
+            yield (simp.simplify(file), len(code_lines[file]), len(still_instr),
+                   round(counter_total(d_misses)/counter_total(all_for_file)*100, 1),
+                   round(counter_total(u_misses[file])/counter_total(all_for_file)*100, 1),
+                   " ".join([f"{it[0]}:{it[1]}" for it in d_misses.most_common(4)]),
+                   " ".join([f"{it[0]}:{it[1]}" for it in u_misses[file].most_common(4)]),
+                   " ".join([f"{it[0]}:{it[1]}" for it in all_for_file.most_common(4)]),
+            )
 
     from tabulate import tabulate
 
-    print(tabulate(get_stats(),
-                   headers=["\nFile", "\n#lines", "Still\ninstr.", "\nReported", "\nMiss%"]))
+    if STATS:
+        print(tabulate(get_stats(),
+                       headers=["\nFile", "\n#lines", "Still\ninst.",
+                                "\nD miss%",
+                                "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
 
 
 def deinstrument_seen() -> None:
@@ -546,13 +614,14 @@ def deinstrument_seen() -> None:
         return methods + funcs
 
     with data_lock:
-        for file in new_lines_seen:
-            new_set = new_lines_seen[file] if not STATS else set(new_lines_seen[file])
+        _update_stats()
+
+        for file, new_set in new_lines_seen.items():
+            if STATS: new_set = set(new_set)    # Counter -> set
+
             for co in instrumented[file]:
                 deinstrument(co, new_set)
 
-            if STATS:
-                _update_stats(file, new_lines_seen[file])
             lines_seen[file].update(new_set)
 
         new_lines_seen.clear()
