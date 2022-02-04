@@ -415,15 +415,19 @@ else:
 misses: Dict[str, int] = defaultdict(lambda: 0)
 reported: Dict[str, int] = defaultdict(lambda: 0)
 
+data_lock = threading.RLock()
+
 
 if STATS:
     def note_coverage(filename: str, lineno: int) -> None:
         """Invoked to mark a line as having executed."""
-        new_lines_seen[filename].append(lineno)
+        with data_lock:
+            new_lines_seen[filename].append(lineno)
 else:
     def note_coverage(filename: str, lineno: int) -> None:
         """Invoked to mark a line as having executed."""
-        new_lines_seen[filename].add(lineno)
+        with data_lock:
+            new_lines_seen[filename].add(lineno)
 
 
 def _update_stats(file: str, new_lines_seen_list: List[int]) -> None:
@@ -541,36 +545,37 @@ def deinstrument_seen() -> None:
         ]
         return methods + funcs
 
-    for file in new_lines_seen:
-        new_set = new_lines_seen[file] if not STATS else set(new_lines_seen[file])
-        for co in instrumented[file]:
-            deinstrument(co, new_set)
+    with data_lock:
+        for file in new_lines_seen:
+            new_set = new_lines_seen[file] if not STATS else set(new_lines_seen[file])
+            for co in instrumented[file]:
+                deinstrument(co, new_set)
 
-        if STATS:
-            _update_stats(file, new_lines_seen[file])
-        lines_seen[file].update(new_set)
+            if STATS:
+                _update_stats(file, new_lines_seen[file])
+            lines_seen[file].update(new_set)
 
-    new_lines_seen.clear()
+        new_lines_seen.clear()
 
-    # Replace references to code
-    if replace_map:
-        globals_seen = []
-        for frame in sys._current_frames().values():
-            while frame:
-                if not frame.f_globals in globals_seen:
-                    globals_seen.append(frame.f_globals)
-                    for f in all_functions(frame.f_globals.values()):
+        # Replace references to code
+        if replace_map:
+            globals_seen = []
+            for frame in sys._current_frames().values():
+                while frame:
+                    if not frame.f_globals in globals_seen:
+                        globals_seen.append(frame.f_globals)
+                        for f in all_functions(frame.f_globals.values()):
+                            if f.__code__ in replace_map:
+                                f.__code__ = replace_map[f.__code__]
+
+                    for f in all_functions(frame.f_locals.values()):
                         if f.__code__ in replace_map:
                             f.__code__ = replace_map[f.__code__]
 
-                for f in all_functions(frame.f_locals.values()):
-                    if f.__code__ in replace_map:
-                        f.__code__ = replace_map[f.__code__]
+                    frame = frame.f_back
 
-                frame = frame.f_back
-
-        # all references should have been replaced now... right?
-        replace_map.clear()
+            # all references should have been replaced now... right?
+            replace_map.clear()
 
 
 class DeinstrumentThread(threading.Thread):
