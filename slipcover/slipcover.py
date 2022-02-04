@@ -28,19 +28,6 @@ else:
         return arg
 
 
-# map to guide CodeType replacements
-replace_map = dict()
-instrumented: Dict[str, set] = defaultdict(lambda: set())
-
-
-def new_CodeType(orig: types.CodeType, **kwargs) -> types.CodeType:
-    """Instantiates a new CodeType, modifying it from the original"""
-    new = orig.replace(**kwargs)
-    replace_map[orig] = new
-    # print("->", new)
-    return new
-
-
 op_EXTENDED_ARG = dis.EXTENDED_ARG
 op_LOAD_CONST = dis.opmap["LOAD_CONST"]
 op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
@@ -251,6 +238,10 @@ def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
     return bytes(linetable)
 
 
+# maps to guide CodeType replacements
+replace_map: Dict[types.CodeType, types.CodeType] = dict()
+instrumented: Dict[str, set] = defaultdict(lambda: set())
+
 # Notes which code lines have been instrumented
 code_lines: Dict[str, set] = defaultdict(lambda: set())
 
@@ -350,13 +341,13 @@ def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType
     else:
         kwargs["co_linetable"] = make_linetable(co.co_firstlineno, lines)
 
-    new_code = new_CodeType(
-        co,
+    new_code = co.replace(
         co_code=bytes(patch),
         co_stacksize=co.co_stacksize + 2,  # FIXME use dis.stack_effect
         co_consts=tuple(consts),
         **kwargs
     )
+    replace_map[co] = new_code
 
     if not parent:
         instrumented[co.co_filename].add(new_code)
@@ -415,9 +406,10 @@ def deinstrument(co, lines: set) -> types.CodeType:
     if patch: changed["co_code"] = bytes(patch)
     if consts: changed["co_consts"] = tuple(consts)
 
-    new_code = new_CodeType(co, **changed)
+    new_code = co.replace(**changed)
+    replace_map[co] = new_code
 
-    if new_code != co and co in instrumented[co.co_filename]:
+    if co in instrumented[co.co_filename]:
         instrumented[co.co_filename].remove(co)
         instrumented[co.co_filename].add(new_code)
 
