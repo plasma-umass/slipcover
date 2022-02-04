@@ -320,7 +320,7 @@ def test_make_lnotab():
              sc.LineEntry(361, 370, 208),
              sc.LineEntry(370, 380, 50)]
 
-    lnotab = sc.make_lnotab(0, lines)
+    lnotab = sc.LineEntry.make_lnotab(0, lines)
 
     assert [0, 1,
             6, 1,
@@ -342,7 +342,7 @@ def test_make_linetable():
              sc.LineEntry(376, 380, 208),
              sc.LineEntry(380, 390, 50)]    # XXX this is presumptive, check for accuracy
 
-    linetable = sc.make_linetable(0, lines)
+    linetable = sc.LineEntry.make_linetable(0, lines)
 
     assert [6, 1,
             44, 1,
@@ -380,13 +380,13 @@ def test_make_lines_and_compare():
         return x
 
     if PYTHON_VERSION >= (3,10):
-        my_linetable = sc.make_linetable(foo.__code__.co_firstlineno,
-                                         lines_from_code(foo.__code__))
+        my_linetable = sc.LineEntry.make_linetable(foo.__code__.co_firstlineno,
+                                                   lines_from_code(foo.__code__))
         assert list(foo.__code__.co_linetable) == list(my_linetable)
 
 
-    my_lnotab = sc.make_lnotab(foo.__code__.co_firstlineno,
-                               lines_from_code(foo.__code__))
+    my_lnotab = sc.LineEntry.make_lnotab(foo.__code__.co_firstlineno,
+                                         lines_from_code(foo.__code__))
     assert list(foo.__code__.co_lnotab) == list(my_lnotab)
 
 

@@ -163,79 +163,81 @@ class LineEntry:
             self.end += insert_length
 
 
-def make_lnotab(firstlineno : int, lines : List[LineEntry]) -> bytes:
-    """Generates the line number table used by Python 3.9- to map offsets to line numbers."""
+    @staticmethod
+    def make_lnotab(firstlineno : int, lines : List[LineEntry]) -> bytes:
+        """Generates the line number table used by Python 3.9- to map offsets to line numbers."""
 
-    lnotab = []
+        lnotab = []
 
-    prev_start = 0
-    prev_number = firstlineno
+        prev_start = 0
+        prev_number = firstlineno
 
-    for l in lines:
-        delta_start = l.start - prev_start
-        delta_number = l.number - prev_number
-
-        while delta_start > 255:
-            lnotab.extend([255, 0])
-            delta_start -= 255
-
-        while delta_number > 127:
-            lnotab.extend([delta_start, 127])
-            delta_start = 0
-            delta_number -= 127
-
-        while delta_number < -128:
-            lnotab.extend([delta_start, -128 & 0xFF])
-            delta_start = 0
-            delta_number += 128
-
-        lnotab.extend([delta_start, delta_number & 0xFF])
-
-        prev_start = l.start
-        prev_number = l.number
-
-    return bytes(lnotab)
-
-
-def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
-    """Generates the line number table used by Python 3.10+ to map offsets to line numbers."""
-
-    linetable = []
-
-    prev_end = 0
-    prev_number = firstlineno
-
-    for l in lines:
-        delta_end = l.end - prev_end
-
-        if l.number is None:
-            while delta_end > 254:
-                linetable.extend([254, -128 & 0xFF])
-                delta_end -= 254
-
-            linetable.extend([delta_end, -128 & 0xFF])
-        else:
+        for l in lines:
+            delta_start = l.start - prev_start
             delta_number = l.number - prev_number
 
+            while delta_start > 255:
+                lnotab.extend([255, 0])
+                delta_start -= 255
+
             while delta_number > 127:
-                linetable.extend([0, 127])
+                lnotab.extend([delta_start, 127])
+                delta_start = 0
                 delta_number -= 127
 
-            while delta_number < -127:
-                linetable.extend([0, -127 & 0xFF])
-                delta_number += 127
+            while delta_number < -128:
+                lnotab.extend([delta_start, -128 & 0xFF])
+                delta_start = 0
+                delta_number += 128
 
-            while delta_end > 254:
-                linetable.extend([254, delta_number & 0xFF])
-                delta_number = 0
-                delta_end -= 254
+            lnotab.extend([delta_start, delta_number & 0xFF])
 
-            linetable.extend([delta_end, delta_number & 0xFF])
+            prev_start = l.start
             prev_number = l.number
 
-        prev_end = l.end
+        return bytes(lnotab)
 
-    return bytes(linetable)
+
+    @staticmethod
+    def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
+        """Generates the line number table used by Python 3.10+ to map offsets to line numbers."""
+
+        linetable = []
+
+        prev_end = 0
+        prev_number = firstlineno
+
+        for l in lines:
+            delta_end = l.end - prev_end
+
+            if l.number is None:
+                while delta_end > 254:
+                    linetable.extend([254, -128 & 0xFF])
+                    delta_end -= 254
+
+                linetable.extend([delta_end, -128 & 0xFF])
+            else:
+                delta_number = l.number - prev_number
+
+                while delta_number > 127:
+                    linetable.extend([0, 127])
+                    delta_number -= 127
+
+                while delta_number < -127:
+                    linetable.extend([0, -127 & 0xFF])
+                    delta_number += 127
+
+                while delta_end > 254:
+                    linetable.extend([254, delta_number & 0xFF])
+                    delta_number = 0
+                    delta_end -= 254
+
+                linetable.extend([delta_end, delta_number & 0xFF])
+                prev_number = l.number
+
+            prev_end = l.end
+
+        return bytes(linetable)
 
 
 # maps to guide CodeType replacements
@@ -337,9 +339,9 @@ def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType
 
     kwargs = {}
     if PYTHON_VERSION < (3,10):
-        kwargs["co_lnotab"] = make_lnotab(co.co_firstlineno, lines)
+        kwargs["co_lnotab"] = LineEntry.make_lnotab(co.co_firstlineno, lines)
     else:
-        kwargs["co_linetable"] = make_linetable(co.co_firstlineno, lines)
+        kwargs["co_linetable"] = LineEntry.make_linetable(co.co_firstlineno, lines)
 
     new_code = co.replace(
         co_code=bytes(patch),
