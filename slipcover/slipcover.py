@@ -28,6 +28,15 @@ else:
         return arg
 
 
+# Counter.total() is new in 3.10
+if PYTHON_VERSION >= (3,10):
+    def counter_total(c: Counter) -> int:
+        return c.total()
+else:
+    def counter_total(c: Counter) -> int:
+        return sum([c[n] for n in c])
+
+
 op_EXTENDED_ARG = dis.EXTENDED_ARG
 op_LOAD_CONST = dis.opmap["LOAD_CONST"]
 op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
@@ -240,12 +249,42 @@ class LineEntry:
         return bytes(linetable)
 
 
+class PathSimplifier:
+    def __init__(self):
+        from pathlib import Path
+        self.cwd = Path.cwd()
+
+    def simplify(self, path : str) -> str:
+        from pathlib import Path
+        f = Path(path)
+        if f.is_relative_to(self.cwd):
+            return str(f.relative_to(self.cwd))
+        return path 
+
+
 # maps to guide CodeType replacements
 replace_map: Dict[types.CodeType, types.CodeType] = dict()
 instrumented: Dict[str, set] = defaultdict(lambda: set())
 
 # Notes which code lines have been instrumented
 code_lines: Dict[str, set] = defaultdict(lambda: set())
+
+# Notes which lines have been seen.
+lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+
+# Notes lines seen since last de-instrumentation
+if STATS:
+    new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+else:
+    new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+
+# Stats
+u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+
+data_lock = threading.RLock()
+
 
 
 def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
@@ -418,37 +457,6 @@ def deinstrument(co, lines: set) -> types.CodeType:
     return new_code
 
 
-# Notes which lines have been seen.
-lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
-
-# Notes lines seen since last de-instrumentation
-if STATS:
-    new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-else:
-    new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
-
-# Stats
-u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-
-data_lock = threading.RLock()
-
-
-if STATS:
-    def report_coverage(filename: str, lineno: int) -> None:
-        """Invoked to mark a line as having executed."""
-        with data_lock:
-            if lineno > 0:
-                new_lines_seen[filename][lineno] += 1
-            else:
-                deinstrumented[filename][-lineno] += 1
-else:
-    def report_coverage(filename: str, lineno: int) -> None:
-        """Invoked to mark a line as having executed."""
-        with data_lock:
-            new_lines_seen[filename].add(lineno)
-
 
 def _update_stats() -> None:
     if STATS:
@@ -479,19 +487,6 @@ def clear() -> None:
     new_lines_seen.clear()
     replace_map.clear()
     instrumented.clear()
-
-
-class PathSimplifier:
-    def __init__(self):
-        from pathlib import Path
-        self.cwd = Path.cwd()
-
-    def simplify(self, path : str) -> str:
-        from pathlib import Path
-        f = Path(path)
-        if f.is_relative_to(self.cwd):
-            return str(f.relative_to(self.cwd))
-        return path 
 
 
 def print_coverage() -> None:
@@ -526,14 +521,6 @@ def print_coverage() -> None:
     if STATS:
         print("\n---")
         print_stats()
-
-
-if PYTHON_VERSION >= (3,10):
-    def counter_total(c: Counter) -> int:
-        return c.total()
-else:
-    def counter_total(c: Counter) -> int:
-        return sum([c[n] for n in c])
 
 
 def print_stats() -> None:
@@ -584,6 +571,20 @@ def print_stats() -> None:
                        headers=["\nFile", "\n#lines", "Still\ninst.",
                                 "\nD miss%",
                                 "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
+
+if STATS:
+    def report_coverage(filename: str, lineno: int) -> None:
+        """Invoked to mark a line as having executed."""
+        with data_lock:
+            if lineno > 0:
+                new_lines_seen[filename][lineno] += 1
+            else:
+                deinstrumented[filename][-lineno] += 1
+else:
+    def report_coverage(filename: str, lineno: int) -> None:
+        """Invoked to mark a line as having executed."""
+        with data_lock:
+            new_lines_seen[filename].add(lineno)
 
 
 def deinstrument_seen() -> None:
