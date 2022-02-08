@@ -262,28 +262,30 @@ class PathSimplifier:
         return path 
 
 
+# mutex protecting this state
+data_lock = threading.RLock()
+
 # maps to guide CodeType replacements
 replace_map: Dict[types.CodeType, types.CodeType] = dict()
 instrumented: Dict[str, set] = defaultdict(lambda: set())
 
-# Notes which code lines have been instrumented
+# notes which code lines have been instrumented
 code_lines: Dict[str, set] = defaultdict(lambda: set())
 
-# Notes which lines have been seen.
+# notes which lines have been seen.
 lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
-# Notes lines seen since last de-instrumentation
-if STATS:
-    new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-else:
+# notes lines seen since last de-instrumentation
+if not STATS:
     new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+else:
+    new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 
-# Stats
+# stats
 u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 
-data_lock = threading.RLock()
 
 
 
@@ -308,7 +310,7 @@ def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType
     consts = list(co.co_consts)
 
     report_coverage_index = len(consts)
-    consts.append(report_coverage)
+    consts.append(report_coverage if not STATS else stats_report_coverage)
 
     filename_index = len(consts)
     consts.append(co.co_filename)
@@ -462,8 +464,14 @@ def _update_stats() -> None:
     if STATS:
         with data_lock:
             for file, lines in new_lines_seen.items():
-                reported[file].update(lines)
-                u_misses[file].update({l: lines[l] for l in lines if l in lines_seen[file]})
+                pos_lines = Counter({line:count for line, count in lines.items() if line >= 0})
+                neg_lines = Counter({-line:count for line, count in lines.items() if line < 0})
+
+                deinstrumented[file] += neg_lines
+
+                reported[file].update(pos_lines)
+                u_misses[file].update({l: pos_lines[l] for l in pos_lines \
+                                       if l in lines_seen[file]})
 
 
 def get_coverage() -> Dict[str, Set[int]]:
@@ -549,8 +557,8 @@ def print_stats() -> None:
     simp = PathSimplifier()
 
     def get_stats():
-        for file in instrumented:
-            still_instr = set().union(*[still_instrumented(co) for co in instrumented[file]])
+        for file, code_set in instrumented.items():
+            still_instr = set().union(*[still_instrumented(co) for co in code_set])
             d_misses = reported[file] - u_misses[file]
             d_misses.subtract(reported[file].keys())  # 1st time is normal, not a d miss
             d_misses = +d_misses    # drop any 0 counts
@@ -572,19 +580,16 @@ def print_stats() -> None:
                                 "\nD miss%",
                                 "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
 
-if STATS:
-    def report_coverage(filename: str, lineno: int) -> None:
-        """Invoked to mark a line as having executed."""
-        with data_lock:
-            if lineno > 0:
-                new_lines_seen[filename][lineno] += 1
-            else:
-                deinstrumented[filename][-lineno] += 1
-else:
-    def report_coverage(filename: str, lineno: int) -> None:
-        """Invoked to mark a line as having executed."""
-        with data_lock:
-            new_lines_seen[filename].add(lineno)
+def stats_report_coverage(filename: str, lineno: int) -> None:
+    """Invoked to mark a line as having executed."""
+    with data_lock:
+        new_lines_seen[filename][lineno] += 1
+
+
+def report_coverage(filename: str, lineno: int) -> None:
+    """Invoked to mark a line as having executed."""
+    with data_lock:
+        new_lines_seen[filename].add(lineno)
 
 
 def deinstrument_seen() -> None:
