@@ -10,7 +10,8 @@ from importlib.abc import MetaPathFinder, Loader
 from importlib.util import spec_from_loader
 
 class SlipcoverLoader(Loader):
-    def __init__(self, orig_loader):
+    def __init__(self, sci, orig_loader):
+        self.sci = sci
         self.orig_loader = orig_loader
 
     def create_module(self, spec):
@@ -18,11 +19,12 @@ class SlipcoverLoader(Loader):
 
     def exec_module(self, module):
         code = self.orig_loader.get_code(module.__name__)
-        code = sc.instrument(code)
+        code = sci.instrument(code)
         exec(code, module.__dict__)
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
-    def __init__(self, base_path, meta_path):
+    def __init__(self, sci, base_path, meta_path):
+        self.sci = sci
         self.base_path = base_path
         self.meta_path = meta_path
 
@@ -43,7 +45,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
                     global args;
                     if args.debug:
                         print(f"adding {fullname} from {found.origin}; pylib={self.pylib_path}")
-                    found.loader = SlipcoverLoader(found.loader)
+                    found.loader = SlipcoverLoader(self.sci, found.loader)
                 return found
 
         return None
@@ -76,11 +78,12 @@ else:
 base_path = Path(args.script).resolve().parent if args.script \
             else Path('.').resolve()
 
-sys.meta_path = [SlipcoverMetaPathFinder(base_path, sys.meta_path)]
+sci = sc.Slipcover(collect_stats=args.stats)
 
-    
-atexit.register(sc.print_coverage)
-sc.auto_deinstrument()
+sys.meta_path = [SlipcoverMetaPathFinder(sci, base_path, sys.meta_path)]
+
+atexit.register(lambda: sci.print_coverage())
+sci.auto_deinstrument()
 
 if args.script:
     # python 'globals' for the script being executed
@@ -99,7 +102,7 @@ if args.script:
     with open(args.script, "r") as f:
         code = compile(f.read(), args.script, "exec")
 
-    code = sc.instrument(code)
+    code = sci.instrument(code)
     exec(code, script_globals)
 
 else:

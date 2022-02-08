@@ -19,10 +19,6 @@ def current_file():
 def from_set(s: set):
     return next(iter(s))
 
-@pytest.fixture(autouse=True)
-def clear_slipcover():
-    sc.clear()
-
 def test_opcode_arg():
     JUMP = sc.op_JUMP_ABSOLUTE
     EXT = sc.op_EXTENDED_ARG
@@ -391,6 +387,8 @@ def test_make_lines_and_compare():
 
 
 def test_instrument():
+    sci = sc.Slipcover()
+
     first_line = current_line()+1
     def foo(n):
         x = 0
@@ -399,7 +397,7 @@ def test_instrument():
         return x
     last_line = current_line()
 
-    sc.instrument(foo)
+    sci.instrument(foo)
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(foo.__code__):
@@ -408,11 +406,13 @@ def test_instrument():
     dis.dis(foo)
     assert 6 == foo(3)
 
-    assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_coverage()
-    assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_code_lines()
+    assert {current_file(): {*range(first_line+1, last_line)}} == sci.get_coverage()
+    assert {current_file(): {*range(first_line+1, last_line)}} == sci.get_code_lines()
 
 
 def test_instrument_code_before_first_line():
+    sci = sc.Slipcover()
+
     first_line = current_line()+1
     def foo(n):
         for i in range(n+1):
@@ -424,7 +424,7 @@ def test_instrument_code_before_first_line():
     first_line_offset, _ = next(dis.findlinestarts(foo.__code__))
     assert PYTHON_VERSION < (3,10) or 0 != first_line_offset
 
-    sc.instrument(foo)
+    sci.instrument(foo)
     dis.dis(foo)
 
     # Are all lines where we expect?
@@ -433,11 +433,12 @@ def test_instrument_code_before_first_line():
 
     assert 6 == sum(foo(3))
 
-    assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_coverage()
-    assert {current_file(): {*range(first_line+1, last_line)}} == sc.get_code_lines()
+    assert {current_file(): {*range(first_line+1, last_line)}} == sci.get_coverage()
+    assert {current_file(): {*range(first_line+1, last_line)}} == sci.get_code_lines()
 
 
 def test_instrument_threads():
+    sci = sc.Slipcover()
     result = None
 
     first_line = current_line()+1
@@ -449,7 +450,7 @@ def test_instrument_threads():
         result = x
     last_line = current_line()
 
-    sc.instrument(foo)
+    sci.instrument(foo)
 
     import threading
 
@@ -459,11 +460,12 @@ def test_instrument_threads():
 
     assert 6 == result
 
-    assert {current_file(): {*range(first_line+2, last_line)}} == sc.get_coverage()
-    assert {current_file(): {*range(first_line+2, last_line)}} == sc.get_code_lines()
+    assert {current_file(): {*range(first_line+2, last_line)}} == sci.get_coverage()
+    assert {current_file(): {*range(first_line+2, last_line)}} == sci.get_code_lines()
 
 
 def test_get_code_lines():
+    sci = sc.Slipcover()
     first_line = current_line()
     def foo(n):             # 1
         """Foo.
@@ -481,8 +483,9 @@ def test_get_code_lines():
 
         return x
 
-    sc.instrument(foo)
-    lines = sc.get_code_lines()[current_file()]
+    sci = sc.Slipcover()
+    sci.instrument(foo)
+    lines = sci.get_code_lines()[current_file()]
     lines = set(map(lambda line: line-first_line, lines))
 
     assert set([6, 8, 9, 12, 13, 15]) == lines
@@ -492,6 +495,8 @@ some_branches_grew = None
 
 @pytest.mark.parametrize("N", [2, 20, 128, 256, 512, 4096, 8192, 65536, 131072])
 def test_instrument_long_jump(N):
+    sci = sc.Slipcover()
+
     # each 'if' adds a branch
     first_line = current_line()+2
     src = "x = 0\n" + \
@@ -504,7 +509,8 @@ def test_instrument_long_jump(N):
     orig_branches = sc.Branch.from_code(code)
     assert 2 <= len(orig_branches)
 
-    code = sc.instrument(code)
+    sci = sc.Slipcover()
+    code = sci.instrument(code)
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(code):
@@ -514,7 +520,7 @@ def test_instrument_long_jump(N):
 
     exec(code, locals(), globals())
     assert N == x
-    assert {"foo": {*range(1, 1+N+3)}} == sc.get_coverage()
+    assert {"foo": {*range(1, 1+N+3)}} == sci.get_coverage()
     
 
     global some_branches_grew
@@ -534,6 +540,8 @@ def test_some_branches_grew():
 
 
 def test_deinstrument():
+    sci = sc.Slipcover()
+
     first_line = current_line()+2
     def foo(n):
         x = 0
@@ -542,15 +550,18 @@ def test_deinstrument():
         return x
     last_line = current_line()
 
-    assert not sc.get_coverage()
+    sci = sc.Slipcover()
+    assert not sci.get_coverage()
 
-    sc.instrument(foo)
-    sc.deinstrument(foo, {*range(first_line, last_line)})
+    sci.instrument(foo)
+    sci.deinstrument(foo, {*range(first_line, last_line)})
     assert 6 == foo(3)
-    assert not sc.get_coverage()
+    assert not sci.get_coverage()
 
 
 def test_deinstrument_some():
+    sci = sc.Slipcover()
+
     first_line = current_line()+2
     def foo(n):
         x = 0
@@ -559,32 +570,34 @@ def test_deinstrument_some():
         return x
     last_line = current_line()
 
-    assert not sc.get_coverage()
+    assert not sci.get_coverage()
 
-    sc.instrument(foo)
-    sc.deinstrument(foo, {first_line, last_line-1})
+    sci.instrument(foo)
+    sci.deinstrument(foo, {first_line, last_line-1})
 
     assert 6 == foo(3)
-    assert {current_file(): {*range(first_line+1, last_line-1)}} == sc.get_coverage()
+    assert {current_file(): {*range(first_line+1, last_line-1)}} == sci.get_coverage()
 
 
 # FIXME test deinstrument_seen
 
 
 def test_auto_deinstrument():
-    first_line = current_line()+2
+    sci = sc.Slipcover()
+
+    first_line = current_line()+1
     def foo(n):
         if n > 0:
             return n+1 
         return 0
     last_line = current_line()
 
-    assert not sc.get_coverage()
+    assert not sci.get_coverage()
 
-    sc.instrument(foo)
+    sci.instrument(foo)
     old_code = foo.__code__
 
-    sc.auto_deinstrument()
+    sci.auto_deinstrument()
     foo(0)
 
     max_attempts = 10
@@ -595,10 +608,9 @@ def test_auto_deinstrument():
 
     assert max_attempts > 0, "Code never de-instrumented"
 
-    sc.lines_seen[current_file()].clear()   # FIXME breaks interface
     foo(1)
 
-    assert {current_file(): {first_line+1}} == sc.get_coverage()
+    assert {*range(first_line+1, last_line)} == sci.get_coverage()[current_file()]
 
 
 # FIXME test module loading & instrumentation

@@ -7,7 +7,6 @@ from collections import defaultdict, Counter
 import threading
 
 PYTHON_VERSION = sys.version_info[0:2]
-STATS = False # FIXME
 
 # FIXME provide __all__
 
@@ -262,407 +261,405 @@ class PathSimplifier:
         return path 
 
 
-# mutex protecting this state
-data_lock = threading.RLock()
+class Slipcover:
+    def __init__(self, collect_stats : bool = False):
+        if not ((3,8) <= PYTHON_VERSION <= (3,10)):
+            raise RuntimeError("Unsupported Python version; please use 3.8 to 3.10")
 
-# maps to guide CodeType replacements
-replace_map: Dict[types.CodeType, types.CodeType] = dict()
-instrumented: Dict[str, set] = defaultdict(lambda: set())
+        self.collect_stats = collect_stats
 
-# notes which code lines have been instrumented
-code_lines: Dict[str, set] = defaultdict(lambda: set())
+        # mutex protecting this state
+        self.lock = threading.RLock()
 
-# notes which lines have been seen.
-lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+        # maps to guide CodeType replacements
+        self.replace_map: Dict[types.CodeType, types.CodeType] = dict()
+        self.instrumented: Dict[str, set] = defaultdict(lambda: set())
 
-# notes lines seen since last de-instrumentation
-if not STATS:
-    new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
-else:
-    new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+        # notes which code lines have been instrumented
+        self.code_lines: Dict[str, set] = defaultdict(lambda: set())
 
-# stats
-u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+        # notes which lines have been seen.
+        self.lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+
+        # notes lines seen since last de-instrumentation
+        if not collect_stats:
+            self.new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+        else:
+            self.new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+
+            # stats
+            self.u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+            self.reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+            self.deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 
 
+    def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+        """Instruments a code object for coverage detection.
 
+        If invoked on a function, instruments its code.
+        """
 
-def instrument(co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
-    """Instruments a code object for coverage detection.
+        if isinstance(co, types.FunctionType):
+            co.__code__ = self.instrument(co.__code__)
+            return co.__code__
 
-    If invoked on a function, instruments its code.
-    """
+        assert isinstance(co, types.CodeType)
+        #    print(f"instrumenting {co.co_name}")
 
-    if not ((3,8) <= PYTHON_VERSION <= (3,10)):
-        raise RuntimeError("Unsupported Python version; please use 3.8 to 3.10")
+        self.code_lines[co.co_filename].update(map(lambda line: line[1], dis.findlinestarts(co)))
 
-    if isinstance(co, types.FunctionType):
-        co.__code__ = instrument(co.__code__)
-        return co.__code__
+        consts = list(co.co_consts)
 
-    assert isinstance(co, types.CodeType)
-    #    print(f"instrumenting {co.co_name}")
+        def stats_report_coverage(sc, filename: str, lineno: int) -> None:
+            """Invoked to mark a line as having executed."""
+            sc.lock.acquire()
+            sc.new_lines_seen[filename][lineno] += 1
+            sc.lock.release()
 
-    code_lines[co.co_filename].update(map(lambda line: line[1], dis.findlinestarts(co)))
+        def report_coverage(sc, filename: str, lineno: int) -> None:
+            """Invoked to mark a line as having executed."""
+            sc.lock.acquire()
+            sc.new_lines_seen[filename].add(lineno)
+            sc.lock.release()
 
-    consts = list(co.co_consts)
+        report_coverage_index = len(consts)
+        consts.append(report_coverage if not self.collect_stats else stats_report_coverage)
 
-    report_coverage_index = len(consts)
-    consts.append(report_coverage if not STATS else stats_report_coverage)
+        sc_index = len(consts)
+        consts.append(self)
 
-    filename_index = len(consts)
-    consts.append(co.co_filename)
+        filename_index = len(consts)
+        consts.append(co.co_filename)
 
-    # handle functions-within-functions
-    for i, c in enumerate(consts):
-        if isinstance(c, types.CodeType):
-            consts[i] = instrument(c, co)
+        # handle functions-within-functions
+        for i, c in enumerate(consts):
+            if isinstance(c, types.CodeType):
+                consts[i] = self.instrument(c, co)
 
-    branches = Branch.from_code(co)
-    patch = bytearray()
-    lines = []
+        branches = Branch.from_code(co)
+        patch = bytearray()
+        lines = []
 
-    prev_offset = 0
-    prev_lineno = None
-    patch_offset = 0
-    for (offset, lineno) in dis.findlinestarts(co):
-        patch.extend(co.co_code[prev_offset:offset])
-        if offset > prev_offset:
+        prev_offset = 0
+        prev_lineno = None
+        patch_offset = 0
+        for (offset, lineno) in dis.findlinestarts(co):
+            patch.extend(co.co_code[prev_offset:offset])
+            if offset > prev_offset:
+                lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
+            prev_offset = offset
+            prev_lineno = lineno
+
+            patch_offset = len(patch)
+            patch.extend([op_NOP, 0])       # for deinstrument jump
+            patch.extend(opcode_arg(op_LOAD_CONST, report_coverage_index))
+            patch.extend(opcode_arg(op_LOAD_CONST, sc_index))
+            patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
+            patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
+            consts.append(lineno)
+            patch.extend([op_CALL_FUNCTION, 3,
+                          op_POP_TOP, 0])    # ignore return
+            inserted = len(patch) - patch_offset
+            assert inserted <= 255
+            patch[patch_offset+1] = offset2branch(inserted-2)
+
+            for b in branches:
+                b.adjust(patch_offset, inserted)
+
+        if prev_offset != None:
+            patch.extend(co.co_code[prev_offset:])
             lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
-        prev_offset = offset
-        prev_lineno = lineno
 
-        patch_offset = len(patch)
-        patch.extend([op_NOP, 0])       # for deinstrument jump
-        patch.extend(opcode_arg(op_LOAD_CONST, report_coverage_index))
-        patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
-        patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-        consts.append(lineno)
-        patch.extend([op_CALL_FUNCTION, 2,
-                      op_POP_TOP, 0])    # ignore return
-        inserted = len(patch) - patch_offset
-        assert inserted <= 255
-        patch[patch_offset+1] = offset2branch(inserted-2)
+        # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
+        # Inserting space for those may in turn trigger needing more space for others...
+        # FIXME missing test for length adjustment triggering other length adjustments
+        any_adjusted = True
+        while any_adjusted:
+            any_adjusted = False
 
-        for b in branches:
-            b.adjust(patch_offset, inserted)
+            for b in branches:
+                change = b.adjust_length()
+                if change:
+#                    print(f"adjusted branch {b.offset} to {b.target} by {change} to {b.length}")
+                    patch[b.offset:b.offset] = [0] * change
+                    for c in branches:
+                        if b != c:
+                            c.adjust(b.offset, change)
 
-    if prev_offset != None:
-        patch.extend(co.co_code[prev_offset:])
-        lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
+                    for l in lines:
+                        l.adjust(b.offset, change)
 
-    # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
-    # Inserting space for those may in turn trigger needing more space for others...
-    # FIXME missing test for length adjustment triggering other length adjustments
-    any_adjusted = True
-    while any_adjusted:
-        any_adjusted = False
+                    any_adjusted = True
 
         for b in branches:
-            change = b.adjust_length()
-            if change:
-#                print(f"adjusted branch {b.offset} to {b.target} by {change} to {b.length}")
-                patch[b.offset:b.offset] = [0] * change
-                for c in branches:
-                    if b != c:
-                        c.adjust(b.offset, change)
+            assert patch[b.offset+b.length-2] == b.opcode
+            patch[b.offset:b.offset+b.length] = b.code()
 
-                for l in lines:
-                    l.adjust(b.offset, change)
+        kwargs = {}
+        if PYTHON_VERSION < (3,10):
+            kwargs["co_lnotab"] = LineEntry.make_lnotab(co.co_firstlineno, lines)
+        else:
+            kwargs["co_linetable"] = LineEntry.make_linetable(co.co_firstlineno, lines)
 
-                any_adjusted = True
+        new_code = co.replace(
+            co_code=bytes(patch),
+            co_stacksize=co.co_stacksize + 3,  # FIXME use dis.stack_effect
+            co_consts=tuple(consts),
+            **kwargs
+        )
+        self.replace_map[co] = new_code
 
-    for b in branches:
-        assert patch[b.offset+b.length-2] == b.opcode
-        patch[b.offset:b.offset+b.length] = b.code()
+        if not parent:
+            self.instrumented[co.co_filename].add(new_code)
 
-    kwargs = {}
-    if PYTHON_VERSION < (3,10):
-        kwargs["co_lnotab"] = LineEntry.make_lnotab(co.co_firstlineno, lines)
-    else:
-        kwargs["co_linetable"] = LineEntry.make_linetable(co.co_firstlineno, lines)
-
-    new_code = co.replace(
-        co_code=bytes(patch),
-        co_stacksize=co.co_stacksize + 2,  # FIXME use dis.stack_effect
-        co_consts=tuple(consts),
-        **kwargs
-    )
-    replace_map[co] = new_code
-
-    if not parent:
-        instrumented[co.co_filename].add(new_code)
-
-    return new_code
+        return new_code
 
 
-def deinstrument(co, lines: set) -> types.CodeType:
-    """De-instruments a code object previously instrumented for coverage detection.
+    def deinstrument(self, co, lines: set) -> types.CodeType:
+        """De-instruments a code object previously instrumented for coverage detection.
 
-    If invoked on a function, de-instruments its code.
-    """
+        If invoked on a function, de-instruments its code.
+        """
 
-    if isinstance(co, types.FunctionType):
-        co.__code__ = deinstrument(co.__code__, lines)
-        return co.__code__
+        if isinstance(co, types.FunctionType):
+            co.__code__ = self.deinstrument(co.__code__, lines)
+            return co.__code__
 
-    assert isinstance(co, types.CodeType)
-    # print(f"de-instrumenting {co.co_name}")
+        assert isinstance(co, types.CodeType)
+        # print(f"de-instrumenting {co.co_name}")
 
-    patch = None
-    consts = None
+        patch = None
+        consts = None
 
-    for i in range(len(co.co_consts)):
-        if isinstance(co.co_consts[i], types.CodeType):
-            nc = deinstrument(co.co_consts[i], lines)
-            if nc != co.co_consts[i]:
-                if not consts:
-                    consts = list(co.co_consts)
-                consts[i] = nc
-
-    for (offset, lineno) in dis.findlinestarts(co):
-        if lineno in lines and co.co_code[offset] == op_NOP:
-            if not STATS:
-                if not patch:
-                    patch = bytearray(co.co_code)
-                patch[offset] = op_JUMP_FORWARD
-            else:
-                # Rewrite the line's number constant, making it negative
-                # (its opposite) to indicate it's not a miss if reported in.
-                # XXX can we simplify this??
-                it = iter(unpack_opargs(co.co_code[offset:]))
-                next(it) # NOP
-                next(it) # LOAD_CONST report_coverage_index
-                next(it) # LOAD_CONST filename_index
-                _, _, _, line_index = next(it)
-                if co.co_consts[line_index] > 0:
+        for i in range(len(co.co_consts)):
+            if isinstance(co.co_consts[i], types.CodeType):
+                nc = self.deinstrument(co.co_consts[i], lines)
+                if nc != co.co_consts[i]:
                     if not consts:
                         consts = list(co.co_consts)
-                    consts[line_index] =  -consts[line_index]
+                    consts[i] = nc
 
-    if not patch and not consts:
-        return co
+        for (offset, lineno) in dis.findlinestarts(co):
+            if lineno in lines and co.co_code[offset] == op_NOP:
+                if not self.collect_stats:
+                    if not patch:
+                        patch = bytearray(co.co_code)
+                    patch[offset] = op_JUMP_FORWARD
+                else:
+                    # Rewrite the line's number constant, making it negative
+                    # (its opposite) to indicate it's not a miss if reported in.
+                    # XXX can we simplify this??
+                    it = iter(unpack_opargs(co.co_code[offset:]))
+                    next(it) # NOP
+                    next(it) # LOAD_CONST report_coverage_index
+                    next(it) # LOAD_CONST filename_index
+                    _, _, _, line_index = next(it)
+                    if co.co_consts[line_index] > 0:
+                        if not consts:
+                            consts = list(co.co_consts)
+                        consts[line_index] =  -consts[line_index]
 
-    changed = {}
-    if patch: changed["co_code"] = bytes(patch)
-    if consts: changed["co_consts"] = tuple(consts)
+        if not patch and not consts:
+            return co
 
-    new_code = co.replace(**changed)
-    replace_map[co] = new_code
+        changed = {}
+        if patch: changed["co_code"] = bytes(patch)
+        if consts: changed["co_consts"] = tuple(consts)
 
-    if co in instrumented[co.co_filename]:
-        instrumented[co.co_filename].remove(co)
-        instrumented[co.co_filename].add(new_code)
+        new_code = co.replace(**changed)
+        self.replace_map[co] = new_code
 
-    return new_code
+        if co in self.instrumented[co.co_filename]:
+            self.instrumented[co.co_filename].remove(co)
+            self.instrumented[co.co_filename].add(new_code)
+
+        return new_code
 
 
-
-def _update_stats() -> None:
-    if STATS:
-        with data_lock:
-            for file, lines in new_lines_seen.items():
+    def _update_stats(self) -> None:
+        if self.collect_stats:
+            for file, lines in self.new_lines_seen.items():
                 pos_lines = Counter({line:count for line, count in lines.items() if line >= 0})
                 neg_lines = Counter({-line:count for line, count in lines.items() if line < 0})
 
                 deinstrumented[file] += neg_lines
 
-                reported[file].update(pos_lines)
-                u_misses[file].update({l: pos_lines[l] for l in pos_lines \
-                                       if l in lines_seen[file]})
+                self.reported[file].update(pos_lines)
+                self.u_misses[file].update({l: pos_lines[l] for l in pos_lines \
+                                       if l in self.lines_seen[file]})
 
 
-def get_coverage() -> Dict[str, Set[int]]:
-    # in case any haven't been merged in yet
-    _update_stats()
+    def get_coverage(self) -> Dict[str, Set[int]]:
+        # in case any haven't been merged in yet
+        with self.lock:
+            self._update_stats()
 
-    for file in new_lines_seen:
-        lines_seen[file].update(new_lines_seen[file])
+            for file, lines in self.new_lines_seen.items():
+                self.lines_seen[file].update(lines)
 
-    return lines_seen
+            self.new_lines_seen.clear()
 
-
-def get_code_lines() -> Dict[str, Set[int]]:
-    return code_lines
-
-
-def clear() -> None:
-    """Clears accumulated coverage information."""
-    code_lines.clear()
-    lines_seen.clear()
-    new_lines_seen.clear()
-    replace_map.clear()
-    instrumented.clear()
+            return self.lines_seen
 
 
-def print_coverage() -> None:
-    lines_seen = get_coverage()
-
-    def merge_consecutives(L):
-        # Neat little trick due to John La Rooy: the difference between the numbers
-        # on a list and a counter is constant for consecutive items :)
-        from itertools import groupby, count
-
-        groups = groupby(sorted(L), key=lambda item, c=count(): item - next(c))
-        return [
-            str(g[0]) if g[0] == g[-1] else f"{g[0]}-{g[-1]}"
-            for g in [list(g) for _, g in groups]
-        ]
-
-    simp = PathSimplifier()
-    from tabulate import tabulate
-
-    def table(files):
-        for f in files:
-            seen_count = len(lines_seen[f])
-            total_count = len(code_lines[f])
-            yield [simp.simplify(f), total_count, total_count - seen_count,
-                   round(100*seen_count/total_count),
-                   ', '.join(merge_consecutives(code_lines[f] - lines_seen[f]))]
-
-    print("")
-    print(tabulate(table(lines_seen.keys()),
-          headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
-
-    if STATS:
-        print("\n---")
-        print_stats()
+    def get_code_lines(self) -> Dict[str, Set[int]]:
+        return self.code_lines
 
 
-def print_stats() -> None:
-    def still_instrumented(co: CodeType) -> set(int):
-        lines = set()
+    def print_coverage(self) -> None:
+        lines_seen = self.get_coverage()
 
-        for c in co.co_consts:
-            if isinstance(c, types.CodeType):
-                lines.update(still_instrumented(c))
+        def merge_consecutives(L):
+            # Neat little trick due to John La Rooy: the difference between the numbers
+            # on a list and a counter is constant for consecutive items :)
+            from itertools import groupby, count
 
-        for offset, lineno in dis.findlinestarts(co):
-            # NOP isn't normally emitted in Python code,
-            # so it's relatively safe to look for
-            if co.co_code[offset] == op_NOP:
-                lines.add(lineno)
+            groups = groupby(sorted(L), key=lambda item, c=count(): item - next(c))
+            return [
+                str(g[0]) if g[0] == g[-1] else f"{g[0]}-{g[-1]}"
+                for g in [list(g) for _, g in groups]
+            ]
 
-        return lines
+        simp = PathSimplifier()
+        from tabulate import tabulate
 
-    # Once a line reports in, it's available for deinstrumentation.
-    # Each time it reports in after that, we consider it a miss (like a cache miss).
-    # We differentiate between (de-instrument) "D misses", where a line
-    # reports in after it _could_ have been de-instrumented and (use) "U misses"
-    # and where a line reports in after it _has_ been de-instrumented, but
-    # didn't use the code object where it's deinstrumented.
+        def table(files):
+            for f in files:
+                seen_count = len(lines_seen[f])
+                total_count = len(self.code_lines[f])
+                yield [simp.simplify(f), total_count, total_count - seen_count,
+                       round(100*seen_count/total_count),
+                       ', '.join(merge_consecutives(self.code_lines[f] - lines_seen[f]))]
 
-    simp = PathSimplifier()
+        print("")
+        print(tabulate(table(lines_seen.keys()),
+              headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
 
-    def get_stats():
-        for file, code_set in instrumented.items():
-            still_instr = set().union(*[still_instrumented(co) for co in code_set])
-            d_misses = reported[file] - u_misses[file]
-            d_misses.subtract(reported[file].keys())  # 1st time is normal, not a d miss
-            d_misses = +d_misses    # drop any 0 counts
-            all_for_file = reported[file] + deinstrumented[file]
-
-            yield (simp.simplify(file), len(code_lines[file]), len(still_instr),
-                   round(counter_total(d_misses)/counter_total(all_for_file)*100, 1),
-                   round(counter_total(u_misses[file])/counter_total(all_for_file)*100, 1),
-                   " ".join([f"{it[0]}:{it[1]}" for it in d_misses.most_common(4)]),
-                   " ".join([f"{it[0]}:{it[1]}" for it in u_misses[file].most_common(4)]),
-                   " ".join([f"{it[0]}:{it[1]}" for it in all_for_file.most_common(4)]),
-            )
-
-    from tabulate import tabulate
-
-    if STATS:
-        print(tabulate(get_stats(),
-                       headers=["\nFile", "\n#lines", "Still\ninst.",
-                                "\nD miss%",
-                                "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
-
-def stats_report_coverage(filename: str, lineno: int) -> None:
-    """Invoked to mark a line as having executed."""
-    with data_lock:
-        new_lines_seen[filename][lineno] += 1
+        if self.collect_stats:
+            print("\n---")
+            self.print_stats()
 
 
-def report_coverage(filename: str, lineno: int) -> None:
-    """Invoked to mark a line as having executed."""
-    with data_lock:
-        new_lines_seen[filename].add(lineno)
+    def print_stats(self) -> None:
+        def still_instrumented(co: CodeType) -> set(int):
+            lines = set()
+
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    lines.update(still_instrumented(c))
+
+            for offset, lineno in dis.findlinestarts(co):
+                # NOP isn't normally emitted in Python code,
+                # so it's relatively safe to look for
+                if co.co_code[offset] == op_NOP:
+                    lines.add(lineno)
+
+            return lines
+
+        # Once a line reports in, it's available for deinstrumentation.
+        # Each time it reports in after that, we consider it a miss (like a cache miss).
+        # We differentiate between (de-instrument) "D misses", where a line
+        # reports in after it _could_ have been de-instrumented and (use) "U misses"
+        # and where a line reports in after it _has_ been de-instrumented, but
+        # didn't use the code object where it's deinstrumented.
+
+        simp = PathSimplifier()
+
+        def get_stats():
+            for file, code_set in self.instrumented.items():
+                still_instr = set().union(*[still_instrumented(co) for co in code_set])
+                d_misses = self.reported[file] - self.u_misses[file]
+                d_misses.subtract(self.reported[file].keys())  # 1st time is normal, not a d miss
+                d_misses = +d_misses    # drop any 0 counts
+                all_for_file = self.reported[file] + deinstrumented[file]
+
+                yield (simp.simplify(file), len(self.code_lines[file]), len(still_instr),
+                       round(counter_total(d_misses)/counter_total(all_for_file)*100, 1),
+                       round(counter_total(self.u_misses[file])/counter_total(all_for_file)*100, 1),
+                       " ".join([f"{it[0]}:{it[1]}" for it in d_misses.most_common(4)]),
+                       " ".join([f"{it[0]}:{it[1]}" for it in self.u_misses[file].most_common(4)]),
+                       " ".join([f"{it[0]}:{it[1]}" for it in all_for_file.most_common(4)]),
+                )
+
+        from tabulate import tabulate
+
+        if self.collect_stats:
+            print(tabulate(get_stats(),
+                           headers=["\nFile", "\n#lines", "Still\ninst.",
+                                    "\nD miss%",
+                                    "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
+
+    def deinstrument_seen(self) -> None:
+        def all_functions(source):
+            """Returns all functions (that may be pointing to instrumented code)"""
+            import inspect
+            classes = [
+                c
+                for c in source
+                if isinstance(c, type) or isinstance(c, types.ModuleType)
+            ]
+            methods = [
+                f[1]
+                for c in classes
+                for f in inspect.getmembers(c, inspect.isfunction)
+            ]
+            funcs = [
+                o
+                for o in source
+                if isinstance(o, types.FunctionType)
+            ]
+            return methods + funcs
+
+        with self.lock:
+            self._update_stats()
+
+            for file, new_set in self.new_lines_seen.items():
+                if self.collect_stats: new_set = set(new_set)    # Counter -> set
+
+                for co in self.instrumented[file]:
+                    self.deinstrument(co, new_set)
+
+                self.lines_seen[file].update(new_set)
+
+            self.new_lines_seen.clear()
+
+            # Replace references to code
+            if self.replace_map:
+                globals_seen = []
+                for frame in sys._current_frames().values():
+                    while frame:
+                        if not frame.f_globals in globals_seen:
+                            globals_seen.append(frame.f_globals)
+                            for f in all_functions(frame.f_globals.values()):
+                                if f.__code__ in self.replace_map:
+                                    f.__code__ = self.replace_map[f.__code__]
+
+                        for f in all_functions(frame.f_locals.values()):
+                            if f.__code__ in self.replace_map:
+                                f.__code__ = self.replace_map[f.__code__]
+
+                        frame = frame.f_back
+
+                # all references should have been replaced now... right?
+                self.replace_map.clear()
 
 
-def deinstrument_seen() -> None:
-    def all_functions(source):
-        """Returns all functions (that may be pointing to instrumented code)"""
-        import inspect
-        classes = [
-            c
-            for c in source
-            if isinstance(c, type) or isinstance(c, types.ModuleType)
-        ]
-        methods = [
-            f[1]
-            for c in classes
-            for f in inspect.getmembers(c, inspect.isfunction)
-        ]
-        funcs = [
-            o
-            for o in source
-            if isinstance(o, types.FunctionType)
-        ]
-        return methods + funcs
+    def auto_deinstrument(self) -> None:
+        class DeinstrumentThread(threading.Thread):
+            """Runs in the background, de-instrumenting code."""
+            def __init__(self, sc):
+                super().__init__(daemon=True)
+                self.interval = 0.1
+                self.sc = sc
 
-    with data_lock:
-        _update_stats()
+            def run(self):
+                import time
 
-        for file, new_set in new_lines_seen.items():
-            if STATS: new_set = set(new_set)    # Counter -> set
+                while True:
+                    self.sc.deinstrument_seen()
 
-            for co in instrumented[file]:
-                deinstrument(co, new_set)
+                    # Increase the interval geometrically, to a point
+                    self.interval = min(2*self.interval, 1)
+                    time.sleep(self.interval)
 
-            lines_seen[file].update(new_set)
-
-        new_lines_seen.clear()
-
-        # Replace references to code
-        if replace_map:
-            globals_seen = []
-            for frame in sys._current_frames().values():
-                while frame:
-                    if not frame.f_globals in globals_seen:
-                        globals_seen.append(frame.f_globals)
-                        for f in all_functions(frame.f_globals.values()):
-                            if f.__code__ in replace_map:
-                                f.__code__ = replace_map[f.__code__]
-
-                    for f in all_functions(frame.f_locals.values()):
-                        if f.__code__ in replace_map:
-                            f.__code__ = replace_map[f.__code__]
-
-                    frame = frame.f_back
-
-            # all references should have been replaced now... right?
-            replace_map.clear()
-
-
-class DeinstrumentThread(threading.Thread):
-    """Runs in the background, de-instrumenting code."""
-    def __init__(self):
-        super().__init__(daemon=True)
-        self.interval = 0.1
-
-    def run(self):
-        import time
-
-        while True:
-            deinstrument_seen()
-
-            # Increase the interval geometrically, to a point
-            self.interval = min(2*self.interval, 1)
-            time.sleep(self.interval)
-
-
-def auto_deinstrument() -> None:
-    DeinstrumentThread().start()
+        DeinstrumentThread(self).start()
