@@ -310,13 +310,13 @@ class Slipcover:
 
         consts = list(co.co_consts)
 
-        def stats_report_coverage(sc, filename: str, lineno: int) -> None:
+        def stats_report_coverage(lineno: int, filename: str, sc) -> None:
             """Invoked to mark a line as having executed."""
             sc.lock.acquire()
             sc.new_lines_seen[filename][lineno] += 1
             sc.lock.release()
 
-        def report_coverage(sc, filename: str, lineno: int) -> None:
+        def report_coverage(lineno: int, filename: str, sc) -> None:
             """Invoked to mark a line as having executed."""
             sc.lock.acquire()
             sc.new_lines_seen[filename].add(lineno)
@@ -353,10 +353,10 @@ class Slipcover:
             patch_offset = len(patch)
             patch.extend([op_NOP, 0])       # for deinstrument jump
             patch.extend(opcode_arg(op_LOAD_CONST, report_coverage_index))
-            patch.extend(opcode_arg(op_LOAD_CONST, sc_index))
-            patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
             consts.append(lineno)
+            patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
+            patch.extend(opcode_arg(op_LOAD_CONST, sc_index))
             patch.extend([op_CALL_FUNCTION, 3,
                           op_POP_TOP, 0])    # ignore return
             inserted = len(patch) - patch_offset
@@ -452,7 +452,6 @@ class Slipcover:
                     it = iter(unpack_opargs(co.co_code[offset:]))
                     next(it) # NOP
                     next(it) # LOAD_CONST report_coverage_index
-                    next(it) # LOAD_CONST filename_index
                     _, _, _, line_index = next(it)
                     if co.co_consts[line_index] > 0:
                         if not consts:
@@ -482,11 +481,14 @@ class Slipcover:
                 pos_lines = Counter({line:count for line, count in lines.items() if line >= 0})
                 neg_lines = Counter({-line:count for line, count in lines.items() if line < 0})
 
-                deinstrumented[file] += neg_lines
+                self.deinstrumented[file] += neg_lines
 
                 self.reported[file].update(pos_lines)
                 self.u_misses[file].update({l: pos_lines[l] for l in pos_lines \
                                        if l in self.lines_seen[file]})
+
+                # hide negative lines from normal processing
+                self.new_lines_seen[file] = pos_lines
 
 
     def get_coverage(self) -> Dict[str, Set[int]]:
@@ -571,7 +573,7 @@ class Slipcover:
                 d_misses = self.reported[file] - self.u_misses[file]
                 d_misses.subtract(self.reported[file].keys())  # 1st time is normal, not a d miss
                 d_misses = +d_misses    # drop any 0 counts
-                all_for_file = self.reported[file] + deinstrumented[file]
+                all_for_file = self.reported[file] + self.deinstrumented[file]
 
                 yield (simp.simplify(file), len(self.code_lines[file]), len(still_instr),
                        round(counter_total(d_misses)/counter_total(all_for_file)*100, 1),
