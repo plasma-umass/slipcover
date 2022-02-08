@@ -70,14 +70,18 @@ if ran_any:
 
 base = cases[0]
 base_times = [sum(results[base.name][b.name]) for b in benchmarks]
+rel_times = dict()
 for case in cases:
     if case == base:
         continue
 
     times = [sum(results[case.name][b.name]) for b in benchmarks]
-    rel_times = [((t/bt)-1)*100 for t, bt in zip(times, base_times)]
+    rel_times[case.name] = [((t/bt)-1)*100 for t, bt in zip(times, base_times)]
 
-    print(f"Overhead for {case.name}: {min(rel_times):.0f}% - {max(rel_times):.0f}%")
+    print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - {max(rel_times[case.name]):.0f}%")
+
+diff_times = [cover - slip for cover, slip in zip(rel_times['coverage.py'], rel_times['Slipcover'])]
+print(f"Slipcover savings: {min(diff_times):.0f}% - {max(diff_times):.0f}%")
 
 x = np.arange(len(benchmarks))
 n_bars = len(cases)
