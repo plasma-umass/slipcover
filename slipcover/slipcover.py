@@ -292,6 +292,8 @@ class Slipcover:
             self.reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
             self.deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 
+        self.modules = []
+
 
     def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
         """Instruments a code object for coverage detection.
@@ -602,27 +604,34 @@ class Slipcover:
                                         "\nD miss%",
                                         "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
 
-    def deinstrument_seen(self) -> None:
-        def all_functions(source):
-            """Returns all functions (that may be pointing to instrumented code)"""
-            import inspect
-            classes = [
-                c
-                for c in source
-                if isinstance(c, type) or isinstance(c, types.ModuleType)
-            ]
-            methods = [
-                f[1]
-                for c in classes
-                for f in inspect.getmembers(c, inspect.isfunction)
-            ]
-            funcs = [
-                o
-                for o in source
-                if isinstance(o, types.FunctionType)
-            ]
-            return methods + funcs
 
+    @staticmethod
+    def find_functions(items, visited : set):
+        import inspect
+
+        def find_funcs(root):
+            if inspect.isfunction(root):
+                if root not in visited:
+                    visited.add(root)
+                    yield root
+
+            # Prefer isinstance(x,type) over isclass(x) because many many
+            # things, such as str(), are classes
+            elif isinstance(root, type):
+                if root not in visited:
+                    visited.add(root)
+
+                    for _, c in inspect.getmembers(root):
+                        yield from find_funcs(c)
+
+        return [f for it in items for f in find_funcs(it)]
+
+
+    def register_module(self, m):
+        self.modules.append(m)
+
+
+    def deinstrument_seen(self) -> None:
         with self.lock:
             self._update_stats()
 
@@ -638,16 +647,24 @@ class Slipcover:
 
             # Replace references to code
             if self.replace_map:
+                visited = set()
+
+                # XXX these could be pre-computed at register_module time
+                for m in self.modules:
+                    for f in Slipcover.find_functions(m.__dict__.values(), visited):
+                        if f.__code__ in self.replace_map:
+                            f.__code__ = self.replace_map[f.__code__]
+
                 globals_seen = []
                 for frame in sys._current_frames().values():
                     while frame:
                         if not frame.f_globals in globals_seen:
                             globals_seen.append(frame.f_globals)
-                            for f in all_functions(frame.f_globals.values()):
+                            for f in Slipcover.find_functions(frame.f_globals.values(), visited):
                                 if f.__code__ in self.replace_map:
                                     f.__code__ = self.replace_map[f.__code__]
 
-                        for f in all_functions(frame.f_locals.values()):
+                        for f in Slipcover.find_functions(frame.f_locals.values(), visited):
                             if f.__code__ in self.replace_map:
                                 f.__code__ = self.replace_map[f.__code__]
 

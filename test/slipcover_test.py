@@ -624,3 +624,42 @@ def test_auto_deinstrument():
 
 # FIXME test module loading & instrumentation
 
+def func_names(funcs):
+    return sorted(map(lambda f: f.__name__, funcs))
+
+def test_find_functions():
+    import testme
+
+    assert ["doit1", "doit2", "doit3", "stuff"] == \
+           func_names(sc.Slipcover.find_functions(testme.__dict__.values(), set()))
+
+    assert ["doit1", "doit3"] == \
+           func_names(sc.Slipcover.find_functions([testme.doit1, testme.doit3], set()))
+
+    visited = set()
+    assert ["doit1", "doit2", "doit3", "stuff"] == \
+           func_names(sc.Slipcover.find_functions([*testme.__dict__.values(), testme.doit3],
+                                                  visited))
+
+    assert [] == \
+           func_names(sc.Slipcover.find_functions([*testme.__dict__.values(), testme.doit3],
+                                                  visited))
+
+
+def test_find_functions_class():
+    import testme_class
+
+    assert ["doit1", "doit2", "doit3", "stuff"] == \
+           func_names(sc.Slipcover.find_functions(testme_class.__dict__.values(), set()))
+
+    assert ["doit2"] == \
+           func_names(sc.Slipcover.find_functions([testme_class.Testme.Inner], set()))
+
+    visited = set()
+    assert ["doit1", "doit2", "doit3", "stuff"] == \
+           func_names(sc.Slipcover.find_functions([*testme_class.__dict__.values(),
+                                                   testme_class.Testme.Inner], visited))
+    assert [] == \
+           func_names(sc.Slipcover.find_functions([*testme_class.__dict__.values(),
+                                                   testme_class.Testme.Inner], visited))
+

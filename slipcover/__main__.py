@@ -19,6 +19,7 @@ class SlipcoverLoader(Loader):
 
     def exec_module(self, module):
         code = self.orig_loader.get_code(module.__name__)
+        sci.register_module(module)
         code = sci.instrument(code)
         exec(code, module.__dict__)
 
