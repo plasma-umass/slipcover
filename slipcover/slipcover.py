@@ -306,8 +306,6 @@ class Slipcover:
         assert isinstance(co, types.CodeType)
         #    print(f"instrumenting {co.co_name}")
 
-        self.code_lines[co.co_filename].update(map(lambda line: line[1], dis.findlinestarts(co)))
-
         consts = list(co.co_consts)
 
         def stats_report_coverage(lineno: int, filename: str, sc) -> None:
@@ -407,10 +405,15 @@ class Slipcover:
             co_consts=tuple(consts),
             **kwargs
         )
-        self.replace_map[co] = new_code
 
-        if not parent:
-            self.instrumented[co.co_filename].add(new_code)
+        with self.lock:
+            self.code_lines[co.co_filename].update(
+                        map(lambda line: line[1], dis.findlinestarts(co)))
+
+            self.replace_map[co] = new_code
+
+            if not parent:
+                self.instrumented[co.co_filename].add(new_code)
 
         return new_code
 
@@ -466,16 +469,19 @@ class Slipcover:
         if consts: changed["co_consts"] = tuple(consts)
 
         new_code = co.replace(**changed)
-        self.replace_map[co] = new_code
 
-        if co in self.instrumented[co.co_filename]:
-            self.instrumented[co.co_filename].remove(co)
-            self.instrumented[co.co_filename].add(new_code)
+        with self.lock:
+            self.replace_map[co] = new_code
+
+            if co in self.instrumented[co.co_filename]:
+                self.instrumented[co.co_filename].remove(co)
+                self.instrumented[co.co_filename].add(new_code)
 
         return new_code
 
 
     def _update_stats(self) -> None:
+        # XXX assert self.lock owned
         if self.collect_stats:
             for file, lines in self.new_lines_seen.items():
                 pos_lines = Counter({line:count for line, count in lines.items() if line >= 0})
@@ -501,45 +507,49 @@ class Slipcover:
 
             self.new_lines_seen.clear()
 
+            # FIXME need to return a deep copy if intended to use while still running
             return self.lines_seen
 
 
     def get_code_lines(self) -> Dict[str, Set[int]]:
-        return self.code_lines
+        with self.lock:
+            # FIXME need to return a deep copy if intended to use while still instrumenting
+            return self.code_lines
 
 
     def print_coverage(self) -> None:
-        lines_seen = self.get_coverage()
+        with self.lock:
+            lines_seen = self.get_coverage()
 
-        def merge_consecutives(L):
-            # Neat little trick due to John La Rooy: the difference between the numbers
-            # on a list and a counter is constant for consecutive items :)
-            from itertools import groupby, count
+            def merge_consecutives(L):
+                # Neat little trick due to John La Rooy: the difference between the numbers
+                # on a list and a counter is constant for consecutive items :)
+                from itertools import groupby, count
 
-            groups = groupby(sorted(L), key=lambda item, c=count(): item - next(c))
-            return [
-                str(g[0]) if g[0] == g[-1] else f"{g[0]}-{g[-1]}"
-                for g in [list(g) for _, g in groups]
-            ]
+                groups = groupby(sorted(L), key=lambda item, c=count(): item - next(c))
+                return [
+                    str(g[0]) if g[0] == g[-1] else f"{g[0]}-{g[-1]}"
+                    for g in [list(g) for _, g in groups]
+                ]
 
-        simp = PathSimplifier()
-        from tabulate import tabulate
+            simp = PathSimplifier()
+            from tabulate import tabulate
 
-        def table(files):
-            for f in files:
-                seen_count = len(lines_seen[f])
-                total_count = len(self.code_lines[f])
-                yield [simp.simplify(f), total_count, total_count - seen_count,
-                       round(100*seen_count/total_count),
-                       ', '.join(merge_consecutives(self.code_lines[f] - lines_seen[f]))]
+            def table(files):
+                for f in files:
+                    seen_count = len(lines_seen[f])
+                    total_count = len(self.code_lines[f])
+                    yield [simp.simplify(f), total_count, total_count - seen_count,
+                           round(100*seen_count/total_count),
+                           ', '.join(merge_consecutives(self.code_lines[f] - lines_seen[f]))]
 
-        print("")
-        print(tabulate(table(lines_seen.keys()),
-              headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
+            print("")
+            print(tabulate(table(lines_seen.keys()),
+                  headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
 
-        if self.collect_stats:
-            print("\n---")
-            self.print_stats()
+            if self.collect_stats:
+                print("\n---")
+                self.print_stats()
 
 
     def print_stats(self) -> None:
@@ -586,10 +596,11 @@ class Slipcover:
         from tabulate import tabulate
 
         if self.collect_stats:
-            print(tabulate(get_stats(),
-                           headers=["\nFile", "\n#lines", "Still\ninst.",
-                                    "\nD miss%",
-                                    "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
+            with self.lock:
+                print(tabulate(get_stats(),
+                               headers=["\nFile", "\n#lines", "Still\ninst.",
+                                        "\nD miss%",
+                                        "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
 
     def deinstrument_seen(self) -> None:
         def all_functions(source):
