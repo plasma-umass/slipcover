@@ -336,7 +336,9 @@ def test_make_linetable():
              sc.LineEntry(350, 360, None),
              sc.LineEntry(360, 376, 8),
              sc.LineEntry(376, 380, 208),
-             sc.LineEntry(380, 390, 50)]    # XXX this is presumptive, check for accuracy
+             # XXX the lines below are presumptive, check for accuracy
+             sc.LineEntry(380, 390, 50),
+             sc.LineEntry(390, 690, None)]
 
     linetable = sc.LineEntry.make_linetable(0, lines)
 
@@ -349,7 +351,9 @@ def test_make_linetable():
             0, 127,
             4, 73,
             0, -127,
-            10, -31] == unpack_lnotab(linetable)
+            10, -31,
+            254, -128,
+            46, -128] == unpack_lnotab(linetable)
 
 
 def lines_from_code(code):
@@ -386,8 +390,9 @@ def test_make_lines_and_compare():
     assert list(foo.__code__.co_lnotab) == list(my_lnotab)
 
 
-def test_instrument():
-    sci = sc.Slipcover()
+@pytest.mark.parametrize("stats", [False, True])
+def test_instrument(stats):
+    sci = sc.Slipcover(collect_stats=stats)
 
     first_line = current_line()+1
     def foo(n):
@@ -539,14 +544,17 @@ def test_some_branches_grew():
     assert some_branches_grew == None or some_branches_grew
 
 
-def test_deinstrument():
-    sci = sc.Slipcover()
+@pytest.mark.parametrize("stats", [False, True])
+def test_deinstrument(stats):
+    sci = sc.Slipcover(collect_stats=stats)
 
     first_line = current_line()+2
     def foo(n):
+        def bar(n):
+            return n+1
         x = 0
-        for i in range(n):
-            x += (i+1)
+        for i in range(bar(n)):
+            x += i
         return x
     last_line = current_line()
 
@@ -559,8 +567,9 @@ def test_deinstrument():
     assert not sci.get_coverage()
 
 
-def test_deinstrument_some():
-    sci = sc.Slipcover()
+@pytest.mark.parametrize("stats", [False, True])
+def test_deinstrument_some(stats):
+    sci = sc.Slipcover(collect_stats=stats)
 
     first_line = current_line()+2
     def foo(n):
