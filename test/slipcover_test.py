@@ -628,38 +628,19 @@ def func_names(funcs):
     return sorted(map(lambda f: f.__name__, funcs))
 
 def test_find_functions():
-    import testme
+    import class_test as t
 
-    assert ["doit1", "doit2", "doit3", "stuff"] == \
-           func_names(sc.Slipcover.find_functions(testme.__dict__.values(), set()))
+    assert ["f1", "f2", "f3", "f4", "f5", "f7"] == \
+           func_names(sc.Slipcover.find_functions(t.__dict__.values(), set()))
 
-    assert ["doit1", "doit3"] == \
-           func_names(sc.Slipcover.find_functions([testme.doit1, testme.doit3], set()))
+    assert ["f5", "f7"] == \
+           func_names(sc.Slipcover.find_functions([t.f5, t.f7], set()))
 
     visited = set()
-    assert ["doit1", "doit2", "doit3", "stuff"] == \
-           func_names(sc.Slipcover.find_functions([*testme.__dict__.values(), testme.doit3],
+    assert ["f1", "f2", "f3", "f4", "f5", "f7"] == \
+           func_names(sc.Slipcover.find_functions([*t.__dict__.values(), t.Test.Inner],
                                                   visited))
 
     assert [] == \
-           func_names(sc.Slipcover.find_functions([*testme.__dict__.values(), testme.doit3],
+           func_names(sc.Slipcover.find_functions([*t.__dict__.values(), t.Test.Inner],
                                                   visited))
-
-
-def test_find_functions_class():
-    import testme_class
-
-    assert ["doit1", "doit2", "doit3", "stuff"] == \
-           func_names(sc.Slipcover.find_functions(testme_class.__dict__.values(), set()))
-
-    assert ["doit2"] == \
-           func_names(sc.Slipcover.find_functions([testme_class.Testme.Inner], set()))
-
-    visited = set()
-    assert ["doit1", "doit2", "doit3", "stuff"] == \
-           func_names(sc.Slipcover.find_functions([*testme_class.__dict__.values(),
-                                                   testme_class.Testme.Inner], visited))
-    assert [] == \
-           func_names(sc.Slipcover.find_functions([*testme_class.__dict__.values(),
-                                                   testme_class.Testme.Inner], visited))
-
