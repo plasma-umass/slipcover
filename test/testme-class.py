@@ -12,23 +12,22 @@ class Testme:
     #    z = np.multiply(x, y)
         return z
 
-    class Inner:
-        def doit2(self, x):
-            i = 0
-        #    zarr = [math.cos(13) for i in range(1,100000)]
-        #    z = zarr[0]
-            z = 0.1
-            while i < 100000:
-        #        z = math.cos(13)
-        #        z = np.multiply(x,x)
-        #        z = np.multiply(z,z)
-        #        z = np.multiply(z,z)
-                z = z * z
-                z = x * x
-                z = z * z
-                z = z * z
-                i += 1
-            return z
+    def doit2(self, x):
+        i = 0
+    #    zarr = [math.cos(13) for i in range(1,100000)]
+    #    z = zarr[0]
+        z = 0.1
+        while i < 100000:
+    #        z = math.cos(13)
+    #        z = np.multiply(x,x)
+    #        z = np.multiply(z,z)
+    #        z = np.multiply(z,z)
+            z = z * z
+            z = x * x
+            z = z * z
+            z = z * z
+            i += 1
+        return z
 
     def doit3(self, x):
         z = x + 1
@@ -46,7 +45,7 @@ class Testme:
             print(i)
             for j in range(1,10):
                 x = self.doit1(x)
-                x = Inner().doit2(x)
+                x = self.doit2(x)
                 x = self.doit3(x)
                 x = 1.01
         return x
