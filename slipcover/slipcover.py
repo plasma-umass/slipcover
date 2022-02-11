@@ -648,7 +648,8 @@ class Slipcover:
             if self.replace_map:
                 visited = set()
 
-                # XXX these could be pre-computed at register_module time
+                # XXX the set of function objects could be pre-computed at register_module;
+                # also, the same could be done for functions objects in globals()
                 for m in self.modules:
                     for f in Slipcover.find_functions(m.__dict__.values(), visited):
                         if f.__code__ in self.replace_map:
