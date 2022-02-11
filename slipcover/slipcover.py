@@ -581,13 +581,13 @@ class Slipcover:
 
         def get_stats():
             for file, code_set in self.instrumented.items():
-                still_instr = set().union(*[still_instrumented(co) for co in code_set])
+#                still_instr = set().union(*[still_instrumented(co) for co in code_set])
                 d_misses = self.reported[file] - self.u_misses[file]
                 d_misses.subtract(self.reported[file].keys())  # 1st time is normal, not a d miss
                 d_misses = +d_misses    # drop any 0 counts
                 all_for_file = self.reported[file] + self.deinstrumented[file]
 
-                yield (simp.simplify(file), len(self.code_lines[file]), len(still_instr),
+                yield (simp.simplify(file), len(self.code_lines[file]), #len(still_instr),
                        round(counter_total(d_misses)/counter_total(all_for_file)*100, 1),
                        round(counter_total(self.u_misses[file])/counter_total(all_for_file)*100, 1),
                        " ".join([f"{it[0]}:{it[1]}" for it in d_misses.most_common(4)]),
@@ -600,9 +600,8 @@ class Slipcover:
         if self.collect_stats:
             with self.lock:
                 print(tabulate(get_stats(),
-                               headers=["\nFile", "\n#lines", "Still\ninst.",
-                                        "\nD miss%",
-                                        "\nU miss%", "\nTop D", "\nTop U", "\nTop lines"]))
+                               headers=["File", "#lines", #"Still",
+                                        "D miss%", "U miss%", "Top D", "Top U", "Top lines"]))
 
 
     @staticmethod
