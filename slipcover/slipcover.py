@@ -5,6 +5,7 @@ import types
 from typing import Dict, Set, List
 from collections import defaultdict, Counter
 import threading
+from . import atomic
 
 PYTHON_VERSION = sys.version_info[0:2]
 
@@ -282,17 +283,32 @@ class Slipcover:
         self.lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
 
         # notes lines seen since last de-instrumentation
-        if not collect_stats:
-            self.new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
-        else:
-            self.new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+        self._get_new_lines()
 
-            # stats
-            self.u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-            self.reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-            self.deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+        # stats
+        self.u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+        self.reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+        self.deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
 
         self.modules = []
+
+    def _get_new_lines(self):
+        """Returns the current set of ``new'' lines, leaving a new container in place."""
+
+        # We trust that assigning to self.new_lines_seen is atomic, as it is triggered
+        # by a STORE_NAME or similar opcode and Python synchronizes those.  We rely on
+        # C extensions' atomicity for updates within self.new_lines_seen.  The lock here
+        # is just to protect callers of this method (so that the exchange is atomic).
+
+        with self.lock:
+            new_lines = self.new_lines_seen if hasattr(self, "new_lines_seen") else None
+
+            if not self.collect_stats:
+                self.new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+            else:
+                self.new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+
+        return new_lines
 
 
     def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
@@ -310,20 +326,8 @@ class Slipcover:
 
         consts = list(co.co_consts)
 
-        def stats_report_coverage(lineno: int, filename: str, sc) -> None:
-            """Invoked to mark a line as having executed."""
-            sc.lock.acquire()
-            sc.new_lines_seen[filename][lineno] += 1
-            sc.lock.release()
-
-        def report_coverage(lineno: int, filename: str, sc) -> None:
-            """Invoked to mark a line as having executed."""
-            sc.lock.acquire()
-            sc.new_lines_seen[filename].add(lineno)
-            sc.lock.release()
-
         report_coverage_index = len(consts)
-        consts.append(report_coverage if not self.collect_stats else stats_report_coverage)
+        consts.append(atomic.count_line)
 
         sc_index = len(consts)
         consts.append(self)
@@ -482,10 +486,10 @@ class Slipcover:
         return new_code
 
 
-    def _update_stats(self) -> None:
+    def _update_stats(self, new_lines) -> None:
         # XXX assert self.lock owned
         if self.collect_stats:
-            for file, lines in self.new_lines_seen.items():
+            for file, lines in new_lines.items():
                 pos_lines = Counter({line:count for line, count in lines.items() if line >= 0})
                 neg_lines = Counter({-line:count for line, count in lines.items() if line < 0})
 
@@ -496,18 +500,17 @@ class Slipcover:
                                        if l in self.lines_seen[file]})
 
                 # hide negative lines from normal processing
-                self.new_lines_seen[file] = pos_lines
+                new_lines[file] = pos_lines
 
 
     def get_coverage(self) -> Dict[str, Set[int]]:
         # in case any haven't been merged in yet
         with self.lock:
-            self._update_stats()
+            new_lines = self._get_new_lines()   # XXX if still running, this will prevent de-instr.
+            self._update_stats(new_lines)
 
-            for file, lines in self.new_lines_seen.items():
+            for file, lines in new_lines.items():
                 self.lines_seen[file].update(lines)
-
-            self.new_lines_seen.clear()
 
             # FIXME need to return a deep copy if intended to use while still running
             return self.lines_seen
@@ -632,17 +635,16 @@ class Slipcover:
 
     def deinstrument_seen(self) -> None:
         with self.lock:
-            self._update_stats()
+            new_lines = self._get_new_lines()
+            self._update_stats(new_lines)
 
-            for file, new_set in self.new_lines_seen.items():
+            for file, new_set in new_lines.items():
                 if self.collect_stats: new_set = set(new_set)    # Counter -> set
 
                 for co in self.instrumented[file]:
                     self.deinstrument(co, new_set)
 
                 self.lines_seen[file].update(new_set)
-
-            self.new_lines_seen.clear()
 
             # Replace references to code
             if self.replace_map:

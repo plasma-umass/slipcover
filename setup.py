@@ -1,4 +1,4 @@
-from setuptools import setup
+import setuptools
 from os import path, environ
 
 def read_file(name):
@@ -12,7 +12,20 @@ def read_file(name):
 # Numbering scheme: https://www.python.org/dev/peps/pep-0440
 dev_build = ('.dev' + environ['DEV_BUILD']) if 'DEV_BUILD' in environ else ''
 
-setup(
+def cxx_version():
+    import sys
+    return "-std=c++17" if sys.platform != "win32" else "/std:c++17"
+
+atomic = setuptools.extension.Extension(
+            'slipcover.atomic',
+            sources=['atomic.cxx'],
+            extra_compile_args=[cxx_version()],
+            py_limited_api=True,
+            language='C++'
+)
+
+
+setuptools.setup(
     name="slipcover",
     version="0.1" + dev_build,
     description="Zero-Overhead Python Code Coverage",
@@ -24,6 +37,7 @@ setup(
     author_email="juan@altmayer.com, emery@cs.umass.edu",
     license="Apache License 2.0",
     packages=['slipcover'],
+    ext_modules=([atomic]),
     python_requires=">=3.8,<3.11",
     install_requires=[
         "tabulate"
