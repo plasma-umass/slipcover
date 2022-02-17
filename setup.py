@@ -14,7 +14,7 @@ dev_build = ('.dev' + environ['DEV_BUILD']) if 'DEV_BUILD' in environ else ''
 
 def cxx_version():
     import sys
-    return "-std=c++17" if sys.platform != "win32" else "/std:c++17"
+    return "-std=c++14" if sys.platform != "win32" else "/std:c++14"
 
 atomic = setuptools.extension.Extension(
             'slipcover.atomic',

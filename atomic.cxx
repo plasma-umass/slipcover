@@ -41,12 +41,12 @@ count_line(PyObject* self, PyObject* args) {
         return NULL;
     }
 
-    PyPtr new_lines_seen = PyObject_GetAttrString(sc, "new_lines_seen");
+    PyPtr<> new_lines_seen = PyObject_GetAttrString(sc, "new_lines_seen");
     if (!new_lines_seen) {
         return NULL;
     }
 
-    PyPtr line_set = PyObject_GetItem(new_lines_seen, filename);
+    PyPtr<> line_set = PyObject_GetItem(new_lines_seen, filename);
     if (!line_set) {
         return NULL;
     }
@@ -57,15 +57,15 @@ count_line(PyObject* self, PyObject* args) {
         }
     }
     else {  // assume it's a collections.Counter
-        PyPtr upd = PyObject_GetAttrString(line_set, "update");
+        PyPtr<> upd = PyObject_GetAttrString(line_set, "update");
         if (!upd) {
             return NULL;
         }
 
-        PyPtr tuple = PyTuple_Pack(1, lineno);
-        PyPtr arg = PyTuple_Pack(1, (PyObject*)tuple);
+        PyPtr<> tuple = PyTuple_Pack(1, lineno);
+        PyPtr<> arg = PyTuple_Pack(1, (PyObject*)tuple);
 
-        PyPtr result = PyObject_CallObject(upd, arg);
+        PyPtr<> result = PyObject_CallObject(upd, arg);
         if (!result) {
             return NULL;
         }
