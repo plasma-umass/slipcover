@@ -1,9 +1,8 @@
 all:
-	python3 setup.py bdist_wheel
 
 # obtained with e.g. "brew install python@3.10"
 HOMEBREW_PYTHON=/usr/local/opt/python@
-test-all:
+test:
 	- rm -f .coverage
 	@ for p in 3.8 3.9 3.10; do \
 	  ${HOMEBREW_PYTHON}$$p/bin/python3 --version; \
@@ -12,6 +11,10 @@ test-all:
 	                                    -m pytest --no-header --tb=no; \
 	done
 	python3 -m coverage report -m
+
+bench:
+	python3 -m pip install -e .
+	python3 benchmarks/run_benchmarks.py
 
 clean:
 	- rm -rf *.so slipcover/*.so

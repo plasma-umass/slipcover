@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from collections import namedtuple
 
-BENCHMARK_FILE = 'benchmark/benchmark.pkl'
+BENCHMARK_FILE = 'benchmarks/benchmarks.pkl'
 
 def run_command(command: str):
     import subprocess
@@ -52,7 +52,7 @@ def path2name(p: Path) -> str:
     match = re.search('^(bm_)?(.*?)\.py$', p.name)
     return match.group(2) if match else p.name
 
-benchmarks = [Benchmark(path2name(p), p) for p in sorted(Path('benchmark').glob('bm_*.py'))]
+benchmarks = [Benchmark(path2name(p), p) for p in sorted(Path('benchmarks').glob('bm_*.py'))]
 
 ran_any = False
 for case in cases:
@@ -100,4 +100,4 @@ ax.set_xticks(x, labels=[b.name for b in benchmarks])
 ax.legend()
 
 fig.tight_layout()
-fig.savefig("benchmark.png")
+fig.savefig("benchmarks.png")

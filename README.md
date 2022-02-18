@@ -31,7 +31,7 @@ is no longer needed, allowing those parts to run at full speed.
 Care is taken thoughout Slipcover to keep things as efficient as possible.
 
 ### Performance
-<img src="benchmark/benchmark.png" align="right" width="50%"/>
+<img src="benchmarks/benchmarks.png" align="right" width="50%"/>
 
 The image on the right shows the execution time of 
 programs. It compares their execution without any coverage
