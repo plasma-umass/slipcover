@@ -29,12 +29,10 @@ else:
 
 
 # Counter.total() is new in 3.10
-if PYTHON_VERSION >= (3,10):
-    def counter_total(c: Counter) -> int:
-        return c.total()
-else:
-    def counter_total(c: Counter) -> int:
-        return sum([c[n] for n in c])
+if PYTHON_VERSION < (3,10):
+    def counter_total(self: Counter) -> int:
+        return sum([self[n] for n in self])
+    setattr(Counter, 'total', counter_total)
 
 
 op_EXTENDED_ARG = dis.EXTENDED_ARG
@@ -592,8 +590,8 @@ class Slipcover:
                 all_for_file = self.reported[file] + self.deinstrumented[file]
 
                 yield (simp.simplify(file), len(self.code_lines[file]), #len(still_instr),
-                       round(counter_total(d_misses)/counter_total(all_for_file)*100, 1),
-                       round(counter_total(self.u_misses[file])/counter_total(all_for_file)*100, 1),
+                       round(d_misses.total()/all_for_file.total()*100, 1),
+                       round(self.u_misses[file].total()/all_for_file.total()*100, 1),
                        " ".join([f"{it[0]}:{it[1]}" for it in d_misses.most_common(4)]),
                        " ".join([f"{it[0]}:{it[1]}" for it in self.u_misses[file].most_common(4)]),
                        " ".join([f"{it[0]}:{it[1]}" for it in all_for_file.most_common(4)]),
