@@ -257,9 +257,10 @@ class PathSimplifier:
     def simplify(self, path : str) -> str:
         from pathlib import Path
         f = Path(path)
-        if f.is_relative_to(self.cwd):
+        try:
             return str(f.relative_to(self.cwd))
-        return path 
+        except ValueError:
+            return path 
 
 
 class Slipcover:
