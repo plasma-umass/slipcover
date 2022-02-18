@@ -83,14 +83,14 @@ static PyMethodDef methods[] = {
 
 static struct PyModuleDef atomic_module = {
     PyModuleDef_HEAD_INIT,
-    .m_name = "atomic",
-    .m_doc = NULL, // no documentation
-    .m_size = -1,
-    .m_methods = methods,
-    .m_slots = NULL,
-    .m_traverse = NULL,
-    .m_clear = NULL,
-    .m_free = NULL
+    "atomic",
+    NULL, // no documentation
+    -1,
+    methods,
+    NULL,
+    NULL,
+    NULL,
+    NULL
 };
 
 
