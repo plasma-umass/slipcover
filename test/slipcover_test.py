@@ -644,6 +644,26 @@ def test_auto_deinstrument():
     assert {*range(first_line+1, last_line)} == sci.get_coverage()[current_file()]
 
 
+@pytest.mark.parametrize("stats", [False, True])
+def test_print_coverage(stats):
+    sci = sc.Slipcover(collect_stats=stats)
+
+    first_line = current_line()+2
+    def foo(n):
+        x = 0
+        for i in range(n):
+            x += (i+1)
+        return x
+    last_line = current_line()
+
+    sci.instrument(foo)
+    foo(3)
+    sci.print_coverage()
+
+    # FIXME check output
+
+
+
 # FIXME test module loading & instrumentation
 
 def func_names(funcs):
