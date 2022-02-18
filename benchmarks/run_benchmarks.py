@@ -60,11 +60,12 @@ for case in cases:
         if bench.name in results[case.name] and case.name != 'Slipcover':
             continue
 
+        r = []
         for _ in range(3):
-            r = run_command(case.command.format(bench=bench.file))
-            if bench.name in results[case.name]:
-                r = min(r, results[case.name][bench.name])
-            results[case.name][bench.name] = r
+            r.append(run_command(case.command.format(bench=bench.file)))
+
+#        results[case.name][bench.name] = sum(r)/len(r)
+        results[case.name][bench.name] = min(r)
 
         ran_any = True
 
@@ -95,7 +96,7 @@ bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
 fig, ax = plt.subplots()
 for case, bar_x in zip(cases, bars_x):
-    rects = ax.bar(x + bar_x, [results[case.name][b.name] for b in benchmarks],
+    rects = ax.bar(x + bar_x, [round(results[case.name][b.name], 1) for b in benchmarks],
                    width/n_bars, label=case.name)
     ax.bar_label(rects, padding=3)
 
