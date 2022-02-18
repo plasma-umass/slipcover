@@ -20,4 +20,4 @@ clean:
 	- rm -rf *.so slipcover/*.so
 	- rm -rf *.egg-info
 	- rm -rf build dist
-	- find . -iname __pycache__ | xargs rm -r
+	- find . -iname __pycache__ -exec rm -r {} \;
