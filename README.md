@@ -39,7 +39,7 @@ tracking, tracking coverage using [coverage.py](https://github.com/nedbat/covera
 and tracking coverage using Slipcover.
 While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original;
-coverage.py incurs between 85% and 184% overhead, while
+coverage.py incurs between 86% and 184% overhead, while
 Slipcover's stays between 1% and 31%.
 
 Some of the sample programs are our own, while others were derived
