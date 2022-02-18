@@ -2,6 +2,9 @@
 #include <Python.h>
 
 
+/**
+ * Implements a smart pointer to a PyObject.
+ */
 template <class O = PyObject>
 class PyPtr {
  public:
