@@ -1,5 +1,7 @@
 import setuptools
+from setuptools.command.build_ext import build_ext
 from os import path, environ
+import sys
 
 def read_file(name):
     """Returns a file's contents"""
@@ -13,8 +15,15 @@ def read_file(name):
 dev_build = ('.dev' + environ['DEV_BUILD']) if 'DEV_BUILD' in environ else ''
 
 def cxx_version():
-    import sys
-    return "-std=c++14" if sys.platform != "win32" else "/std:c++14"
+    return "-std=c++17" if sys.platform != "win32" else "/std:c++17"
+
+class CppExtension(build_ext):
+    def build_extensions(self):
+        if sys.platform == "linux":
+            self.compiler.compiler_so[0] = "g++"
+            self.compiler.compiler_cxx[0] = "g++"
+            self.compiler.linker_so[0] = "g++"
+        build_ext.build_extensions(self)
 
 atomic = setuptools.extension.Extension(
             'slipcover.atomic',
@@ -42,4 +51,5 @@ setuptools.setup(
     install_requires=[
         "tabulate"
     ],
+    cmdclass={"build_ext": CppExtension}
 )
