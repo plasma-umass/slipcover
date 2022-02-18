@@ -23,7 +23,7 @@ def run_command(command: str):
     results = (float(user_time.group(1)), float(sys_time.group(1)))
     print(results, sum(results))
 
-    return results
+    return sum(results)
 
 
 try:
@@ -60,7 +60,12 @@ for case in cases:
         if bench.name in results[case.name] and case.name != 'Slipcover':
             continue
 
-        results[case.name][bench.name] = run_command(case.command.format(bench=bench.file))
+        for _ in range(3):
+            r = run_command(case.command.format(bench=bench.file))
+            if bench.name in results[case.name]:
+                r = min(r, results[case.name][bench.name])
+            results[case.name][bench.name] = r
+
         ran_any = True
 
 if ran_any:
@@ -69,13 +74,13 @@ if ran_any:
 
 
 base = cases[0]
-base_times = [sum(results[base.name][b.name]) for b in benchmarks]
+base_times = [results[base.name][b.name] for b in benchmarks]
 rel_times = dict()
 for case in cases:
     if case == base:
         continue
 
-    times = [sum(results[case.name][b.name]) for b in benchmarks]
+    times = [results[case.name][b.name] for b in benchmarks]
     rel_times[case.name] = [((t/bt)-1)*100 for t, bt in zip(times, base_times)]
 
     print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - {max(rel_times[case.name]):.0f}%")
@@ -90,7 +95,7 @@ bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
 fig, ax = plt.subplots()
 for case, bar_x in zip(cases, bars_x):
-    rects = ax.bar(x + bar_x, [sum(results[case.name][b.name]) for b in benchmarks],
+    rects = ax.bar(x + bar_x, [results[case.name][b.name] for b in benchmarks],
                    width/n_bars, label=case.name)
     ax.bar_label(rects, padding=3)
 
@@ -100,4 +105,4 @@ ax.set_xticks(x, labels=[b.name for b in benchmarks])
 ax.legend()
 
 fig.tight_layout()
-fig.savefig("benchmarks.png")
+fig.savefig("benchmarks/benchmarks.png")
