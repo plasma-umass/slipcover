@@ -61,11 +61,11 @@ for case in cases:
             continue
 
         r = []
-        for _ in range(3):
+        for _ in range(5):
             r.append(run_command(case.command.format(bench=bench.file)))
 
 #        results[case.name][bench.name] = sum(r)/len(r)
-        results[case.name][bench.name] = min(r)
+        results[case.name][bench.name] = sorted(r)[len(r)//2]
 
         ran_any = True
 
