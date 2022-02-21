@@ -70,8 +70,8 @@ for case in cases:
 
 #        r = sum(r)/len(r)
         r = sorted(r)[len(r)//2]
-        print(f"median: {r:.1f}  +{overhead(r, results[base.name][bench.name]):.1f}%")
         results[case.name][bench.name] = r
+        print(f"median: {r:.1f}  +{overhead(r, results[base.name][bench.name]):.1f}%")
 
         ran_any = True
 
