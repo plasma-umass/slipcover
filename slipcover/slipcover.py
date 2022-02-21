@@ -325,14 +325,14 @@ class Slipcover:
 
         consts = list(co.co_consts)
 
-        report_coverage_index = len(consts)
+        count_line_index = len(consts)
         consts.append(atomic.count_line)
-
-        sc_index = len(consts)
-        consts.append(self)
 
         filename_index = len(consts)
         consts.append(co.co_filename)
+
+        sc_index = len(consts)
+        consts.append(self)
 
         # handle functions-within-functions
         for i, c in enumerate(consts):
@@ -355,12 +355,14 @@ class Slipcover:
 
             patch_offset = len(patch)
             patch.extend([op_NOP, 0])       # for deinstrument jump
-            patch.extend(opcode_arg(op_LOAD_CONST, report_coverage_index))
+            patch.extend(opcode_arg(op_LOAD_CONST, count_line_index))
+            patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
+            consts.append(atomic.alloc_flag())
+            patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
             consts.append(lineno)
-            patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
             patch.extend(opcode_arg(op_LOAD_CONST, sc_index))
-            patch.extend([op_CALL_FUNCTION, 3,
+            patch.extend([op_CALL_FUNCTION, 4,
                           op_POP_TOP, 0])    # ignore return
             inserted = len(patch) - patch_offset
             assert inserted <= 255
@@ -459,7 +461,9 @@ class Slipcover:
                     # XXX can we simplify this??
                     it = iter(unpack_opargs(co.co_code[offset:]))
                     next(it) # NOP
-                    next(it) # LOAD_CONST report_coverage_index
+                    next(it) # LOAD_CONST count_line_index
+                    next(it) # LOAD_CONST flag
+                    next(it) # LOAD_CONST filename
                     _, _, _, line_index = next(it)
                     if co.co_consts[line_index] > 0:
                         if not consts:

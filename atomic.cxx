@@ -36,13 +36,21 @@ class PyPtr {
 
 
 static PyObject*
-count_line(PyObject* self, PyObject* args) {
-    PyObject* sc;
-    PyObject* filename;
-    PyObject* lineno;
-    if (!PyArg_ParseTuple(args, "OUO", &lineno, &filename, &sc)) {
+count_line(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
+    if (nargs < 4) {
         return NULL;
     }
+
+    if (bool* flag = (bool*)PyCapsule_GetPointer(args[0], NULL)) {
+        if (*flag) {
+            Py_RETURN_NONE;
+        }
+        *flag = true;
+    }
+
+    PyObject* filename = args[1];
+    PyObject* lineno = args[2];
+    PyObject* sc = args[3];
 
     PyPtr new_lines_seen = PyObject_GetAttrString(sc, "new_lines_seen");
     if (!new_lines_seen) {
@@ -78,8 +86,22 @@ count_line(PyObject* self, PyObject* args) {
 }
 
 
+void
+flag_destructor(PyObject* capsule) {
+    bool* flag = (bool*)PyCapsule_GetPointer(capsule, NULL);
+    delete flag;
+}
+
+
+PyObject*
+alloc_flag(PyObject* self) {
+    bool* flag = new bool(false);
+    return PyCapsule_New(flag, NULL, flag_destructor);
+}
+
 static PyMethodDef methods[] = {
-    {"count_line", count_line, METH_VARARGS, "counts a line"},
+    {"count_line", (PyCFunction)count_line, METH_FASTCALL, "counts a line"},
+    {"alloc_flag", (PyCFunction)alloc_flag, METH_NOARGS, "allocates a flag"},
     {NULL, NULL, 0, NULL}
 };
 

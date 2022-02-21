@@ -27,10 +27,10 @@ def test_atomic_count_line(stats):
     sci = sc.Slipcover(collect_stats=stats)
     d = sci.new_lines_seen
 
-    atomic.count_line(123, "/foo/bar.py", sci)
-    atomic.count_line(42, "/foo2/baz.py", sci)
-    atomic.count_line(42, "/foo2/baz.py", sci)
-    atomic.count_line(314, "/foo2/baz.py", sci)
+    atomic.count_line(0, "/foo/bar.py", 123, sci)
+    atomic.count_line(0, "/foo2/baz.py", 42, sci)
+    atomic.count_line(0, "/foo2/baz.py", 42, sci)
+    atomic.count_line(0, "/foo2/baz.py", 314, sci)
 
     assert ["/foo/bar.py", "/foo2/baz.py"] == sorted(d.keys())
     assert [123] == sorted(list(d["/foo/bar.py"]))
