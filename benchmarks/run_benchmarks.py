@@ -21,7 +21,7 @@ def run_command(command: str):
         raise RuntimeError("Unable to parse " + str(p.stderr))
 
     results = (float(user_time.group(1)), float(sys_time.group(1)))
-    print(results, sum(results))
+    print(results, round(sum(results), 1))
 
     return sum(results)
 
@@ -41,6 +41,7 @@ cases = [Case("(no coverage)", python + " {bench}"),
          Case("coverage.py", python + " -m coverage run --include={bench} {bench}"),
          Case("Slipcover", python + " -m slipcover {bench}")
 ]
+base = cases[0]
 
 for case in cases:
     if case.name not in results:
@@ -54,6 +55,9 @@ def path2name(p: Path) -> str:
 
 benchmarks = [Benchmark(path2name(p), p) for p in sorted(Path('benchmarks').glob('bm_*.py'))]
 
+def overhead(time, base_time):
+    return ((time/base_time)-1)*100
+
 ran_any = False
 for case in cases:
     for bench in benchmarks:
@@ -64,8 +68,10 @@ for case in cases:
         for _ in range(5):
             r.append(run_command(case.command.format(bench=bench.file)))
 
-#        results[case.name][bench.name] = sum(r)/len(r)
-        results[case.name][bench.name] = sorted(r)[len(r)//2]
+#        r = sum(r)/len(r)
+        r = sorted(r)[len(r)//2]
+        print(f"median: {r:.1f}  +{overhead(r, results[base.name][bench.name]):.1f}%")
+        results[case.name][bench.name] = r
 
         ran_any = True
 
@@ -74,7 +80,6 @@ if ran_any:
         pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
 
-base = cases[0]
 base_times = [results[base.name][b.name] for b in benchmarks]
 rel_times = dict()
 for case in cases:
@@ -82,7 +87,7 @@ for case in cases:
         continue
 
     times = [results[case.name][b.name] for b in benchmarks]
-    rel_times[case.name] = [((t/bt)-1)*100 for t, bt in zip(times, base_times)]
+    rel_times[case.name] = [overhead(t, bt) for t, bt in zip(times, base_times)]
 
     print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - {max(rel_times[case.name]):.0f}%")
 
