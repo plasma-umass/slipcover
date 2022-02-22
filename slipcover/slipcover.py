@@ -408,7 +408,7 @@ class Slipcover:
 
         new_code = co.replace(
             co_code=bytes(patch),
-            co_stacksize=co.co_stacksize + 3,  # FIXME use dis.stack_effect
+            co_stacksize=co.co_stacksize + 5,  # FIXME use dis.stack_effect
             co_consts=tuple(consts),
             **kwargs
         )
