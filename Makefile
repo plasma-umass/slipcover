@@ -1,4 +1,5 @@
 all:
+	python3 -m pip install -e .
 
 # obtained with e.g. "brew install python@3.10"
 HOMEBREW_PYTHON=/usr/local/opt/python@
