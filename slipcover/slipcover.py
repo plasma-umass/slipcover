@@ -83,6 +83,19 @@ def unpack_opargs(code: bytes) -> List[(int, int, int, int)]:
             next_off = off+2
 
 
+def calc_max_stack(code: bytes) -> int:
+    """Calculates the maximum stack size for code to execute.
+
+    Assumes linear execution (i.e., not things like a loop pushing to the stack).
+    """
+    max_stack = stack = 0
+    for (_, _, op, arg) in unpack_opargs(code):
+        stack += dis.stack_effect(op, arg if op >= dis.HAVE_ARGUMENT else None)
+        max_stack = max(stack, max_stack)
+
+    return max_stack
+
+
 class Branch:
     """Describes a branch instruction."""
 
@@ -343,6 +356,8 @@ class Slipcover:
         patch = bytearray()
         lines = []
 
+        max_addtl_stack = 0
+
         prev_offset = 0
         prev_lineno = None
         patch_offset = 0
@@ -367,6 +382,8 @@ class Slipcover:
             inserted = len(patch) - patch_offset
             assert inserted <= 255
             patch[patch_offset+1] = offset2branch(inserted-2)
+
+            max_addtl_stack = max(max_addtl_stack, calc_max_stack(patch[patch_offset:]))
 
             for b in branches:
                 b.adjust(patch_offset, inserted)
@@ -408,7 +425,7 @@ class Slipcover:
 
         new_code = co.replace(
             co_code=bytes(patch),
-            co_stacksize=co.co_stacksize + 5,  # FIXME use dis.stack_effect
+            co_stacksize=co.co_stacksize + max_addtl_stack,
             co_consts=tuple(consts),
             **kwargs
         )

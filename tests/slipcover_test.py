@@ -57,6 +57,35 @@ def test_opcode_arg():
     assert [EXT, 0, EXT, 0, EXT, 0, JUMP, 0x42] == \
            list(sc.opcode_arg(JUMP, 0x42, min_ext=3))
 
+
+def test_calc_max_stack():
+    def foo(x):
+        def bar(y):
+            z = y
+            for i in range(3):
+                z += i
+
+            return z
+
+        return bar(x) * 2
+
+    assert foo.__code__.co_stacksize == sc.calc_max_stack(foo.__code__.co_code)
+
+
+def test_calc_max_stack_typical_instrumentation():
+    code = list()
+    code.extend(sc.opcode_arg(sc.op_NOP, 1234))
+    code.extend(sc.opcode_arg(sc.op_LOAD_CONST, 1))
+    code.extend(sc.opcode_arg(sc.op_LOAD_CONST, 2))
+    code.extend(sc.opcode_arg(sc.op_LOAD_CONST, 3))
+    code.extend(sc.opcode_arg(sc.op_LOAD_CONST, 4))
+    code.extend(sc.opcode_arg(sc.op_LOAD_CONST, 5))
+    code.extend([sc.op_CALL_FUNCTION, 4,
+                 sc.op_POP_TOP, 0])
+
+    assert 5 == sc.calc_max_stack(bytes(code))
+
+
 def test_branch_from_code():
     def foo(x):
         for _ in range(2):      # FOR_ITER is relative
@@ -425,6 +454,8 @@ def test_instrument(stats):
     last_line = current_line()
 
     sci.instrument(foo)
+
+    assert foo.__code__.co_stacksize >= sc.calc_max_stack(foo.__code__.co_code)
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(foo.__code__):
