@@ -35,7 +35,7 @@ except FileNotFoundError:
 
 Case = namedtuple('Case', 'name command')
 
-python = 'python3.9'
+python = 'python3'
 
 cases = [Case("(no coverage)", python + " {bench}"),
          Case("coverage.py", python + " -m coverage run --include={bench} {bench}"),
