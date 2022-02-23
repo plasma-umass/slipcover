@@ -371,8 +371,12 @@ class Slipcover:
             patch_offset = len(patch)
             patch.extend([op_NOP, 0])       # for deinstrument jump
             patch.extend(opcode_arg(op_LOAD_CONST, count_line_index))
-            patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-            consts.append(counter.alloc_flag())
+            if self.collect_stats:
+                # FIXME add test
+                patch.extend(opcode_arg(op_LOAD_CONST, 0)) # None, so U misses are counted
+            else:
+                patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
+                consts.append(counter.alloc_flag())
             patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
             consts.append(lineno)
