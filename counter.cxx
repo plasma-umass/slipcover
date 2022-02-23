@@ -106,9 +106,9 @@ static PyMethodDef methods[] = {
 };
 
 
-static struct PyModuleDef atomic_module = {
+static struct PyModuleDef counter_module = {
     PyModuleDef_HEAD_INIT,
-    "atomic",
+    "counter",
     NULL, // no documentation
     -1,
     methods,
@@ -120,8 +120,8 @@ static struct PyModuleDef atomic_module = {
 
 
 PyMODINIT_FUNC
-PyInit_atomic() {
-  PyObject* m = PyModule_Create(&atomic_module);
+PyInit_counter() {
+  PyObject* m = PyModule_Create(&counter_module);
   if (m == nullptr) {
     return nullptr;
   }

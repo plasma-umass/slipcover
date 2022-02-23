@@ -5,7 +5,7 @@ import types
 from typing import Dict, Set, List
 from collections import defaultdict, Counter
 import threading
-from . import atomic
+from . import counter
 
 PYTHON_VERSION = sys.version_info[0:2]
 
@@ -339,7 +339,7 @@ class Slipcover:
         consts = list(co.co_consts)
 
         count_line_index = len(consts)
-        consts.append(atomic.count_line)
+        consts.append(counter.count_line)
 
         filename_index = len(consts)
         consts.append(co.co_filename)
@@ -372,7 +372,7 @@ class Slipcover:
             patch.extend([op_NOP, 0])       # for deinstrument jump
             patch.extend(opcode_arg(op_LOAD_CONST, count_line_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-            consts.append(atomic.alloc_flag())
+            consts.append(counter.alloc_flag())
             patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
             consts.append(lineno)

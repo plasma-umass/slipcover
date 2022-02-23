@@ -21,16 +21,16 @@ def from_set(s: set):
 
 
 @pytest.mark.parametrize("stats", [False, True])
-def test_atomic_count_line(stats):
-    from slipcover import atomic
+def test_counter_count_line(stats):
+    from slipcover import counter
 
     sci = sc.Slipcover(collect_stats=stats)
     d = sci.new_lines_seen
 
-    atomic.count_line(0, "/foo/bar.py", 123, sci)
-    atomic.count_line(0, "/foo2/baz.py", 42, sci)
-    atomic.count_line(0, "/foo2/baz.py", 42, sci)
-    atomic.count_line(0, "/foo2/baz.py", 314, sci)
+    counter.count_line(0, "/foo/bar.py", 123, sci)
+    counter.count_line(0, "/foo2/baz.py", 42, sci)
+    counter.count_line(0, "/foo2/baz.py", 42, sci)
+    counter.count_line(0, "/foo2/baz.py", 314, sci)
 
     assert ["/foo/bar.py", "/foo2/baz.py"] == sorted(d.keys())
     assert [123] == sorted(list(d["/foo/bar.py"]))

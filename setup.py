@@ -25,9 +25,9 @@ class CppExtension(build_ext):
             self.compiler.linker_so[0] = "g++"
         build_ext.build_extensions(self)
 
-atomic = setuptools.extension.Extension(
-            'slipcover.atomic',
-            sources=['atomic.cxx'],
+counter = setuptools.extension.Extension(
+            'slipcover.counter',
+            sources=['counter.cxx'],
             extra_compile_args=[cxx_version()],
             py_limited_api=True,
             language='C++'
@@ -46,7 +46,7 @@ setuptools.setup(
     author_email="juan@altmayer.com, emery@cs.umass.edu",
     license="Apache License 2.0",
     packages=['slipcover'],
-    ext_modules=([atomic]),
+    ext_modules=([counter]),
     python_requires=">=3.8,<3.11",
     install_requires=[
         "tabulate"
