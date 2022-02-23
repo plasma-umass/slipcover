@@ -46,6 +46,8 @@ cases = [Case("(no coverage)", python + " {bench}"),
 ]
 base = cases[0]
 
+TRIES = 5
+
 for case in cases:
     if case.name not in results:
         results[case.name] = dict()  # can't pickle defaultdict(lambda: dict())
@@ -68,7 +70,7 @@ for case in cases:
             continue
 
         r = []
-        for _ in range(5):
+        for _ in range(TRIES):
             r.append(run_command(case.command.format(bench=bench.file)))
 
         results[case.name][bench.name] = r
@@ -121,7 +123,12 @@ fig, ax = plt.subplots()
 for case, bar_x in zip(cases, bars_x):
     rects = ax.bar(x + bar_x, [round(median(results[case.name][b.name]), 1) for b in benchmarks],
                    width/n_bars, label=case.name)
-    ax.bar_label(rects, padding=3)
+#    ax.boxplot([results[case.name][b.name] for b in benchmarks],
+#               positions=x+bar_x, widths=width/n_bars, showfliers=False,
+#               medianprops={'color': 'black'},
+#               labels=[case.name] * len(benchmarks),
+#    )
+#    ax.bar_label(rects, padding=3)
 
 #ax.set_title('Execution time')
 ax.set_ylabel('CPU seconds')
