@@ -729,10 +729,10 @@ def test_print_coverage(stats, capsys):
     # FIXME implement json output and use it; test more cases (multiple files, etc.)
     output = capsys.readouterr()[0].splitlines()
     print(output)
-    assert re.match('^tests/slipcover_test\\.py + 4 + 0', output[3])
+    assert re.match('^tests[/\\\\]slipcover_test\\.py + 4 + 0', output[3])
 
     if stats:
-        assert re.match('^tests/slipcover_test\\.py + 4 +33.3 +0', output[8])
+        assert re.match('^tests[/\\\\]slipcover_test\\.py + 4 +33.3 +0', output[8])
 
 
 # FIXME test module loading & instrumentation
