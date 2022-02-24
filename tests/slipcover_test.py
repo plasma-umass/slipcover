@@ -21,24 +21,57 @@ def from_set(s: set):
 
 
 @pytest.mark.parametrize("stats", [False, True])
-def test_counter_count_line(stats):
-    from slipcover import counter
+def test_tracker_signal(stats):
+    from slipcover import tracker
 
     sci = sc.Slipcover(collect_stats=stats)
     d = sci.new_lines_seen
 
-    counter.count_line(0, "/foo/bar.py", 123, sci)
-    counter.count_line(0, "/foo2/baz.py", 42, sci)
-    counter.count_line(0, "/foo2/baz.py", 42, sci)
-    counter.count_line(0, "/foo2/baz.py", 314, sci)
+    t = tracker.register(sci, "/foo/bar.py", 123)
+    tracker.signal(t)
+
+    t = tracker.register(sci, "/foo2/baz.py", 42)
+    tracker.signal(t)
+    tracker.signal(t)
+
+    t = tracker.register(sci, "/foo2/baz.py", 314)
+    tracker.signal(t)
+
+    t = tracker.make_negative(t)
+    tracker.signal(t)
 
     assert ["/foo/bar.py", "/foo2/baz.py"] == sorted(d.keys())
     assert [123] == sorted(list(d["/foo/bar.py"]))
-    assert [42, 314] == sorted(list(d["/foo2/baz.py"]))
+    assert [-314, 42, 314] == sorted(list(d["/foo2/baz.py"]))
 
     if stats:
         assert 2 == d["/foo2/baz.py"][42]
         assert 1 == d["/foo2/baz.py"][314]
+        assert 1 == d["/foo2/baz.py"][-314]
+
+
+@pytest.mark.parametrize("stats", [False, True])
+def test_tracker_make_negative(stats):
+    from slipcover import tracker
+
+    sci = sc.Slipcover(collect_stats=stats)
+    d = sci.new_lines_seen
+
+    t = tracker.register(sci, "/foo/bar.py", 123)
+    tracker.signal(t)
+
+    t = tracker.make_negative(t)
+    tracker.signal(t)
+    tracker.signal(t)
+
+    assert None == tracker.make_negative(t)
+
+    assert ["/foo/bar.py"] == sorted(d.keys())
+    assert [-123, 123] == sorted(list(d["/foo/bar.py"]))
+
+    if stats:
+        assert 1 == d["/foo/bar.py"][123]
+        assert 2 == d["/foo/bar.py"][-123]
 
 
 def test_opcode_arg():
@@ -676,7 +709,7 @@ def test_auto_deinstrument():
 
 
 @pytest.mark.parametrize("stats", [False, True])
-def test_print_coverage(stats):
+def test_print_coverage(stats, capsys):
     sci = sc.Slipcover(collect_stats=stats)
 
     first_line = current_line()+2
@@ -691,8 +724,15 @@ def test_print_coverage(stats):
     foo(3)
     sci.print_coverage()
 
-    # FIXME check output
+    import re
 
+    # FIXME implement json output and use it; test more cases (multiple files, etc.)
+    output = capsys.readouterr()[0].splitlines()
+    print(output)
+    assert re.match('^tests/slipcover_test\\.py + 4 + 0', output[3])
+
+    if stats:
+        assert re.match('^tests/slipcover_test\\.py + 4 +33.3 +0', output[8])
 
 
 # FIXME test module loading & instrumentation

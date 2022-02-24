@@ -5,7 +5,7 @@ import types
 from typing import Dict, Set, List
 from collections import defaultdict, Counter
 import threading
-from . import counter
+from . import tracker
 
 PYTHON_VERSION = sys.version_info[0:2]
 
@@ -338,14 +338,8 @@ class Slipcover:
 
         consts = list(co.co_consts)
 
-        count_line_index = len(consts)
-        consts.append(counter.count_line)
-
-        filename_index = len(consts)
-        consts.append(co.co_filename)
-
-        sc_index = len(consts)
-        consts.append(self)
+        tracker_signal_index = len(consts)
+        consts.append(tracker.signal)
 
         # handle functions-within-functions
         for i, c in enumerate(consts):
@@ -370,18 +364,10 @@ class Slipcover:
 
             patch_offset = len(patch)
             patch.extend([op_NOP, 0])       # for deinstrument jump
-            patch.extend(opcode_arg(op_LOAD_CONST, count_line_index))
-            if self.collect_stats:
-                # FIXME add test
-                patch.extend(opcode_arg(op_LOAD_CONST, 0)) # None, so U misses are counted
-            else:
-                patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-                consts.append(counter.alloc_flag())
-            patch.extend(opcode_arg(op_LOAD_CONST, filename_index))
+            patch.extend(opcode_arg(op_LOAD_CONST, tracker_signal_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-            consts.append(lineno)
-            patch.extend(opcode_arg(op_LOAD_CONST, sc_index))
-            patch.extend([op_CALL_FUNCTION, 4,
+            consts.append(tracker.register(self, co.co_filename, lineno))
+            patch.extend([op_CALL_FUNCTION, 1,
                           op_POP_TOP, 0])    # ignore return
             inserted = len(patch) - patch_offset
             assert inserted <= 255
@@ -477,19 +463,18 @@ class Slipcover:
                         patch = bytearray(co.co_code)
                     patch[offset] = op_JUMP_FORWARD
                 else:
+                    # Re
                     # Rewrite the line's number constant, making it negative
                     # (its opposite) to indicate it's not a miss if reported in.
                     # XXX can we simplify this??
                     it = iter(unpack_opargs(co.co_code[offset:]))
                     next(it) # NOP
-                    next(it) # LOAD_CONST count_line_index
-                    next(it) # LOAD_CONST flag
-                    next(it) # LOAD_CONST filename
-                    _, _, _, line_index = next(it)
-                    if co.co_consts[line_index] > 0:
+                    next(it) # LOAD_CONST tracker_signal_index
+                    _, _, _, tracker_index = next(it)
+                    if neg_tracker := tracker.make_negative(co.co_consts[tracker_index]):
                         if not consts:
                             consts = list(co.co_consts)
-                        consts[line_index] =  -consts[line_index]
+                        consts[tracker_index] = neg_tracker
 
         if not patch and not consts:
             return co
