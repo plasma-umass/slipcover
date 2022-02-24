@@ -474,6 +474,14 @@ def test_make_lines_and_compare():
     assert list(foo.__code__.co_lnotab) == list(my_lnotab)
 
 
+def test_pathsimplifier_not_relative():
+    from pathlib import Path
+
+    ps = sc.PathSimplifier()
+
+    assert ".." == ps.simplify("..")
+
+
 @pytest.mark.parametrize("stats", [False, True])
 def test_instrument(stats):
     sci = sc.Slipcover(collect_stats=stats)

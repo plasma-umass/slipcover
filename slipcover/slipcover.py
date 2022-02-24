@@ -567,21 +567,6 @@ class Slipcover:
 
 
     def print_stats(self) -> None:
-        def still_instrumented(co: CodeType) -> set(int):
-            lines = set()
-
-            for c in co.co_consts:
-                if isinstance(c, types.CodeType):
-                    lines.update(still_instrumented(c))
-
-            for offset, lineno in dis.findlinestarts(co):
-                # NOP isn't normally emitted in Python code,
-                # so it's relatively safe to look for
-                if co.co_code[offset] == op_NOP:
-                    lines.add(lineno)
-
-            return lines
-
         # Once a line reports in, it's available for deinstrumentation.
         # Each time it reports in after that, we consider it a miss (like a cache miss).
         # We differentiate between (de-instrument) "D misses", where a line
@@ -593,13 +578,12 @@ class Slipcover:
 
         def get_stats():
             for file, code_set in self.instrumented.items():
-#                still_instr = set().union(*[still_instrumented(co) for co in code_set])
                 d_misses = self.reported[file] - self.u_misses[file]
                 d_misses.subtract(self.reported[file].keys())  # 1st time is normal, not a d miss
                 d_misses = +d_misses    # drop any 0 counts
                 all_for_file = self.reported[file] + self.deinstrumented[file]
 
-                yield (simp.simplify(file), len(self.code_lines[file]), #len(still_instr),
+                yield (simp.simplify(file), len(self.code_lines[file]),
                        round(d_misses.total()/all_for_file.total()*100, 1),
                        round(self.u_misses[file].total()/all_for_file.total()*100, 1),
                        " ".join([f"{it[0]}:{it[1]}" for it in d_misses.most_common(4)]),
@@ -612,7 +596,7 @@ class Slipcover:
         if self.collect_stats:
             with self.lock:
                 print(tabulate(get_stats(),
-                               headers=["File", "#lines", #"Still",
+                               headers=["File", "#lines",
                                         "D miss%", "U miss%", "Top D", "Top U", "Top lines"]))
 
 
