@@ -497,6 +497,7 @@ def test_instrument(stats):
     sci.instrument(foo)
 
     assert foo.__code__.co_stacksize >= sc.calc_max_stack(foo.__code__.co_code)
+    assert '__slipcover__' in foo.__code__.co_consts
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(foo.__code__):

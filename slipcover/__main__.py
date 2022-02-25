@@ -63,6 +63,7 @@ import argparse
 ap = argparse.ArgumentParser(prog='slipcover', add_help=False)
 ap.add_argument('--stats', action='store_true')
 ap.add_argument('--debug', action='store_true')
+ap.add_argument('--wrap-exec', action='store_true')
 if '-m' in sys.argv:
     ap.add_argument('script', nargs=argparse.SUPPRESS)
     ap.add_argument('-m', dest='module', nargs=1, required=True)
@@ -80,6 +81,19 @@ base_path = Path(args.script).resolve().parent if args.script \
             else Path('.').resolve()
 
 sci = sc.Slipcover(collect_stats=args.stats)
+
+if args.wrap_exec:
+    import types
+    import builtins
+
+    orig_exec = builtins.exec
+    def exec_wrapper(*p):
+        if isinstance(p[0], types.CodeType) and '__slipcover__' not in p[0].co_consts:
+            p = (sci.instrument(p[0]), *p[1:])
+            # XXX add p[1] globals to those tracked by slipcover, like the modules?
+        orig_exec(*p)
+
+    builtins.exec = exec_wrapper
 
 sys.meta_path = [SlipcoverMetaPathFinder(sci, base_path, sys.meta_path)]
 
@@ -101,7 +115,7 @@ if args.script:
     sys.path.insert(0, str(base_path))
 
     with open(args.script, "r") as f:
-        code = compile(f.read(), args.script, "exec")
+        code = compile(f.read(), str(Path(args.script).resolve()), "exec")
 
     code = sci.instrument(code)
     exec(code, script_globals)

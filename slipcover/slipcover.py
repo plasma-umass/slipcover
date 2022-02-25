@@ -334,7 +334,7 @@ class Slipcover:
             return co.__code__
 
         assert isinstance(co, types.CodeType)
-        #    print(f"instrumenting {co.co_name}")
+        # print(f"instrumenting {co.co_name}")
 
         consts = list(co.co_consts)
 
@@ -412,6 +412,8 @@ class Slipcover:
             kwargs["co_lnotab"] = LineEntry.make_lnotab(co.co_firstlineno, lines)
         else:
             kwargs["co_linetable"] = LineEntry.make_linetable(co.co_firstlineno, lines)
+
+        consts.append('__slipcover__')  # mark instrumented
 
         new_code = co.replace(
             co_code=bytes(patch),
