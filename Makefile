@@ -5,13 +5,15 @@ all:
 HOMEBREW_PYTHON=/usr/local/opt/python@
 test:
 	- rm -f .coverage
-	@ for p in 3.8 3.9 3.10; do \
-	  ${HOMEBREW_PYTHON}$$p/bin/python3 --version; \
-	  ${HOMEBREW_PYTHON}$$p/bin/python3 -m pip install -e .; \
-	  ${HOMEBREW_PYTHON}$$p/bin/python3 -m coverage run -a --include 'slipcover/*' \
-	                                    -m pytest --no-header --tb=no; \
+	@ for V in 3.8 3.9 3.10; do \
+	    P=$$(command -v ${HOMEBREW_PYTHON}$$V/bin/python3 || command -v python$$V); \
+	    if ! [ -z $$P ]; then \
+	      $$P --version; \
+	      $$P -m pip -q install -e .; \
+	      $$P -m coverage run -a --include 'slipcover/*' -m pytest --no-header --tb=no; \
+	    fi; \
 	done
-	python3 -m coverage report -m
+	- python3 -m coverage report -m
 
 bench:
 	python3 -m pip install -e .
