@@ -23,4 +23,4 @@ def f7():
     pass
 
 if __name__ == "__main__":
-    Test.Inner.f2()
+    Test.Inner().f2(0)
