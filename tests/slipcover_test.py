@@ -37,21 +37,17 @@ def test_tracker_signal(stats):
     t = tracker.register(sci, "/foo2/baz.py", 314)
     tracker.signal(t)
 
-    t = tracker.make_negative(t)
-    tracker.signal(t)
-
     assert ["/foo/bar.py", "/foo2/baz.py"] == sorted(d.keys())
     assert [123] == sorted(list(d["/foo/bar.py"]))
-    assert [-314, 42, 314] == sorted(list(d["/foo2/baz.py"]))
+    assert [42, 314] == sorted(list(d["/foo2/baz.py"]))
 
     if stats:
         assert 2 == d["/foo2/baz.py"][42]
         assert 1 == d["/foo2/baz.py"][314]
-        assert 1 == d["/foo2/baz.py"][-314]
 
 
 @pytest.mark.parametrize("stats", [False, True])
-def test_tracker_make_negative(stats):
+def test_tracker_deinstrument(stats):
     from slipcover import tracker
 
     sci = sc.Slipcover(collect_stats=stats)
@@ -60,16 +56,24 @@ def test_tracker_make_negative(stats):
     t = tracker.register(sci, "/foo/bar.py", 123)
     tracker.signal(t)
 
-    t = tracker.make_negative(t)
-    tracker.signal(t)
-    tracker.signal(t)
+    t = tracker.deinstrument(t)
+    if not stats:
+        assert None == t
 
-    assert None == tracker.make_negative(t)
+    else:
+        assert None != t
+        tracker.signal(t)
+        tracker.signal(t)
+        assert None == tracker.deinstrument(t)
 
     assert ["/foo/bar.py"] == sorted(d.keys())
-    assert [-123, 123] == sorted(list(d["/foo/bar.py"]))
 
-    if stats:
+    if not stats:
+        assert [123] == sorted(list(d["/foo/bar.py"]))
+
+    else:
+        assert [-123, 123] == sorted(list(d["/foo/bar.py"]))
+
         assert 1 == d["/foo/bar.py"][123]
         assert 2 == d["/foo/bar.py"][-123]
 

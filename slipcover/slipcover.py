@@ -460,23 +460,21 @@ class Slipcover:
 
         for (offset, lineno) in dis.findlinestarts(co):
             if lineno in lines and co.co_code[offset] == op_NOP:
+                it = iter(unpack_opargs(co.co_code[offset:]))
+                next(it) # NOP
+                next(it) # LOAD_CONST tracker_signal_index
+                _, _, _, tracker_index = next(it)
+
+                stats_deinstr_tracker = tracker.deinstrument(co.co_consts[tracker_index])
+
                 if not self.collect_stats:
                     if not patch:
                         patch = bytearray(co.co_code)
                     patch[offset] = op_JUMP_FORWARD
-                else:
-                    # Re
-                    # Rewrite the line's number constant, making it negative
-                    # (its opposite) to indicate it's not a miss if reported in.
-                    # XXX can we simplify this??
-                    it = iter(unpack_opargs(co.co_code[offset:]))
-                    next(it) # NOP
-                    next(it) # LOAD_CONST tracker_signal_index
-                    _, _, _, tracker_index = next(it)
-                    if neg_tracker := tracker.make_negative(co.co_consts[tracker_index]):
-                        if not consts:
-                            consts = list(co.co_consts)
-                        consts[tracker_index] = neg_tracker
+                elif stats_deinstr_tracker:
+                    if not consts:
+                        consts = list(co.co_consts)
+                    consts[tracker_index] = stats_deinstr_tracker
 
         if not patch and not consts:
             return co

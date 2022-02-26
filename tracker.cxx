@@ -53,13 +53,14 @@ class Tracker {
     PyPtr<> _lineno;
     bool _collect_stats;
     bool _signalled;
-    int _miss_count;
+    bool _instrumented;
+    int _d_miss_count;
 
 public:
     Tracker(PyObject* sci, PyObject* filename, PyObject* lineno):
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
         _lineno(PyPtr<>::borrowed(lineno)),
-        _collect_stats(false), _signalled(false), _miss_count(0) {
+        _collect_stats(false), _signalled(false), _instrumented(true), _d_miss_count(-1) {
 
         PyPtr collect_stats = PyObject_GetAttrString(_sci, "collect_stats");
         _collect_stats = (collect_stats == Py_True);
@@ -77,6 +78,8 @@ public:
 
     PyObject* signal() {
         if (!_signalled || _collect_stats) {
+            _signalled = true;
+
             PyPtr new_lines_seen = PyObject_GetAttrString(_sci, "new_lines_seen");
             if (!new_lines_seen) {
                 return NULL;
@@ -108,29 +111,35 @@ public:
             }
         }
 
-        if (_signalled) {
-            // Limit D misses by deinstrumenting once we see "a lot" of misses for a line
-            // XXX change to mark as deinstrumented, as we can't avoid U misses this way
-            if (++_miss_count == 1500) {
+        if (_instrumented) {
+            // Limit D misses by deinstrumenting once we see several for a line
+            // Any other lines getting D misses get deinstrumented at the same time,
+            // so this needn't be a large threshold.
+            if (++_d_miss_count == 50) {
                 PyPtr deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
                 PyPtr<> result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
             }
         }
 
-        _signalled = true;
         Py_RETURN_NONE;
     }
 
 
-    PyObject* make_negative() {
-        long lineno = 0;
+    PyObject* deinstrument() {
+        if (_instrumented) {
+            _instrumented = false;
 
-        if (!PyLong_Check(_lineno) || (lineno = PyLong_AsLong(_lineno)) <= 0) {
-            Py_RETURN_NONE;
+            if (_collect_stats) {
+                PyPtr neg = PyLong_FromLong(-PyLong_AsLong(_lineno));
+
+                Tracker* t = new Tracker(_sci, _filename, (PyObject*)neg);
+                t->_instrumented = false;
+
+                return newCapsule(t);
+            }
         }
 
-        PyPtr neg = PyLong_FromLong(-lineno);
-        return newCapsule(new Tracker(_sci, _filename, (PyObject*)neg));
+        Py_RETURN_NONE;
     }
 };
 
@@ -162,21 +171,21 @@ tracker_signal(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
 
 
 static PyObject*
-tracker_make_negative(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
+tracker_deinstrument(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
     if (nargs < 1) {
         PyErr_SetString(PyExc_Exception, "Missing argument");
         return NULL;
     }
 
-    return static_cast<Tracker*>(PyCapsule_GetPointer(args[0], NULL))->make_negative();
+    return static_cast<Tracker*>(PyCapsule_GetPointer(args[0], NULL))->deinstrument();
 }
 
 
 static PyMethodDef methods[] = {
     {"register", (PyCFunction)tracker_register, METH_FASTCALL, "registers a new tracker"},
     {"signal", (PyCFunction)tracker_signal, METH_FASTCALL, "signal a tracker"},
-    {"make_negative", (PyCFunction)tracker_make_negative, METH_FASTCALL,
-        "registers a new tracker with a negative line number"},
+    {"deinstrument", (PyCFunction)tracker_deinstrument, METH_FASTCALL,
+     "mark a tracker deinstrumented"},
     {NULL, NULL, 0, NULL}
 };
 
