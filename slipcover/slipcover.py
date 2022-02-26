@@ -450,30 +450,32 @@ class Slipcover:
         patch = None
         consts = None
 
-        for i in range(len(co.co_consts)):
-            if isinstance(co.co_consts[i], types.CodeType):
-                nc = self.deinstrument(co.co_consts[i], lines)
-                if nc != co.co_consts[i]:
+        co_code = co.co_code
+        co_consts = co.co_consts
+
+        for i in range(len(co_consts)):
+            if isinstance(co_consts[i], types.CodeType):
+                nc = self.deinstrument(co_consts[i], lines)
+                if nc != co_consts[i]:
                     if not consts:
-                        consts = list(co.co_consts)
+                        consts = list(co_consts)
                     consts[i] = nc
 
         for (offset, lineno) in dis.findlinestarts(co):
-            if lineno in lines and co.co_code[offset] == op_NOP:
-                it = iter(unpack_opargs(co.co_code[offset:]))
-                next(it) # NOP
-                next(it) # LOAD_CONST tracker_signal_index
-                _, _, _, tracker_index = next(it)
+            if lineno in lines and co_code[offset] == op_NOP:
+                insert_length = branch2offset(co_code[offset+1]) + 2
+                # -5 to jump back over POP_TOP and CALL_FUNCTION
+                tracker_index = co_code[offset + insert_length - 5]
 
-                stats_deinstr_tracker = tracker.deinstrument(co.co_consts[tracker_index])
+                stats_deinstr_tracker = tracker.deinstrument(co_consts[tracker_index])
 
                 if not self.collect_stats:
                     if not patch:
-                        patch = bytearray(co.co_code)
+                        patch = bytearray(co_code)
                     patch[offset] = op_JUMP_FORWARD
                 elif stats_deinstr_tracker:
                     if not consts:
-                        consts = list(co.co_consts)
+                        consts = list(co_consts)
                     consts[tracker_index] = stats_deinstr_tracker
 
         if not patch and not consts:
