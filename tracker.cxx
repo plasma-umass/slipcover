@@ -52,12 +52,14 @@ class Tracker {
     PyPtr<> _filename;
     PyPtr<> _lineno;
     bool _collect_stats;
-    bool _disabled;
+    bool _signalled;
+    int _miss_count;
 
 public:
     Tracker(PyObject* sci, PyObject* filename, PyObject* lineno):
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
-        _lineno(PyPtr<>::borrowed(lineno)), _collect_stats(false), _disabled(false) {
+        _lineno(PyPtr<>::borrowed(lineno)),
+        _collect_stats(false), _signalled(false), _miss_count(0) {
 
         PyPtr collect_stats = PyObject_GetAttrString(_sci, "collect_stats");
         _collect_stats = (collect_stats == Py_True);
@@ -74,9 +76,7 @@ public:
 
 
     PyObject* signal() {
-        if (!_disabled) {
-            _disabled = !_collect_stats;
-
+        if (!_signalled || _collect_stats) {
             PyPtr new_lines_seen = PyObject_GetAttrString(_sci, "new_lines_seen");
             if (!new_lines_seen) {
                 return NULL;
@@ -93,21 +93,31 @@ public:
                 }
             }
             else {  // assume it's a collections.Counter
-                PyPtr upd = PyObject_GetAttrString(line_set, "update");
-                if (!upd) {
+                PyPtr update = PyUnicode_FromString("update");
+                if (!update) {
                     return NULL;
                 }
 
                 PyPtr<> tuple = PyTuple_Pack(1, (PyObject*)_lineno);
-                PyPtr<> arg = PyTuple_Pack(1, (PyObject*)tuple);
 
-                PyPtr<> result = PyObject_CallObject(upd, arg);
+                PyPtr<> result = PyObject_CallMethodObjArgs(line_set, update,
+                                                            (PyObject*)tuple, NULL);
                 if (!result) {
                     return NULL;
                 }
             }
         }
 
+        if (_signalled) {
+            // Limit D misses by deinstrumenting once we see "a lot" of misses for a line
+            // XXX change to mark as deinstrumented, as we can't avoid U misses this way
+            if (++_miss_count == 1500) {
+                PyPtr deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
+                PyPtr<> result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
+            }
+        }
+
+        _signalled = true;
         Py_RETURN_NONE;
     }
 

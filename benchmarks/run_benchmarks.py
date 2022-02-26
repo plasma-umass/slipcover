@@ -128,7 +128,7 @@ for case, bar_x in zip(cases, bars_x):
 #               medianprops={'color': 'black'},
 #               labels=[case.name] * len(benchmarks),
 #    )
-#    ax.bar_label(rects, padding=3)
+    ax.bar_label(rects, padding=3)
 
 #ax.set_title('Execution time')
 ax.set_ylabel('CPU seconds')
