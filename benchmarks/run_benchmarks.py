@@ -1,14 +1,25 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import pickle
 import re
 from pathlib import Path
 from collections import namedtuple
-from statistics import mean, median, stdev
-from math import sqrt
-from tabulate import tabulate
+from statistics import median
+
+# XXX change to saving/restoring from json
+# XXX save/restore on a per-system basis
 
 BENCHMARK_FILE = 'benchmarks/benchmarks.pkl'
+TRIES = 5
+
+Case = namedtuple('Case', 'name command')
+
+python = 'python3'
+
+cases = [Case("(no coverage)", python + " {bench}"),
+         Case("coverage.py", python + " -m coverage run --include={bench} {bench}"),
+         Case("Slipcover", python + " -m slipcover {bench}")
+]
+base = cases[0]
+
 
 def run_command(command: str):
     import subprocess
@@ -29,6 +40,17 @@ def run_command(command: str):
     return sum(results)
 
 
+def parse_args():
+    import argparse
+    ap = argparse.ArgumentParser()
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument('--skip-all', action='store_true', help='skip running all cases if possible')
+    g.add_argument('--run-all', action='store_true', help='re-run all benchmarks')
+    return ap.parse_args()
+
+args = parse_args()
+
+
 try:
     with open(BENCHMARK_FILE, 'rb') as f:
         results = pickle.load(f)
@@ -36,17 +58,6 @@ try:
 except FileNotFoundError:
     results = dict()
 
-Case = namedtuple('Case', 'name command')
-
-python = 'python3'
-
-cases = [Case("(no coverage)", python + " {bench}"),
-         Case("coverage.py", python + " -m coverage run --include={bench} {bench}"),
-         Case("Slipcover", python + " -m slipcover {bench}")
-]
-base = cases[0]
-
-TRIES = 5
 
 for case in cases:
     if case.name not in results:
@@ -60,13 +71,16 @@ def path2name(p: Path) -> str:
 
 benchmarks = [Benchmark(path2name(p), p) for p in sorted(Path('benchmarks').glob('bm_*.py'))]
 
+
 def overhead(time, base_time):
     return ((time/base_time)-1)*100
+
 
 ran_any = False
 for case in cases:
     for bench in benchmarks:
-        if bench.name in results[case.name] and case.name != 'Slipcover':
+        if not args.run_all and bench.name in results[case.name] and \
+           (args.skip_all or case.name != 'Slipcover'):
             continue
 
         r = []
@@ -85,55 +99,70 @@ if ran_any:
     with open(BENCHMARK_FILE, 'wb') as f:
         pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
-def get_stats():
-    for case in cases:
+def print_results():
+    from tabulate import tabulate
+
+    def get_stats():
+        from math import sqrt
+        from statistics import mean, stdev
+
         for bench in benchmarks:
-            r = results[case.name][bench.name]
-            oh = round(overhead(median(r), median(results[base.name][bench.name])),1) \
-                    if case != base else None
-            yield [case.name, bench.name, round(median(r),2), round(mean(r),2),
-                   round(stdev(r),2),
-                   round(stdev(r)/sqrt(len(r)),2), oh]
+            for case in cases:
+                r = results[case.name][bench.name]
+                oh = round(overhead(median(r), median(results[base.name][bench.name])),1) \
+                        if case != base else None
+                yield [bench.name, case.name, round(median(r),2), round(mean(r),2),
+                       round(stdev(r),2),
+                       round(stdev(r)/sqrt(len(r)),2), oh]
 
-print(tabulate(get_stats(), headers=["case", "bench", "median", "mean", "stdev",
-                                     "SE", "overhead %"]))
-print("")
+    print(tabulate(get_stats(), headers=["bench", "case", "median", "mean", "stdev",
+                                         "SE", "overhead %"]))
+    print("")
 
-base_times = [median(results[base.name][b.name]) for b in benchmarks]
-rel_times = dict()
-for case in cases:
-    if case == base:
-        continue
+    base_times = [median(results[base.name][b.name]) for b in benchmarks]
+    rel_times = dict()
+    for case in cases:
+        if case == base:
+            continue
 
-    times = [median(results[case.name][b.name]) for b in benchmarks]
-    rel_times[case.name] = [overhead(t, bt) for t, bt in zip(times, base_times)]
+        times = [median(results[case.name][b.name]) for b in benchmarks]
+        rel_times[case.name] = [overhead(t, bt) for t, bt in zip(times, base_times)]
 
-    print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - " +
-                                    f"{max(rel_times[case.name]):.0f}%")
+        print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - " +
+                                        f"{max(rel_times[case.name]):.0f}%")
 
-diff_times = [cover - slip for cover, slip in zip(rel_times['coverage.py'], rel_times['Slipcover'])]
-print(f"Slipcover savings: {min(diff_times):.0f}% - {max(diff_times):.0f}%")
+    diff_times = [cover - slip for cover, slip in zip(rel_times['coverage.py'],
+                                                      rel_times['Slipcover'])]
+    print(f"Slipcover savings: {min(diff_times):.0f}% - {max(diff_times):.0f}%")
 
-x = np.arange(len(benchmarks))
-n_bars = len(cases)
-width = .70 # of all bars
-bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
+print_results()
 
-fig, ax = plt.subplots()
-for case, bar_x in zip(cases, bars_x):
-    rects = ax.bar(x + bar_x, [round(median(results[case.name][b.name]), 1) for b in benchmarks],
-                   width/n_bars, label=case.name)
-#    ax.boxplot([results[case.name][b.name] for b in benchmarks],
-#               positions=x+bar_x, widths=width/n_bars, showfliers=False,
-#               medianprops={'color': 'black'},
-#               labels=[case.name] * len(benchmarks),
-#    )
-    ax.bar_label(rects, padding=3)
+def plot_results():
+    import numpy as np
+    import matplotlib.pyplot as plt
 
-#ax.set_title('Execution time')
-ax.set_ylabel('CPU seconds')
-ax.set_xticks(x, labels=[b.name for b in benchmarks])
-ax.legend()
+    x = np.arange(len(benchmarks))
+    n_bars = len(cases)
+    width = .70 # of all bars
+    bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
-fig.tight_layout()
-fig.savefig("benchmarks/benchmarks.png")
+    fig, ax = plt.subplots()
+    for case, bar_x in zip(cases, bars_x):
+        rects = ax.bar(x + bar_x, [round(median(results[case.name][b.name]),1) for b in benchmarks],
+                       width/n_bars, label=case.name)
+#        ax.boxplot([results[case.name][b.name] for b in benchmarks],
+#                   positions=x+bar_x, widths=width/n_bars, showfliers=False,
+#                   medianprops={'color': 'black'},
+#                   labels=[case.name] * len(benchmarks),
+#        )
+        ax.bar_label(rects, padding=3)
+
+    #ax.set_title('Execution time')
+    ax.set_ylabel('CPU seconds')
+    ax.set_xticks(x, labels=[b.name for b in benchmarks])
+    ax.legend()
+
+    fig.tight_layout()
+    fig.savefig("benchmarks/benchmarks.png")
+
+plot_results()
