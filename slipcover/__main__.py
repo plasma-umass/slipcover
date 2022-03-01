@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-from collections import defaultdict
 from typing import Any, Dict
 from slipcover import slipcover as sc
 import atexit
@@ -102,7 +101,7 @@ sci.auto_deinstrument()
 
 if args.script:
     # python 'globals' for the script being executed
-    script_globals: Dict[str, Any] = defaultdict(None)
+    script_globals: Dict[Any, Any] = dict()
 
     # needed so that the script being invoked behaves like the main one
     script_globals['__name__'] = '__main__'
