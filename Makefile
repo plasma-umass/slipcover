@@ -17,6 +17,7 @@ test:
 
 bench:
 	python3 -m pip install -e .
+	- find . -iname \*__pycache__\* | xargs rm -rf
 	python3 benchmarks/run_benchmarks.py
 
 clean:
