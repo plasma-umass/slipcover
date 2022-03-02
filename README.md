@@ -40,10 +40,11 @@ and tracking coverage using Slipcover.
 While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original;
 coverage.py incurs between 85% and 184% overhead, while
-Slipcover's stays between 0% and 23%.
+Slipcover's stays between 1.9% and 23.2%.
 
-Some of the sample programs are our own, while others were derived
-from the [Python Benchmark Suite](https://github.com/python/pyperformance).
+Most sample programs were derived from the
+[Python Benchmark Suite](https://github.com/python/pyperformance);
+"sudoku" runs [Peter Norvig's Sudoku solver](http://norvig.com/sudoku.html).
 <br clear="right"/>
 
 ## Getting started
