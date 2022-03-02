@@ -43,10 +43,9 @@ def run_command(command: str):
 def parse_args():
     import argparse
     ap = argparse.ArgumentParser()
-    g = ap.add_mutually_exclusive_group()
-    g.add_argument('--run-all', action='store_true', help='re-run all benchmarks')
-    g.add_argument('--run-none', action='store_true', help="don't re-run any if possible")
-    ap.add_argument('--bench', type=str, default=None, help='select benchmark to run')
+    ap.add_argument('--rerun-case', choices=['all', 'none', *[c.name for c in cases]],
+                    default='Slipcover', help='select "case"(s) to re-run')
+    ap.add_argument('--rerun-bench', type=str, default=None, help='select benchmark to re-run')
     return ap.parse_args()
 
 args = parse_args()
@@ -80,9 +79,11 @@ def overhead(time, base_time):
 ran_any = False
 for case in cases:
     for bench in benchmarks:
-        if not args.run_all and bench.name in results[case.name]:
-            if args.run_none or case.name != 'Slipcover' or \
-                (args.bench and args.bench != bench.name):
+        if bench.name in results[case.name]:
+            if args.rerun_case != 'all' and args.rerun_case != case.name:
+                continue
+
+            if args.rerun_bench and args.rerun_bench != bench.name:
                 continue
 
         r = []
