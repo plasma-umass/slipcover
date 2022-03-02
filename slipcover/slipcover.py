@@ -286,21 +286,21 @@ class Slipcover:
 
         # maps to guide CodeType replacements
         self.replace_map: Dict[types.CodeType, types.CodeType] = dict()
-        self.instrumented: Dict[str, set] = defaultdict(lambda: set())
+        self.instrumented: Dict[str, set] = defaultdict(set)
 
         # notes which code lines have been instrumented
-        self.code_lines: Dict[str, set] = defaultdict(lambda: set())
+        self.code_lines: Dict[str, set] = defaultdict(set)
 
         # notes which lines have been seen.
-        self.lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+        self.lines_seen: Dict[str, Set[int]] = defaultdict(set)
 
         # notes lines seen since last de-instrumentation
         self._get_new_lines()
 
         # stats
-        self.u_misses: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-        self.reported: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
-        self.deinstrumented: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+        self.u_misses: Dict[str, Counter[int]] = defaultdict(Counter)
+        self.reported: Dict[str, Counter[int]] = defaultdict(Counter)
+        self.deinstrumented: Dict[str, Counter[int]] = defaultdict(Counter)
 
         self.modules = []
 
@@ -316,9 +316,9 @@ class Slipcover:
             new_lines = self.new_lines_seen if hasattr(self, "new_lines_seen") else None
 
             if not self.collect_stats:
-                self.new_lines_seen: Dict[str, Set[int]] = defaultdict(lambda: set())
+                self.new_lines_seen: Dict[str, Set[int]] = defaultdict(set)
             else:
-                self.new_lines_seen: Dict[str, Counter[int]] = defaultdict(lambda: Counter())
+                self.new_lines_seen: Dict[str, Counter[int]] = defaultdict(Counter)
 
         return new_lines
 
