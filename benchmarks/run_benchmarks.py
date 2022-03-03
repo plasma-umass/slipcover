@@ -1,13 +1,11 @@
-import pickle
+import json
 import re
 from pathlib import Path
 from collections import namedtuple
 from statistics import median
 
-# XXX change to saving/restoring from json
-# XXX save/restore on a per-system basis
 
-BENCHMARK_FILE = 'benchmarks/benchmarks.pkl'
+BENCHMARK_JSON = 'benchmarks/benchmarks.json'
 TRIES = 5
 
 Case = namedtuple('Case', 'name command')
@@ -51,17 +49,34 @@ def parse_args():
 args = parse_args()
 
 
-try:
-    with open(BENCHMARK_FILE, 'rb') as f:
-        results = pickle.load(f)
+def load_results():
+    def gen_sysid():
+        import platform
+        import cpuinfo  # pip3 install py-cpuinfo
 
-except FileNotFoundError:
-    results = dict()
+        return {'python': platform.python_version(),
+                'os': [platform.system(), platform.release()],
+                'cpu': cpuinfo.get_cpu_info()['brand_raw']}
 
 
-for case in cases:
-    if case.name not in results:
-        results[case.name] = dict()  # can't pickle defaultdict(lambda: dict())
+    try:
+        with open(BENCHMARK_JSON, 'r') as f:
+            saved_results = json.load(f)
+
+    except FileNotFoundError:
+        saved_results = []
+
+    try:
+        results = next(it['results'] for it in saved_results if it['system'] == gen_sysid())
+        print(f"using {json.dumps(gen_sysid())}")
+    except StopIteration:
+        results = dict()
+        saved_results.append({'system': gen_sysid(), 'results': results})
+
+    return saved_results, results
+
+saved_results, results = load_results()
+
 
 Benchmark = namedtuple('Benchmark', 'name file')
 
@@ -78,6 +93,9 @@ def overhead(time, base_time):
 
 ran_any = False
 for case in cases:
+    if case.name not in results:
+        results[case.name] = dict()
+
     for bench in benchmarks:
         if bench.name in results[case.name]:
             if args.rerun_case != 'all' and args.rerun_case != case.name:
@@ -99,8 +117,8 @@ for case in cases:
         ran_any = True
 
 if ran_any:
-    with open(BENCHMARK_FILE, 'wb') as f:
-        pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
+    with open(BENCHMARK_JSON, 'w') as f:
+        json.dump(saved_results, f)
 
 def print_results():
     from tabulate import tabulate
