@@ -63,6 +63,8 @@ ap = argparse.ArgumentParser(prog='slipcover', add_help=False)
 ap.add_argument('--stats', action='store_true')
 ap.add_argument('--debug', action='store_true')
 ap.add_argument('--wrap-exec', action='store_true')
+ap.add_argument('--json', action='store_true')
+ap.add_argument('--pretty-print', action='store_true')
 if '-m' in sys.argv:
     ap.add_argument('script', nargs=argparse.SUPPRESS)
     ap.add_argument('-m', dest='module', nargs=1, required=True)
@@ -96,7 +98,14 @@ if args.wrap_exec:
 
 sys.meta_path = [SlipcoverMetaPathFinder(sci, base_path, sys.meta_path)]
 
-atexit.register(lambda: sci.print_coverage())
+def print_coverage():
+    if args.json:
+        import json
+        print(json.dumps(sci.get_coverage(), indent=(4 if args.pretty_print else None)))
+    else:
+        sci.print_coverage()
+
+atexit.register(print_coverage)
 sci.auto_deinstrument()
 
 if args.script:

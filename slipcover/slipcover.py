@@ -514,92 +514,95 @@ class Slipcover:
                 new_lines[file] = pos_lines
 
 
-    def get_coverage(self) -> Dict[str, Set[int]]:
-        # in case any haven't been merged in yet
+    def get_coverage(self):
+        """Returns coverage information collected."""
+
         with self.lock:
-            new_lines = self._get_new_lines()   # XXX if still running, this will prevent de-instr.
+            # FIXME calling _get_new_lines will prevent de-instrumentation if still running!
+            new_lines = self._get_new_lines()
             self._update_stats(new_lines)
 
             for file, lines in new_lines.items():
                 self.lines_seen[file].update(lines)
 
-            # FIXME need to return a deep copy if intended to use while still running
-            return self.lines_seen
+            simp = PathSimplifier()
 
+            files = dict()
+            for f, f_code_lines in self.code_lines.items():
+                seen = self.lines_seen[f] if f in self.lines_seen else set()
 
-    def get_code_lines(self) -> Dict[str, Set[int]]:
-        with self.lock:
-            # FIXME need to return a deep copy if intended to use while still instrumenting
-            return self.code_lines
+                f_files = {
+                    'executed_lines': sorted(seen),
+                    'missing_lines': sorted(f_code_lines - seen)
+                }
+
+                if self.collect_stats:
+                    # Once a line reports in, it's available for deinstrumentation.
+                    # Each time it reports in after that, we consider it a miss (like a cache miss).
+                    # We differentiate between (de-instrument) "D misses", where a line
+                    # reports in after it _could_ have been de-instrumented and (use) "U misses"
+                    # and where a line reports in after it _has_ been de-instrumented, but
+                    # didn't use the code object where it's deinstrumented.
+                    u_misses = self.u_misses[f]
+                    d_misses = self.reported[f] - u_misses
+                    d_misses.subtract(self.reported[f].keys())  # 1st time is normal, not a d miss
+                    d_misses = +d_misses    # drop any 0 counts
+                    all_for_file = self.reported[f] + self.deinstrumented[f]
+                    f_files['stats'] = {
+                        'd_misses_pct': round(d_misses.total()/all_for_file.total()*100, 1),
+                        'u_misses_pct': round(u_misses.total()/all_for_file.total()*100, 1),
+                        'top_d_misses': [f"{it[0]}:{it[1]}" for it in d_misses.most_common(5)],
+                        'top_u_misses': [f"{it[0]}:{it[1]}" for it in u_misses.most_common(5)],
+                        'top_lines': [f"{it[0]}:{it[1]}" for it in all_for_file.most_common(5)]
+                    }
+
+                files[simp.simplify(f)] = f_files
+
+            return {'files': files}
 
 
     def print_coverage(self) -> None:
-        with self.lock:
-            lines_seen = self.get_coverage()
+        cov = self.get_coverage()
 
-            def merge_consecutives(L):
-                # Neat little trick due to John La Rooy: the difference between the numbers
-                # on a list and a counter is constant for consecutive items :)
-                from itertools import groupby, count
+        def merge_consecutives(L):
+            # Neat little trick due to John La Rooy: the difference between the numbers
+            # on a list and a counter is constant for consecutive items :)
+            from itertools import groupby, count
 
-                groups = groupby(sorted(L), key=lambda item, c=count(): item - next(c))
-                return [
-                    str(g[0]) if g[0] == g[-1] else f"{g[0]}-{g[-1]}"
-                    for g in [list(g) for _, g in groups]
-                ]
-
-            simp = PathSimplifier()
-            from tabulate import tabulate
-
-            def table(files):
-                for f in files:
-                    seen_count = len(lines_seen[f])
-                    total_count = len(self.code_lines[f])
-                    yield [simp.simplify(f), total_count, total_count - seen_count,
-                           round(100*seen_count/total_count),
-                           ', '.join(merge_consecutives(self.code_lines[f] - lines_seen[f]))]
-
-            print("")
-            print(tabulate(table(lines_seen.keys()),
-                  headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
-
-            if self.collect_stats:
-                print("\n---")
-                self.print_stats()
-
-
-    def print_stats(self) -> None:
-        # Once a line reports in, it's available for deinstrumentation.
-        # Each time it reports in after that, we consider it a miss (like a cache miss).
-        # We differentiate between (de-instrument) "D misses", where a line
-        # reports in after it _could_ have been de-instrumented and (use) "U misses"
-        # and where a line reports in after it _has_ been de-instrumented, but
-        # didn't use the code object where it's deinstrumented.
-
-        simp = PathSimplifier()
-
-        def get_stats():
-            for file, code_set in self.instrumented.items():
-                d_misses = self.reported[file] - self.u_misses[file]
-                d_misses.subtract(self.reported[file].keys())  # 1st time is normal, not a d miss
-                d_misses = +d_misses    # drop any 0 counts
-                all_for_file = self.reported[file] + self.deinstrumented[file]
-
-                yield (simp.simplify(file), len(self.code_lines[file]),
-                       round(d_misses.total()/all_for_file.total()*100, 1),
-                       round(self.u_misses[file].total()/all_for_file.total()*100, 1),
-                       " ".join([f"{it[0]}:{it[1]}" for it in d_misses.most_common(4)]),
-                       " ".join([f"{it[0]}:{it[1]}" for it in self.u_misses[file].most_common(4)]),
-                       " ".join([f"{it[0]}:{it[1]}" for it in all_for_file.most_common(4)]),
-                )
+            groups = groupby(sorted(L), key=lambda item, c=count(): item - next(c))
+            return [
+                str(g[0]) if g[0] == g[-1] else f"{g[0]}-{g[-1]}"
+                for g in [list(g) for _, g in groups]
+            ]
 
         from tabulate import tabulate
 
+        def table(files):
+            for f, f_info in files.items():
+                seen = len(f_info['executed_lines'])
+                miss = len(f_info['missing_lines'])
+                total = seen+miss
+                yield [f, total, miss, round(100*seen/total),
+                       ', '.join(merge_consecutives(f_info['missing_lines']))]
+
+        print("")
+        print(tabulate(table(cov['files']),
+              headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
+
+        def stats_table(files):
+            for f, f_info in files.items():
+                stats = f_info['stats']
+
+                yield (f, stats['d_misses_pct'], stats['u_misses_pct'],
+                       " ".join(stats['top_d_misses'][:4]),
+                       " ".join(stats['top_u_misses'][:4]),
+                       " ".join(stats['top_lines'][:4])
+                )
+
         if self.collect_stats:
-            with self.lock:
-                print(tabulate(get_stats(),
-                               headers=["File", "#lines",
-                                        "D miss%", "U miss%", "Top D", "Top U", "Top lines"]))
+            print("\n---")
+            print(tabulate(stats_table(cov['files']),
+                           headers=["File", "D miss%", "U miss%", "Top D", "Top U", "Top lines"]))
 
 
     @staticmethod
@@ -621,6 +624,7 @@ class Slipcover:
                     for _, c in inspect.getmembers(root):
                         yield from find_funcs(c)
 
+        # FIXME this may yield "dictionary changed size during iteration"
         return [f for it in items for f in find_funcs(it)]
 
 

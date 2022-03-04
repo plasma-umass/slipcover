@@ -2,7 +2,6 @@ import pytest
 from slipcover import slipcover as sc
 import dis
 import sys
-import struct
 
 
 PYTHON_VERSION = sys.version_info[0:2]
@@ -15,6 +14,10 @@ def current_line():
 def current_file():
     import inspect as i
     return i.getframeinfo(i.currentframe().f_back).filename
+
+def simple_current_file():
+    simp = sc.PathSimplifier()
+    return simp.simplify(current_file())
 
 def from_set(s: set):
     return next(iter(s))
@@ -393,6 +396,7 @@ def test_branch_code_adjusted(length, arg):
 
 
 def unpack_lnotab(lnotab: bytes) -> list:
+    import struct
     return list(struct.unpack("Bb" * (len(lnotab)//2), lnotab))
 
 
@@ -490,8 +494,10 @@ def test_pathsimplifier_not_relative():
 def test_instrument(stats):
     sci = sc.Slipcover(collect_stats=stats)
 
-    first_line = current_line()+1
+    first_line = current_line()+2
     def foo(n):
+        if n == 42:
+            return 666
         x = 0
         for i in range(n):
             x += (i+1)
@@ -510,8 +516,12 @@ def test_instrument(stats):
     dis.dis(foo)
     assert 6 == foo(3)
 
-    assert {current_file(): {*range(first_line+1, last_line)}} == sci.get_coverage()
-    assert {current_file(): {*range(first_line+1, last_line)}} == sci.get_code_lines()
+    cov = sci.get_coverage()
+    assert {simple_current_file()} == cov['files'].keys()
+
+    cov = cov['files'][simple_current_file()]
+    assert [first_line, *range(first_line+2, last_line)] == cov['executed_lines']
+    assert [first_line+1] == cov['missing_lines']
 
 
 def test_instrument_code_before_first_line():
@@ -537,8 +547,12 @@ def test_instrument_code_before_first_line():
 
     assert 6 == sum(foo(3))
 
-    assert {current_file(): {*range(first_line+1, last_line)}} == sci.get_coverage()
-    assert {current_file(): {*range(first_line+1, last_line)}} == sci.get_code_lines()
+    cov = sci.get_coverage()
+    assert {simple_current_file()} == cov['files'].keys()
+
+    cov = cov['files'][simple_current_file()]
+    assert [*range(first_line+1, last_line)] == cov['executed_lines']
+    assert [] == cov['missing_lines']
 
 
 def test_instrument_threads():
@@ -564,11 +578,15 @@ def test_instrument_threads():
 
     assert 6 == result
 
-    assert {current_file(): {*range(first_line+2, last_line)}} == sci.get_coverage()
-    assert {current_file(): {*range(first_line+2, last_line)}} == sci.get_code_lines()
+    cov = sci.get_coverage()
+    assert {simple_current_file()} == cov['files'].keys()
+
+    cov = cov['files'][simple_current_file()]
+    assert [*range(first_line+2, last_line)] == cov['executed_lines']
+    assert [] == cov['missing_lines']
 
 
-def test_get_code_lines():
+def test_get_coverage_detects_lines():
     sci = sc.Slipcover()
     first_line = current_line()
     def foo(n):             # 1
@@ -589,10 +607,14 @@ def test_get_code_lines():
 
     sci = sc.Slipcover()
     sci.instrument(foo)
-    lines = sci.get_code_lines()[current_file()]
-    lines = set(map(lambda line: line-first_line, lines))
 
-    assert set([6, 8, 9, 12, 13, 15]) == lines
+
+    cov = sci.get_coverage()
+    assert {simple_current_file()} == cov['files'].keys()
+
+    cov = cov['files'][simple_current_file()]
+    lines = list(map(lambda line: line-first_line, cov['missing_lines']))
+    assert [6, 8, 9, 12, 13, 15] == lines
 
 
 some_branches_grew = None
@@ -624,7 +646,10 @@ def test_instrument_long_jump(N):
 
     exec(code, locals(), globals())
     assert N == x
-    assert {"foo": {*range(1, 1+N+3)}} == sci.get_coverage()
+
+    cov = sci.get_coverage()['files']['foo']
+    assert [*range(1, 1+N+3)] == cov['executed_lines']
+    assert [] == cov['missing_lines']
     
 
     global some_branches_grew
@@ -658,12 +683,12 @@ def test_deinstrument(stats):
     last_line = current_line()
 
     sci = sc.Slipcover()
-    assert not sci.get_coverage()
+    assert not sci.get_coverage()['files'].keys()
 
     sci.instrument(foo)
     sci.deinstrument(foo, {*range(first_line, last_line)})
     assert 6 == foo(3)
-    assert not sci.get_coverage()
+    assert not sci.get_coverage()['files'][simple_current_file()]['executed_lines']
 
 
 @pytest.mark.parametrize("stats", [False, True])
@@ -678,13 +703,15 @@ def test_deinstrument_some(stats):
         return x
     last_line = current_line()
 
-    assert not sci.get_coverage()
+    assert not sci.get_coverage()['files'].keys()
 
     sci.instrument(foo)
     sci.deinstrument(foo, {first_line, last_line-1})
 
     assert 6 == foo(3)
-    assert {current_file(): {*range(first_line+1, last_line-1)}} == sci.get_coverage()
+    cov = sci.get_coverage()['files'][simple_current_file()]
+    assert [*range(first_line+1, last_line-1)] == cov['executed_lines']
+    assert [first_line, last_line-1] == cov['missing_lines']
 
 
 # FIXME test deinstrument_seen
@@ -693,14 +720,14 @@ def test_deinstrument_some(stats):
 def test_auto_deinstrument():
     sci = sc.Slipcover()
 
-    first_line = current_line()+1
+    first_line = current_line()+2
     def foo(n):
         if n > 0:
             return n+1 
         return 0
     last_line = current_line()
 
-    assert not sci.get_coverage()
+    assert not sci.get_coverage()['files']
 
     sci.instrument(foo)
     old_code = foo.__code__
@@ -718,7 +745,9 @@ def test_auto_deinstrument():
 
     foo(1)
 
-    assert {*range(first_line+1, last_line)} == sci.get_coverage()[current_file()]
+    cov = sci.get_coverage()['files'][simple_current_file()]
+    assert [*range(first_line, last_line)] == cov['executed_lines']
+    assert [] == cov['missing_lines']
 
 
 @pytest.mark.parametrize("stats", [False, True])
@@ -727,6 +756,8 @@ def test_print_coverage(stats, capsys):
 
     first_line = current_line()+2
     def foo(n):
+        if n == 42:
+            return 666
         x = 0
         for i in range(n):
             x += (i+1)
@@ -739,13 +770,13 @@ def test_print_coverage(stats, capsys):
 
     import re
 
-    # FIXME implement json output and use it; test more cases (multiple files, etc.)
+    # FIXME test more cases (multiple files, etc.)
     output = capsys.readouterr()[0].splitlines()
     print(output)
-    assert re.match('^tests[/\\\\]slipcover_test\\.py + 4 + 0', output[3])
+    assert re.match('^tests[/\\\\]slipcover_test\\.py + 6 + 1 +83 +' + str(first_line+1), output[3])
 
     if stats:
-        assert re.match('^tests[/\\\\]slipcover_test\\.py + 4 +33.3 +0', output[8])
+        assert re.match('^tests[/\\\\]slipcover_test\\.py +28.6 +0', output[8])
 
 
 # FIXME test module loading & instrumentation
