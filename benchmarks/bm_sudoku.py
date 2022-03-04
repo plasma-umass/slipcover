@@ -44,7 +44,7 @@ def test():
     assert peers['C2'] == set(['A2', 'B2', 'D2', 'E2', 'F2', 'G2', 'H2', 'I2',
                                'C1', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9',
                                'A1', 'A3', 'B1', 'B3'])
-    print('All tests pass.')
+    #print('All tests pass.')
 
 
 
@@ -201,6 +201,12 @@ grid2  = '4.....8.5.3..........7......2.....6.....8.4......1.......6.3.7.5..2...
 hard1  = '.....6....59.....82....8....45........3........6..3.54...325..6..................'
     
 if __name__ == '__main__':
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--print', action='store_true')
+    args = ap.parse_args()
+
     random.seed(0)
 
     test()
@@ -213,7 +219,7 @@ if __name__ == '__main__':
                 from_file("benchmarks/sudoku-hardest.txt") + \
                 [random_puzzle() for _ in range(2000)]:
         values = solve(grid)
-        if values: display(values)
+        if values and args.print: display(values)
 
 ## References used:
 ## http://www.scanraid.com/BasicStrategies.htm
