@@ -16,6 +16,9 @@ class SlipcoverLoader(Loader):
     def create_module(self, spec):
         return self.orig_loader.create_module(spec)
 
+    def get_code(self, name):   # expected by pyrun
+        return self.orig_loader.get_code(name)
+
     def exec_module(self, module):
         code = self.orig_loader.get_code(module.__name__)
         sci.register_module(module)
@@ -32,17 +35,19 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         self.pylib_path = Path(inspect.getfile(inspect)).parent
 
     def find_spec(self, fullname, path, target=None):
-#        print(f"Looking for {fullname}")
+        global args
+        if args.debug:
+            print(f"Looking for {fullname}")
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target)
             if (found):
                 origin = Path(found.origin)
                 # Can't instrument built-in or DLL based modules; and
                 # probably shouldn't instrument python library modules, either.
-                if found.origin != 'built-in' and origin.suffix != '.pyd' and \
+                if found.origin != 'built-in' and origin.suffix != '.pyd' and\
+                   origin.suffix != '.so' and\
                    self.pylib_path not in origin.parents and \
                    self.base_path in origin.parents:
-                    global args;
                     if args.debug:
                         print(f"adding {fullname} from {found.origin}; pylib={self.pylib_path}")
                     found.loader = SlipcoverLoader(self.sci, found.loader)
@@ -65,6 +70,7 @@ ap.add_argument('--debug', action='store_true')
 ap.add_argument('--wrap-exec', action='store_true')
 ap.add_argument('--json', action='store_true')
 ap.add_argument('--pretty-print', action='store_true')
+ap.add_argument('--silent', action='store_true')
 if '-m' in sys.argv:
     ap.add_argument('script', nargs=argparse.SUPPRESS)
     ap.add_argument('-m', dest='module', nargs=1, required=True)
@@ -89,14 +95,15 @@ if args.wrap_exec:
 
     orig_exec = builtins.exec
     def exec_wrapper(*p):
-        if isinstance(p[0], types.CodeType) and '__slipcover__' not in p[0].co_consts:
+        if isinstance(p[0], types.CodeType) and '__slipcover__' not in p[0].co_consts and \
+                base_path in Path(p[0].co_filename).parents:
             p = (sci.instrument(p[0]), *p[1:])
             # XXX add p[1] globals to those tracked by slipcover, like the modules?
         orig_exec(*p)
 
     builtins.exec = exec_wrapper
-
-sys.meta_path = [SlipcoverMetaPathFinder(sci, base_path, sys.meta_path)]
+else:
+    sys.meta_path=[SlipcoverMetaPathFinder(sci, base_path, sys.meta_path)]
 
 def print_coverage():
     if args.json:
@@ -105,7 +112,8 @@ def print_coverage():
     else:
         sci.print_coverage()
 
-atexit.register(print_coverage)
+if not args.silent:
+    atexit.register(print_coverage)
 sci.auto_deinstrument()
 
 if args.script:
