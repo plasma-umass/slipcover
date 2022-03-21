@@ -82,22 +82,26 @@ public:
 
             PyPtr new_lines_seen = PyObject_GetAttrString(_sci, "new_lines_seen");
             if (!new_lines_seen) {
+                PyErr_SetString(PyExc_Exception, "new_lines_seen missing");
                 return NULL;
             }
 
             PyPtr line_set = PyObject_GetItem(new_lines_seen, _filename);
             if (!line_set) {
+                PyErr_SetString(PyExc_Exception, "line_set missing");
                 return NULL;
             }
 
             if (PySet_Check(line_set)) {
                 if (PySet_Add(line_set, _lineno) < 0) {
+                    PyErr_SetString(PyExc_Exception, "Unable to add to set");
                     return NULL;
                 }
             }
             else {  // assume it's a collections.Counter
                 PyPtr update = PyUnicode_FromString("update");
                 if (!update) {
+                    PyErr_SetString(PyExc_Exception, "Unable to find update method");
                     return NULL;
                 }
 
@@ -106,6 +110,7 @@ public:
                 PyPtr<> result = PyObject_CallMethodObjArgs(line_set, update,
                                                             (PyObject*)tuple, NULL);
                 if (!result) {
+                    PyErr_SetString(PyExc_Exception, "Unable to call Counter.update");
                     return NULL;
                 }
             }
@@ -117,7 +122,7 @@ public:
             // so this needn't be a large threshold.
             if (++_d_miss_count == 50) {
                 PyPtr deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
-                PyPtr<> result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
+                PyPtr result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
             }
         }
 
