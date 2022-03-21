@@ -463,9 +463,10 @@ class Slipcover:
 
         for (offset, lineno) in dis.findlinestarts(co):
             if lineno in lines and co_code[offset] == op_NOP:
-                insert_length = branch2offset(co_code[offset+1]) + 2
-                # -5 to jump back over POP_TOP and CALL_FUNCTION
-                tracker_index = co_code[offset + insert_length - 5]
+                it = iter(unpack_opargs(co.co_code[offset:]))
+                next(it) # NOP
+                next(it) # LOAD_CONST tracker_signal_index
+                _, _, _, tracker_index = next(it)
 
                 stats_deinstr_tracker = tracker.deinstrument(co_consts[tracker_index])
 

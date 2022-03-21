@@ -624,7 +624,6 @@ def test_instrument_long_jump(N):
     sci = sc.Slipcover()
 
     # each 'if' adds a branch
-    first_line = current_line()+2
     src = "x = 0\n" + \
           "while x == 0:\n" + \
           "  if x >= 0:\n" + \
@@ -689,6 +688,31 @@ def test_deinstrument(stats):
     sci.deinstrument(foo, {*range(first_line, last_line)})
     assert 6 == foo(3)
     assert not sci.get_coverage()['files'][simple_current_file()]['executed_lines']
+
+
+@pytest.mark.parametrize("stats", [False, True])
+def test_deinstrument_with_many_consts(stats):
+    sci = sc.Slipcover(collect_stats=stats)
+
+    N = 1024
+    src = 'x=0\n' + ''.join([f'x = {i}\n' for i in range(1, N)])
+
+    code = compile(src, "foo", "exec")
+
+    assert len(code.co_consts) >= N
+
+    code = sci.instrument(code)
+
+    # this is the "important" part of the test: check that it can
+    # update the tracker(s) even if it requires processing EXTENDED_ARGs
+    code = sci.deinstrument(code, set(range(1, N)))
+
+    exec(code, locals(), globals())
+    assert N-1 == x
+
+    cov = sci.get_coverage()['files']['foo']
+    assert [N] == cov['executed_lines']
+    assert [*range(1,N)] == cov['missing_lines']
 
 
 @pytest.mark.parametrize("stats", [False, True])
