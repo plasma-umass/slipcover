@@ -362,6 +362,11 @@ class Slipcover:
             prev_offset = offset
             prev_lineno = lineno
 
+            while (offset >= 2 and co.co_code[offset-2] == op_EXTENDED_ARG):
+                patch.extend(co.co_code[offset:offset+2])
+                offset += 2
+                prev_offset += 2
+
             patch_offset = len(patch)
             patch.extend([op_NOP, 0])       # for deinstrument jump
             patch.extend(opcode_arg(op_LOAD_CONST, tracker_signal_index))

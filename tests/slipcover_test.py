@@ -586,6 +586,52 @@ def test_instrument_threads():
     assert [] == cov['missing_lines']
 
 
+@pytest.mark.parametrize("N", [260, 65600])
+def test_instrument_doesnt_interrupt_ext_sequence(N):
+    EXT = sc.op_EXTENDED_ARG
+
+    sci = sc.Slipcover()
+
+    # create code with >256 constants
+    src = 'x=0\n' + ''.join([f'y={i}; x += y\n' for i in range(1, N+1)])
+    code = compile(src, 'foo', 'exec')
+
+
+    # Move offsets so that an EXTENDED_ARG is on one line and the rest on another
+    # Python 3.9.10 actually generated code like that:
+    #
+    # 2107        1406 LOAD_NAME               31 (ignore_warnings)
+    # 2109        1408 EXTENDED_ARG             1
+    # 2108        1410 LOAD_CONST             267 ((False, 'float64'))
+    #
+    lines = lines_from_code(code)
+    for i in range(len(lines)):
+        if lines[i].number > 257:
+            assert EXT == code.co_code[lines[i].start]
+            lines[i].start = lines[i-1].end = lines[i-1].end + 2
+
+    if PYTHON_VERSION >= (3,10):
+        code = code.replace(co_linetable=sc.LineEntry.make_linetable(1, lines))
+    else:
+        code = code.replace(co_lnotab=sc.LineEntry.make_lnotab(1, lines))
+
+    orig = {}
+    exec(code, globals(), orig)
+
+    instr = {}
+    code = sci.instrument(code)
+    exec(code, globals(), instr)
+
+    assert orig['x'] == instr['x']
+
+    cov = sci.get_coverage()
+    assert {'foo'} == cov['files'].keys()
+
+    cov = cov['files']['foo']
+    assert [*range(1, N+2)] == cov['executed_lines']
+    assert [] == cov['missing_lines']
+
+
 def test_get_coverage_detects_lines():
     sci = sc.Slipcover()
     first_line = current_line()
