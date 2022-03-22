@@ -362,10 +362,11 @@ class Slipcover:
             prev_offset = offset
             prev_lineno = lineno
 
-            while (offset >= 2 and co.co_code[offset-2] == op_EXTENDED_ARG):
-                patch.extend(co.co_code[offset:offset+2])
-                offset += 2
+            while (prev_offset >= 2 and co.co_code[prev_offset-2] == op_EXTENDED_ARG):
+                patch.extend(co.co_code[prev_offset:prev_offset+2])
                 prev_offset += 2
+
+            # FIXME test out if prev_offset is larger than the next offset
 
             patch_offset = len(patch)
             patch.extend([op_NOP, 0])       # for deinstrument jump
