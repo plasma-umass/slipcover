@@ -811,7 +811,6 @@ def test_deinstrument_seen_upon_repeated_hits():
     assert [] == cov['missing_lines']
 
 
-@pytest.mark.skip(reason='Disabled while I see if really needed')
 def test_auto_deinstrument_in_background():
     sci = sc.Slipcover()
 

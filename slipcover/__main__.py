@@ -65,18 +65,22 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 #
 import argparse
 ap = argparse.ArgumentParser(prog='slipcover')
-ap.add_argument('--stats', action='store_true')
-ap.add_argument('--debug', action='store_true')
-ap.add_argument('--wrap-exec', action='store_true')
-ap.add_argument('--json', action='store_true')
-ap.add_argument('--pretty-print', action='store_true')
-ap.add_argument('--out', type=Path)
+ap.add_argument('--json', action='store_true', help="select JSON output")
+ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
+ap.add_argument('--out', type=Path, help="specify output file name")
+ap.add_argument('--background', action='store_true', help="de-instrument in the background")
+ap.add_argument('--wrap-exec', action='store_true', help="experimental: wrap around exec()")
+
 # intended for slipcover development only
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
+ap.add_argument('--stats', action='store_true', help=argparse.SUPPRESS)
+ap.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
+
 g = ap.add_mutually_exclusive_group(required=True)
-g.add_argument('-m', dest='module', nargs=1)
-g.add_argument('script', nargs='?', type=Path)
+g.add_argument('-m', dest='module', nargs=1, help="run given module as __main__")
+g.add_argument('script', nargs='?', type=Path, help="the script to run")
 ap.add_argument('script_or_module_args', nargs=argparse.REMAINDER)
+
 if '-m' in sys.argv: # work around exclusive group not handled properly
     minus_m = sys.argv.index('-m')
     args = ap.parse_args(sys.argv[1:minus_m+2])
@@ -123,7 +127,9 @@ def sci_atexit():
 
 if not args.silent:
     atexit.register(sci_atexit)
-sci.auto_deinstrument()
+
+if args.background:
+    sci.auto_deinstrument()
 
 if args.script:
     # python 'globals' for the script being executed

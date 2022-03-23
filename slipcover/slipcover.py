@@ -701,4 +701,4 @@ class Slipcover:
                     self.interval = min(2*self.interval, 1)
                     time.sleep(self.interval)
 
-        #DeinstrumentThread(self).start()
+        DeinstrumentThread(self).start()
