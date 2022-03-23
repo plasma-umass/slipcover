@@ -568,7 +568,7 @@ class Slipcover:
             return {'files': files}
 
 
-    def print_coverage(self) -> None:
+    def print_coverage(self, outfile=sys.stdout) -> None:
         cov = self.get_coverage()
 
         def merge_consecutives(L):
@@ -592,9 +592,9 @@ class Slipcover:
                 yield [f, total, miss, round(100*seen/total),
                        ', '.join(merge_consecutives(f_info['missing_lines']))]
 
-        print("")
+        print("", file=outfile)
         print(tabulate(table(cov['files']),
-              headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]))
+              headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]), file=outfile)
 
         def stats_table(files):
             for f, f_info in files.items():
@@ -607,9 +607,10 @@ class Slipcover:
                 )
 
         if self.collect_stats:
-            print("\n---")
+            print("\n", file=outfile)
             print(tabulate(stats_table(cov['files']),
-                           headers=["File", "D miss%", "U miss%", "Top D", "Top U", "Top lines"]))
+                           headers=["File", "D miss%", "U miss%", "Top D", "Top U", "Top lines"]),
+                  file=outfile)
 
 
     @staticmethod
@@ -700,4 +701,4 @@ class Slipcover:
                     self.interval = min(2*self.interval, 1)
                     time.sleep(self.interval)
 
-        DeinstrumentThread(self).start()
+        #DeinstrumentThread(self).start()

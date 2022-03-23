@@ -784,10 +784,35 @@ def test_deinstrument_some(stats):
     assert [first_line, last_line-1] == cov['missing_lines']
 
 
-# FIXME test deinstrument_seen
+def test_deinstrument_seen_upon_repeated_hits():
+    sci = sc.Slipcover()
+
+    first_line = current_line()+2
+    def foo(n):
+        x = 0;
+        for _ in range(100):
+            x += n
+        return x
+    last_line = current_line()
+
+    assert not sci.get_coverage()['files']
+
+    sci.instrument(foo)
+    old_code = foo.__code__
+
+    foo(0)
+
+    assert old_code != foo.__code__, "Code never de-instrumented"
+
+    foo(1)
+
+    cov = sci.get_coverage()['files'][simple_current_file()]
+    assert [*range(first_line, last_line)] == cov['executed_lines']
+    assert [] == cov['missing_lines']
 
 
-def test_auto_deinstrument():
+@pytest.mark.skip(reason='Disabled while I see if really needed')
+def test_auto_deinstrument_in_background():
     sci = sc.Slipcover()
 
     first_line = current_line()+2
@@ -836,7 +861,7 @@ def test_print_coverage(stats, capsys):
 
     sci.instrument(foo)
     foo(3)
-    sci.print_coverage()
+    sci.print_coverage(sys.stdout)
 
     import re
 

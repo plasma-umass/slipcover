@@ -64,25 +64,24 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 # showing it what we need.
 #
 import argparse
-ap = argparse.ArgumentParser(prog='slipcover', add_help=False)
+ap = argparse.ArgumentParser(prog='slipcover')
 ap.add_argument('--stats', action='store_true')
 ap.add_argument('--debug', action='store_true')
 ap.add_argument('--wrap-exec', action='store_true')
 ap.add_argument('--json', action='store_true')
 ap.add_argument('--pretty-print', action='store_true')
+ap.add_argument('--out', type=Path)
 # intended for slipcover development only
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
-if '-m' in sys.argv:
-    ap.add_argument('script', nargs=argparse.SUPPRESS)
-    ap.add_argument('-m', dest='module', nargs=1, required=True)
-    ap.add_argument('module_args', nargs=argparse.REMAINDER)
-
+g = ap.add_mutually_exclusive_group(required=True)
+g.add_argument('-m', dest='module', nargs=1)
+g.add_argument('script', nargs='?', type=Path)
+ap.add_argument('script_or_module_args', nargs=argparse.REMAINDER)
+if '-m' in sys.argv: # work around exclusive group not handled properly
     minus_m = sys.argv.index('-m')
     args = ap.parse_args(sys.argv[1:minus_m+2])
-    args.module_args = sys.argv[minus_m+2:]
+    args.script_or_module_args = sys.argv[minus_m+2:]
 else:
-    ap.add_argument('script')
-    ap.add_argument('script_args', nargs=argparse.REMAINDER)
     args = ap.parse_args(sys.argv[1:])
 
 base_path = Path(args.script).resolve().parent if args.script \
@@ -106,15 +105,24 @@ if args.wrap_exec:
 else:
     sys.meta_path=[SlipcoverMetaPathFinder(sci, base_path, sys.meta_path)]
 
-def print_coverage():
+
+def print_coverage(outfile):
     if args.json:
         import json
-        print(json.dumps(sci.get_coverage(), indent=(4 if args.pretty_print else None)))
+        print(json.dumps(sci.get_coverage(), indent=(4 if args.pretty_print else None)),
+              file=outfile)
     else:
-        sci.print_coverage()
+        sci.print_coverage(outfile=outfile)
+
+def sci_atexit():
+    if args.out:
+        with open(args.out, "w") as outfile:
+            print_coverage(outfile)
+    else:
+        print_coverage(sys.stdout)
 
 if not args.silent:
-    atexit.register(print_coverage)
+    atexit.register(sci_atexit)
 sci.auto_deinstrument()
 
 if args.script:
@@ -125,7 +133,7 @@ if args.script:
     script_globals['__name__'] = '__main__'
     script_globals['__file__'] = args.script
 
-    sys.argv = [args.script, *args.script_args]
+    sys.argv = [args.script, *args.script_or_module_args]
 
     # the 1st item in sys.path is always the main script's directory
     sys.path.pop(0)
@@ -139,5 +147,5 @@ if args.script:
 
 else:
     import runpy
-    sys.argv = [*args.module, *args.module_args]
+    sys.argv = [*args.module, *args.script_or_module_args]
     runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
