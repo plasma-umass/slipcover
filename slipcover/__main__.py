@@ -70,7 +70,8 @@ ap.add_argument('--debug', action='store_true')
 ap.add_argument('--wrap-exec', action='store_true')
 ap.add_argument('--json', action='store_true')
 ap.add_argument('--pretty-print', action='store_true')
-ap.add_argument('--silent', action='store_true')
+# intended for slipcover development only
+ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
 if '-m' in sys.argv:
     ap.add_argument('script', nargs=argparse.SUPPRESS)
     ap.add_argument('-m', dest='module', nargs=1, required=True)
