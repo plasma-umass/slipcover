@@ -6,6 +6,7 @@ from typing import Dict, Set, List
 from collections import defaultdict, Counter
 import threading
 from . import tracker
+from pathlib import Path
 
 PYTHON_VERSION = sys.version_info[0:2]
 
@@ -262,16 +263,58 @@ class LineEntry:
 
 class PathSimplifier:
     def __init__(self):
-        from pathlib import Path
         self.cwd = Path.cwd()
 
     def simplify(self, path : str) -> str:
-        from pathlib import Path
         f = Path(path)
         try:
             return str(f.relative_to(self.cwd))
         except ValueError:
             return path 
+
+
+class FileMatcher:
+    def __init__(self):
+        import inspect
+        pylib_path = Path(inspect.getfile(inspect)).parent
+
+        self.cwd = Path.cwd()
+        self.sources = []
+        self.omit = [pylib_path]
+
+    def addSource(self, source : Path):
+        if isinstance(source, str):
+            source = Path(source)
+        if not source.is_absolute():
+            source = self.cwd / source
+        self.sources.append(source)
+
+    def addOmit(self, omit):
+        if not omit.startswith('*'):
+            omit = self.cwd / omit
+
+        self.omit.append(omit)
+        pass
+
+    def matches(self, filename : Path):
+        if isinstance(filename, str):
+            if filename == 'built-in': return False     # can't instrument
+            filename = Path(filename)
+
+        if filename.suffix in ('.pyd', '.so'): return False  # can't instrument DLLs
+
+        if not filename.is_absolute():
+            filename = self.cwd / filename
+
+        if self.omit:
+            from fnmatch import fnmatch
+            if any(fnmatch(filename, o) for o in self.omit):
+                return False
+
+        if self.sources:
+            return any(s in filename.parents for s in self.sources)
+
+        return self.cwd in filename.parents
 
 
 class Slipcover:

@@ -490,6 +490,106 @@ def test_pathsimplifier_not_relative():
     assert ".." == ps.simplify("..")
 
 
+def test_filematcher_defaults():
+    from pathlib import Path
+    cwd = str(Path.cwd())
+
+    fm = sc.FileMatcher()
+
+    assert fm.matches('myscript.py')
+    assert not fm.matches('built-in')
+    assert not fm.matches('myscript.pyd')
+    assert not fm.matches('myscript.so')
+    assert fm.matches('./myscript.py')
+    assert fm.matches('mymodule/mymodule.py')
+    assert fm.matches('./mymodule/mymodule.py')
+    assert fm.matches('./other/other.py')
+    assert fm.matches(cwd + '/myscript.py')
+    assert fm.matches(cwd + '/mymodule/mymodule.py')
+    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
+
+    import inspect
+    import collections
+    assert not fm.matches(inspect.getfile(inspect))
+    assert not fm.matches(inspect.getfile(collections))
+
+def test_filematcher_source():
+    from pathlib import Path
+    cwd = str(Path.cwd())
+
+    fm = sc.FileMatcher()
+    fm.addSource('mymodule')
+    fm.addSource('prereq')
+
+    assert not fm.matches('myscript.py')
+    assert not fm.matches('./myscript.py')
+    assert not fm.matches('built-in')
+    assert not fm.matches('myscript.pyd')
+    assert not fm.matches('myscript.so')
+    assert fm.matches('mymodule/mymodule.py')
+    assert fm.matches('mymodule/foo.py')
+    assert not fm.matches('mymodule/myscript.pyd')
+    assert not fm.matches('mymodule/myscript.so')
+    assert fm.matches('./mymodule/mymodule.py')
+    assert fm.matches('prereq/__main__.py')
+    assert not fm.matches('./other/other.py')
+    assert not fm.matches(cwd + '/myscript.py')
+    assert fm.matches(cwd + '/mymodule/mymodule.py')
+    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
+
+    import inspect
+    import collections
+    assert not fm.matches(inspect.getfile(inspect))
+    assert not fm.matches(inspect.getfile(collections))
+
+
+def test_filematcher_omit_pattern():
+    from pathlib import Path
+    cwd = str(Path.cwd())
+
+    fm = sc.FileMatcher()
+    fm.addSource('mymodule')
+    fm.addOmit('*/foo.py')
+
+    assert not fm.matches('myscript.py')
+    assert not fm.matches('./myscript.py')
+    assert fm.matches('mymodule/mymodule.py')
+    assert not fm.matches('mymodule/foo.py')
+    assert not fm.matches('mymodule/1/2/3/foo.py')
+    assert fm.matches('./mymodule/mymodule.py')
+    assert not fm.matches('./other/other.py')
+    assert not fm.matches(cwd + '/myscript.py')
+    assert fm.matches(cwd + '/mymodule/mymodule.py')
+    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
+
+    import inspect
+    import collections
+    assert not fm.matches(inspect.getfile(inspect))
+    assert not fm.matches(inspect.getfile(collections))
+
+# FIXME what about patterns starting with '?'
+
+
+def test_filematcher_omit_nonpattern():
+    from pathlib import Path
+    cwd = str(Path.cwd())
+
+    fm = sc.FileMatcher()
+    fm.addSource('mymodule')
+    fm.addOmit('mymodule/foo.py')
+
+    assert not fm.matches('myscript.py')
+    assert not fm.matches('./myscript.py')
+    assert fm.matches('mymodule/mymodule.py')
+    assert not fm.matches('mymodule/foo.py')
+    assert fm.matches('mymodule/1/2/3/foo.py')
+    assert fm.matches('./mymodule/mymodule.py')
+    assert not fm.matches('./other/other.py')
+    assert not fm.matches(cwd + '/myscript.py')
+    assert fm.matches(cwd + '/mymodule/mymodule.py')
+    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
+
+
 @pytest.mark.parametrize("stats", [False, True])
 def test_instrument(stats):
     sci = sc.Slipcover(collect_stats=stats)

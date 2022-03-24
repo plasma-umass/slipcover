@@ -26,13 +26,10 @@ class SlipcoverLoader(Loader):
         exec(code, module.__dict__)
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
-    def __init__(self, sci, base_path, meta_path):
+    def __init__(self, sci, file_matcher, meta_path):
         self.sci = sci
-        self.base_path = base_path
+        self.file_matcher = file_matcher
         self.meta_path = meta_path
-
-        import inspect
-        self.pylib_path = Path(inspect.getfile(inspect)).parent
 
     def find_spec(self, fullname, path, target=None):
         global args
@@ -41,15 +38,9 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target)
             if (found):
-                origin = Path(found.origin)
-                # Can't instrument built-in or DLL based modules; and
-                # probably shouldn't instrument python library modules, either.
-                if found.origin != 'built-in' and origin.suffix != '.pyd' and\
-                   origin.suffix != '.so' and\
-                   self.pylib_path not in origin.parents and \
-                   self.base_path in origin.parents:
+                if file_matcher.matches(found.origin):
                     if args.debug:
-                        print(f"adding {fullname} from {found.origin}; pylib={self.pylib_path}")
+                        print(f"adding {fullname} from {found.origin}")
                     found.loader = SlipcoverLoader(self.sci, found.loader)
                 return found
 
@@ -70,6 +61,8 @@ ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON o
 ap.add_argument('--out', type=Path, help="specify output file name")
 ap.add_argument('--background', action='store_true', help="de-instrument in the background")
 ap.add_argument('--wrap-exec', action='store_true', help="experimental: wrap around exec()")
+ap.add_argument('--source', help="specify directories to cover")
+ap.add_argument('--omit', help="specify file(s) to omit")
 
 # intended for slipcover development only
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
@@ -91,6 +84,18 @@ else:
 base_path = Path(args.script).resolve().parent if args.script \
             else Path('.').resolve()
 
+file_matcher = sc.FileMatcher()
+
+if args.source:
+    for s in args.source.split(','):
+        file_matcher.addSource(s)
+elif args.script:
+    file_matcher.addSource(Path(args.script).resolve().parent)
+
+if args.omit:
+    for o in args.omit.split(','):
+        file_matcher.addOmit(o)
+
 sci = sc.Slipcover(collect_stats=args.stats)
 
 if args.wrap_exec:
@@ -100,14 +105,14 @@ if args.wrap_exec:
     orig_exec = builtins.exec
     def exec_wrapper(*p):
         if isinstance(p[0], types.CodeType) and '__slipcover__' not in p[0].co_consts and \
-                base_path in Path(p[0].co_filename).parents:
+                file_matcher.matches(p[0].co_filename):
             p = (sci.instrument(p[0]), *p[1:])
             # XXX add p[1] globals to those tracked by slipcover, like the modules?
         orig_exec(*p)
 
     builtins.exec = exec_wrapper
 else:
-    sys.meta_path=[SlipcoverMetaPathFinder(sci, base_path, sys.meta_path)]
+    sys.meta_path=[SlipcoverMetaPathFinder(sci, file_matcher, sys.meta_path)]
 
 
 def print_coverage(outfile):
