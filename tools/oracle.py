@@ -7,6 +7,7 @@ from slipcover import slipcover as sc
 from collections import defaultdict
 import dis
 import atexit
+import threading
 
 
 import argparse
@@ -14,6 +15,8 @@ ap = argparse.ArgumentParser(prog='oracle')
 ap.add_argument('--out', type=Path, help="specify output file name")
 ap.add_argument('--source', help="specify directories to cover")
 ap.add_argument('--omit', help="specify file(s) to omit")
+ap.add_argument('--json', action='store_true', help="select JSON output")
+ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
 
 g = ap.add_mutually_exclusive_group(required=True)
 g.add_argument('-m', dest='module', nargs=1, help="run given module as __main__")
@@ -55,15 +58,30 @@ def trace_function(frame, event, arg):
 
 
 def get_code_lines(filename):
+    import types
+    lines = set()
+
     with open(filename, 'r') as f:
         code = compile(f.read(), filename, 'exec')
-        return set(map(lambda line: line[1], dis.findlinestarts(code)))
+
+    q = [code]
+    while q:
+        code = q.pop(0)
+        for c in code.co_consts:
+            if isinstance(c, types.CodeType):
+                q.append(c)
+
+        lines.update(map(lambda line: line[1], dis.findlinestarts(code)))
+
+    return lines
 
 
 def print_coverage(outfile):
     code_lines = {f: get_code_lines(f) for f in coverage}
+    ps = sc.PathSimplifier()
+
     data = {'files':
-                {f : {'executed_lines': sorted(lines),
+                {ps.simplify(f) : {'executed_lines': sorted(lines),
                       'missing_lines': sorted(code_lines[f] - lines)}
                      for f, lines in coverage.items()}
     }
@@ -74,6 +92,9 @@ def print_coverage(outfile):
 
 
 def oracle_atexit():
+    threading.settrace(None)
+    sys.settrace(None)
+
     if args.out:
         with open(args.out, "w") as outfile:
             print_coverage(outfile)
@@ -81,6 +102,7 @@ def oracle_atexit():
         print_coverage(sys.stdout)
 
 atexit.register(oracle_atexit)
+threading.settrace(trace_function)
 sys.settrace(trace_function)
 
 if args.script:
