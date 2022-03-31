@@ -55,12 +55,14 @@ class Tracker {
     bool _signalled;
     bool _instrumented;
     int _d_miss_count;
+    int _d_threshold;
 
 public:
-    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno):
+    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno, long d_threshold):
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
         _lineno(PyPtr<>::borrowed(lineno)),
-        _collect_stats(false), _signalled(false), _instrumented(true), _d_miss_count(-1) {
+        _collect_stats(false), _signalled(false), _instrumented(true),
+        _d_miss_count(-1), _d_threshold(d_threshold) {
 
         PyPtr collect_stats = PyObject_GetAttrString(_sci, "collect_stats");
         _collect_stats = (collect_stats == Py_True);
@@ -120,7 +122,7 @@ public:
             // Limit D misses by deinstrumenting once we see several for a line
             // Any other lines getting D misses get deinstrumented at the same time,
             // so this needn't be a large threshold.
-            if (++_d_miss_count == 50) {
+            if (++_d_miss_count == _d_threshold) {
                 PyPtr deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
                 PyPtr result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
             }
@@ -137,7 +139,7 @@ public:
             if (_collect_stats) {
                 PyPtr neg = PyLong_FromLong(-PyLong_AsLong(_lineno));
 
-                Tracker* t = new Tracker(_sci, _filename, (PyObject*)neg);
+                Tracker* t = new Tracker(_sci, _filename, (PyObject*)neg, -1);
                 t->_instrumented = false;
 
                 return newCapsule(t);
@@ -151,7 +153,7 @@ public:
 
 PyObject*
 tracker_register(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
-    if (nargs < 3) {
+    if (nargs < 4) {
         PyErr_SetString(PyExc_Exception, "Missing argument(s)");
         return NULL;
     }
@@ -159,8 +161,9 @@ tracker_register(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
     PyObject* sci = args[0];
     PyObject* filename = args[1];
     PyObject* lineno = args[2];
+    long d_threshold = PyLong_AsLong(args[3]);
 
-    return Tracker::newCapsule(new Tracker(sci, filename, lineno));
+    return Tracker::newCapsule(new Tracker(sci, filename, lineno, d_threshold));
 }
 
 

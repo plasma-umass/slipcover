@@ -318,11 +318,12 @@ class FileMatcher:
 
 
 class Slipcover:
-    def __init__(self, collect_stats : bool = False):
+    def __init__(self, collect_stats : bool = False, d_threshold = 50):
         if not ((3,8) <= PYTHON_VERSION <= (3,10)):
             raise RuntimeError("Unsupported Python version; please use 3.8 to 3.10")
 
         self.collect_stats = collect_stats
+        self.d_threshold = d_threshold
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -415,7 +416,7 @@ class Slipcover:
             patch.extend([op_NOP, 0])       # for deinstrument jump
             patch.extend(opcode_arg(op_LOAD_CONST, tracker_signal_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-            consts.append(tracker.register(self, co.co_filename, lineno))
+            consts.append(tracker.register(self, co.co_filename, lineno, self.d_threshold))
             patch.extend([op_CALL_FUNCTION, 1,
                           op_POP_TOP, 0])    # ignore return
             inserted = len(patch) - patch_offset

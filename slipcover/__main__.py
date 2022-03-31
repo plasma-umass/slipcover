@@ -63,6 +63,7 @@ ap.add_argument('--background', action='store_true', help="de-instrument in the 
 ap.add_argument('--wrap-exec', action='store_true', help="experimental: wrap around exec()")
 ap.add_argument('--source', help="specify directories to cover")
 ap.add_argument('--omit', help="specify file(s) to omit")
+ap.add_argument('--threshold', type=int, default=50, metavar="T", help="threshold for de-instrumentation")
 
 # intended for slipcover development only
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
@@ -96,7 +97,7 @@ if args.omit:
     for o in args.omit.split(','):
         file_matcher.addOmit(o)
 
-sci = sc.Slipcover(collect_stats=args.stats)
+sci = sc.Slipcover(collect_stats=args.stats, d_threshold=args.threshold)
 
 if args.wrap_exec:
     import types
