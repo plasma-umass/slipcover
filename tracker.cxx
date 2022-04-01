@@ -58,14 +58,17 @@ class Tracker {
     int _d_threshold;
 
 public:
-    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno, long d_threshold):
+    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno):
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
         _lineno(PyPtr<>::borrowed(lineno)),
         _collect_stats(false), _signalled(false), _instrumented(true),
-        _d_miss_count(-1), _d_threshold(d_threshold) {
+        _d_miss_count(-1), _d_threshold(50) {
 
         PyPtr collect_stats = PyObject_GetAttrString(_sci, "collect_stats");
         _collect_stats = (collect_stats == Py_True);
+
+        PyPtr d_threshold = PyObject_GetAttrString(_sci, "d_threshold");
+        _d_threshold = PyLong_AsLong(d_threshold);
     }
 
 
@@ -139,7 +142,7 @@ public:
             if (_collect_stats) {
                 PyPtr neg = PyLong_FromLong(-PyLong_AsLong(_lineno));
 
-                Tracker* t = new Tracker(_sci, _filename, (PyObject*)neg, -1);
+                Tracker* t = new Tracker(_sci, _filename, (PyObject*)neg);
                 t->_instrumented = false;
 
                 return newCapsule(t);
@@ -153,7 +156,7 @@ public:
 
 PyObject*
 tracker_register(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
-    if (nargs < 4) {
+    if (nargs < 3) {
         PyErr_SetString(PyExc_Exception, "Missing argument(s)");
         return NULL;
     }
@@ -161,9 +164,8 @@ tracker_register(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
     PyObject* sci = args[0];
     PyObject* filename = args[1];
     PyObject* lineno = args[2];
-    long d_threshold = PyLong_AsLong(args[3]);
 
-    return Tracker::newCapsule(new Tracker(sci, filename, lineno, d_threshold));
+    return Tracker::newCapsule(new Tracker(sci, filename, lineno));
 }
 
 

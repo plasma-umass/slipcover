@@ -911,6 +911,27 @@ def test_deinstrument_seen_upon_repeated_hits():
     assert [] == cov['missing_lines']
 
 
+def test_no_deinstrument_seen_negative_threshold():
+    sci = sc.Slipcover(d_threshold=-1)
+
+    first_line = current_line()+2
+    def foo(n):
+        x = 0;
+        for _ in range(100):
+            x += n
+        return x
+    last_line = current_line()
+
+    assert not sci.get_coverage()['files']
+
+    sci.instrument(foo)
+    old_code = foo.__code__
+
+    foo(0)
+
+    assert old_code == foo.__code__, "Code de-instrumented"
+
+
 def test_auto_deinstrument_in_background():
     sci = sc.Slipcover()
 

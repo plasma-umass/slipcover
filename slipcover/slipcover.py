@@ -416,7 +416,7 @@ class Slipcover:
             patch.extend([op_NOP, 0])       # for deinstrument jump
             patch.extend(opcode_arg(op_LOAD_CONST, tracker_signal_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-            consts.append(tracker.register(self, co.co_filename, lineno, self.d_threshold))
+            consts.append(tracker.register(self, co.co_filename, lineno))
             patch.extend([op_CALL_FUNCTION, 1,
                           op_POP_TOP, 0])    # ignore return
             inserted = len(patch) - patch_offset
