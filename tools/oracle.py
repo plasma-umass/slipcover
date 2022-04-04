@@ -4,7 +4,6 @@
 import sys
 from pathlib import Path
 from slipcover import slipcover as sc
-from collections import defaultdict
 import dis
 import atexit
 import threading
@@ -45,14 +44,14 @@ if args.omit:
     for o in args.omit.split(','):
         file_matcher.addOmit(o)
 
-coverage = defaultdict(set)
+coverage = set()
 
 def trace_function(frame, event, arg):
     if not file_matcher.matches(frame.f_code.co_filename):
         return None # uninteresting scope
 
     if event == 'line':
-        coverage[frame.f_code.co_filename].add(frame.f_lineno)
+        coverage.add((frame.f_code.co_filename, frame.f_lineno))
 
     return trace_function
 
@@ -77,13 +76,18 @@ def get_code_lines(filename):
 
 
 def print_coverage(outfile):
-    code_lines = {f: get_code_lines(f) for f in coverage}
+    from collections import defaultdict
+    file2line = defaultdict(set)
+    for file, line in coverage:
+        file2line[file].add(line)
+
+    code_lines = {f: get_code_lines(f) for f in file2line}
     ps = sc.PathSimplifier()
 
     data = {'files':
                 {ps.simplify(f) : {'executed_lines': sorted(lines),
                       'missing_lines': sorted(code_lines[f] - lines)}
-                     for f, lines in coverage.items()}
+                     for f, lines in file2line.items()}
     }
 
     import json
