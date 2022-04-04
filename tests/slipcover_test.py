@@ -884,7 +884,7 @@ def test_deinstrument_some(stats):
     assert [first_line, last_line-1] == cov['missing_lines']
 
 
-def test_deinstrument_seen_upon_repeated_hits():
+def test_deinstrument_seen_d_threshold():
     sci = sc.Slipcover()
 
     first_line = current_line()+2
@@ -911,6 +911,42 @@ def test_deinstrument_seen_upon_repeated_hits():
     assert [] == cov['missing_lines']
 
 
+def test_deinstrument_seen_d_threshold_doesnt_count_while_deinstrumenting():
+    sci = sc.Slipcover()
+
+    def seq(start, stop):
+        return list(range(start, stop))
+
+
+    first_line = current_line()+2
+    def foo(n):
+        class Desc:  # https://docs.python.org/3/howto/descriptor.html
+            def __get__(self, obj, objtype=None):
+                return 10   # first_line+2 <-- shouldn't be seen
+        class Bar:
+            v = Desc()
+        x = 0
+        for _ in range(100):
+            x += n
+        return x
+    last_line = current_line()
+
+    assert not sci.get_coverage()['files']
+
+    sci.instrument(foo)
+    old_code = foo.__code__
+
+    foo(0)
+
+    assert old_code != foo.__code__, "Code never de-instrumented"
+
+    foo(1)
+
+    cov = sci.get_coverage()['files'][simple_current_file()]
+    assert seq(first_line, first_line+2) + seq(first_line+3, last_line) == cov['executed_lines']
+    assert [first_line+2] == cov['missing_lines']
+
+
 def test_no_deinstrument_seen_negative_threshold():
     sci = sc.Slipcover(d_threshold=-1)
 
@@ -930,39 +966,6 @@ def test_no_deinstrument_seen_negative_threshold():
     foo(0)
 
     assert old_code == foo.__code__, "Code de-instrumented"
-
-
-def test_auto_deinstrument_in_background():
-    sci = sc.Slipcover()
-
-    first_line = current_line()+2
-    def foo(n):
-        if n > 0:
-            return n+1 
-        return 0
-    last_line = current_line()
-
-    assert not sci.get_coverage()['files']
-
-    sci.instrument(foo)
-    old_code = foo.__code__
-
-    sci.auto_deinstrument()
-    foo(0)
-
-    max_attempts = 10
-    import time
-    while (foo.__code__ == old_code and max_attempts > 0):
-        max_attempts -= 1
-        time.sleep(.05)
-
-    assert max_attempts > 0, "Code never de-instrumented"
-
-    foo(1)
-
-    cov = sci.get_coverage()['files'][simple_current_file()]
-    assert [*range(first_line, last_line)] == cov['executed_lines']
-    assert [] == cov['missing_lines']
 
 
 @pytest.mark.parametrize("stats", [False, True])

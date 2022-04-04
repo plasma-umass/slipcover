@@ -725,24 +725,3 @@ class Slipcover:
 
                 # all references should have been replaced now... right?
                 self.replace_map.clear()
-
-
-    def auto_deinstrument(self) -> None:
-        class DeinstrumentThread(threading.Thread):
-            """Runs in the background, de-instrumenting code."""
-            def __init__(self, sc):
-                super().__init__(daemon=True)
-                self.interval = 0.1
-                self.sc = sc
-
-            def run(self):
-                import time
-
-                while True:
-                    self.sc.deinstrument_seen()
-
-                    # Increase the interval geometrically, to a point
-                    self.interval = min(2*self.interval, 1)
-                    time.sleep(self.interval)
-
-        DeinstrumentThread(self).start()

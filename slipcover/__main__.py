@@ -59,7 +59,6 @@ ap = argparse.ArgumentParser(prog='slipcover')
 ap.add_argument('--json', action='store_true', help="select JSON output")
 ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
 ap.add_argument('--out', type=Path, help="specify output file name")
-ap.add_argument('--background', action='store_true', help="de-instrument in the background")
 ap.add_argument('--wrap-exec', action='store_true', help="experimental: wrap around exec()")
 ap.add_argument('--source', help="specify directories to cover")
 ap.add_argument('--omit', help="specify file(s) to omit")
@@ -133,9 +132,6 @@ def sci_atexit():
 
 if not args.silent:
     atexit.register(sci_atexit)
-
-if args.background:
-    sci.auto_deinstrument()
 
 if args.script:
     # python 'globals' for the script being executed

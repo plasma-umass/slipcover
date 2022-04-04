@@ -57,6 +57,8 @@ class Tracker {
     int _d_miss_count;
     int _d_threshold;
 
+    static thread_local bool _in_deinstrument_seen;
+
 public:
     Tracker(PyObject* sci, PyObject* filename, PyObject* lineno):
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
@@ -82,6 +84,10 @@ public:
 
 
     PyObject* signal() {
+        if (_in_deinstrument_seen) {
+            Py_RETURN_NONE;
+        }
+
         if (!_signalled || _collect_stats) {
             _signalled = true;
 
@@ -126,8 +132,10 @@ public:
             // Any other lines getting D misses get deinstrumented at the same time,
             // so this needn't be a large threshold.
             if (++_d_miss_count == _d_threshold) {
+                _in_deinstrument_seen = true;
                 PyPtr deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
                 PyPtr result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
+                _in_deinstrument_seen = false;
             }
         }
 
@@ -152,6 +160,8 @@ public:
         Py_RETURN_NONE;
     }
 };
+
+thread_local bool Tracker::_in_deinstrument_seen = false;
 
 
 PyObject*
