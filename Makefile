@@ -25,3 +25,4 @@ clean:
 	- rm -rf *.egg-info
 	- rm -rf build dist
 	- find . -iname __pycache__ -exec rm -r {} \;
+	- rm -rf .pytest_cache
