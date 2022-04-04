@@ -25,21 +25,34 @@ for (f_name, f0_cover) in data[0]['files'].items():
                 print("")
 
 def is_pytest(filename):
+    from pathlib import Path
     import re
-    with open(filename, "r") as f:
-        if re.search(r"^(import pytest|from pytest )", f.read(), re.M):
-            return True
+
+    p = Path(filename)
+    # pytest file conventions
+    if p.name == 'conftest.py' or re.match(r"test_.*\.py$", p.name) or re.match(r".*_test\.py$", p.name):
+           return True
+
+#    with open(filename, "r") as f:
+#        if re.search(r"^(import pytest|from pytest )", f.read(), re.M):
+#            return True
 
     return False
 
-for i in [0, 1]:
-    other = 1-i
-    any = False
+for is_test in [False, True]:
+    for i in [0, 1]:
+        other = 1-i
+        any = False
 
-    for f_name in sorted(data[i]['files'].keys() - data[other]['files'].keys()):
-        if not any:
+        for f_name in sorted(data[i]['files'].keys() - data[other]['files'].keys()):
+            if is_pytest(f_name) != is_test:
+                continue
+
+            if not any:
+                print(("tests " if is_test else "") + f"only in {file[i]}:")
+                any = True
+
+            print(f"    {f_name}")
+
+        if any:
             print("")
-            print(f"only in {file[i]}:")
-            any = True
-
-        print(f"    {f_name}" + (" (test)" if is_pytest(f_name) else ""))
