@@ -38,7 +38,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target)
             if (found):
-                if file_matcher.matches(found.origin):
+                if found.origin and file_matcher.matches(found.origin):
                     if args.debug:
                         print(f"adding {fullname} from {found.origin}")
                     found.loader = SlipcoverLoader(self.sci, found.loader)
