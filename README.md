@@ -47,6 +47,14 @@ Most sample programs were derived from the
 "sudoku" runs [Peter Norvig's Sudoku solver](http://norvig.com/sudoku.html).
 <br clear="right"/>
 
+### Accuracy
+We verified slipcover's accuracy against [coverage.py](https://github.com/nedbat/coveragepy)
+and against a [simple script](tools/oracle.py) of our own that collects coverage using python tracing.
+We found slipcover's results to be accurate, in fact, in some cases [more accurate than coveragepy](https://github.com/nedbat/coveragepy/issues/1358).
+Caveat: slipcover doesn't currently collect coverage information of [pytest](https://github.com/pytest-dev/pytest) **test** files,
+as pytest loads these separately from the normal Python loader.
+This doesn't affect the code under test, which normally resides in other files.
+
 ## Getting started
 Slipcover is available from [PyPI](https://pypi.org/project/slipcover).
 You can install it like any other Python module with
