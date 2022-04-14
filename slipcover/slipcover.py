@@ -673,8 +673,17 @@ class Slipcover:
                 if root not in visited:
                     visited.add(root)
 
-                    for _, c in inspect.getmembers(root):
-                        yield from find_funcs(c)
+                    # Don't use inspect.getmembers(root) since that invokes getattr(),
+                    # which causes any descriptors to be invoked, which results in either
+                    # additional (unintended) coverage and/or errors because __get__ is
+                    # invoked in an unexpected way.
+                    obj_names = dir(root)
+                    for obj_key in obj_names:
+                        mro = (root,) # FIXME should be "+ obj.__mro__" to look in all bases, but add tests first
+                        for base in mro:
+                            if obj_key in base.__dict__:
+                                yield from find_funcs(base.__dict__[obj_key])
+                                break
 
         # FIXME this may yield "dictionary changed size during iteration"
         return [f for it in items for f in find_funcs(it)]

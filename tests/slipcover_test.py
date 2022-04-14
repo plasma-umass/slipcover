@@ -947,6 +947,41 @@ def test_deinstrument_seen_d_threshold_doesnt_count_while_deinstrumenting():
     assert [first_line+2] == cov['missing_lines']
 
 
+def test_deinstrument_seen_descriptor_not_invoked():
+    sci = sc.Slipcover()
+
+    def seq(start, stop):
+        return list(range(start, stop))
+
+    first_line = current_line()+2
+    def foo(n):
+        class Desc:  # https://docs.python.org/3/howto/descriptor.html
+            def __get__(self, obj, objtype=None):
+                raise TypeError("just testing!")
+        class Bar:
+            v = Desc()
+        x = 0
+        for _ in range(100):
+            x += n
+        return x
+    last_line = current_line()
+
+    assert not sci.get_coverage()['files']
+
+    sci.instrument(foo)
+    old_code = foo.__code__
+
+    foo(0)
+
+    assert old_code != foo.__code__, "Code never de-instrumented"
+
+    foo(1)
+
+    cov = sci.get_coverage()['files'][simple_current_file()]
+    assert seq(first_line, first_line+2) + seq(first_line+3, last_line) == cov['executed_lines']
+    assert [first_line+2] == cov['missing_lines']
+
+
 def test_no_deinstrument_seen_negative_threshold():
     sci = sc.Slipcover(d_threshold=-1)
 
