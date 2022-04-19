@@ -7,32 +7,39 @@ from statistics import median
 
 BENCHMARK_JSON = 'benchmarks/benchmarks.json'
 TRIES = 5
+PYTHON = 'python3'
 
-Case = namedtuple('Case', 'name command')
+Case = namedtuple('Case', ['name', 'label', 'command'])
 
-python = 'python3'
-
-cases = [Case("(no coverage)", python + " {bench}"),
-         Case("coverage.py", python + " -m coverage run --include={bench} {bench}"),
-         Case("Slipcover", python + " -m slipcover {bench}")
+cases = [Case('base', "(no coverage)", PYTHON + " {bench_command}"),
+         Case('coveragepy', "coveragepy", PYTHON + " -m coverage run {coveragepy_opts} {bench_command}"),
+         Case('slipcover', "Slipcover", PYTHON + " -m slipcover {slipcover_opts} {bench_command}")
 ]
 base = cases[0]
 
+class Benchmark:
+    def __init__(self, name, command, opts=None, cwd=None):
+        self.name = name
+        self.format = {'bench_command': command}
+        for k in ['slipcover_opts', 'coveragepy_opts']:
+            self.format[k] = opts[k] if opts and k in opts else ''
+        self.cwd = cwd 
 
-def run_command(command: str):
+
+def run_command(command: str, cwd=None):
     import subprocess
+    import resource
 
     print(command)
-    cmd = "time -p " + command
-    p = subprocess.run(("time -p " + command).split(), capture_output=True, check=True)
 
-    user_time = re.search(b'^user *([\\d\\.]+)$', p.stderr, re.M)
-    sys_time = re.search(b'^sys *([\\d\\.]+)$', p.stderr, re.M)
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    p = subprocess.run(command.split(), cwd=cwd, check=True) # capture_output=True)
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
 
-    if not (user_time and sys_time):
-        raise RuntimeError("Unable to parse " + str(p.stderr))
+    user_time = round(after.ru_utime - before.ru_utime, 2)
+    sys_time = round(after.ru_stime - before.ru_stime, 2)
+    results = (user_time, sys_time)
 
-    results = (float(user_time.group(1)), float(sys_time.group(1)))
     print(results, round(sum(results), 1))
 
     return sum(results)
@@ -78,13 +85,23 @@ def load_results():
 saved_results, results = load_results()
 
 
-Benchmark = namedtuple('Benchmark', 'name file')
-
-def path2name(p: Path) -> str:
+def path2bench(p: Path) -> str:
     match = re.search('^(bm_)?(.*?)\.py$', p.name)
-    return match.group(2) if match else p.name
+    bench_name = match.group(2) if match else p.name
 
-benchmarks = [Benchmark(path2name(p), p) for p in sorted(Path('benchmarks').glob('bm_*.py'))]
+    return Benchmark(bench_name, p, {'coveragepy_opts': f'--include={p}',
+                                     'slipcover_opts': f'--source={p.parent}'})
+
+benchmarks = [path2bench(p) for p in sorted(Path('benchmarks').glob('bm_*.py'))]
+benchmarks.append(
+    Benchmark('sklearn', '-m pytest sklearn', {
+                # coveragepy options from .coveragerc
+                'slipcover_opts': '--source=sklearn --omit=*/sklearn/externals/* --omit=*/sklearn/_build_utils/* --omit=*/benchmarks/* --omit=**/setup.py'
+              },
+              cwd='/home/juan/tmp/scikit-learn'
+    )
+)
+
 
 
 def overhead(time, base_time):
@@ -94,7 +111,11 @@ def overhead(time, base_time):
 ran_any = False
 for case in cases:
     if case.name not in results:
-        results[case.name] = dict()
+        if case.label in results:   # they used to be saved by label
+            results[case.name] = results[case.label]
+            del results[case.label]
+        else:
+            results[case.name] = dict()
 
     for bench in benchmarks:
         if bench.name in results[case.name]:
@@ -106,7 +127,7 @@ for case in cases:
 
         r = []
         for _ in range(TRIES):
-            r.append(run_command(case.command.format(bench=bench.file)))
+            r.append(run_command(case.command.format(**bench.format)))
 
         results[case.name][bench.name] = r
 
@@ -170,7 +191,7 @@ def plot_results():
     fig, ax = plt.subplots()
     for case, bar_x in zip(cases, bars_x):
         rects = ax.bar(x + bar_x, [round(median(results[case.name][b.name]),1) for b in benchmarks],
-                       width/n_bars, label=case.name)
+                       width/n_bars, label=case.label)
 #        ax.boxplot([results[case.name][b.name] for b in benchmarks],
 #                   positions=x+bar_x, widths=width/n_bars, showfliers=False,
 #                   medianprops={'color': 'black'},
@@ -180,7 +201,7 @@ def plot_results():
 
     #ax.set_title('Execution time')
     ax.set_ylabel('CPU seconds')
-    ax.set_xticks(x, labels=[b.name for b in benchmarks])
+    ax.set_xticks(x, labels=[b.label for b in benchmarks])
     ax.legend()
 
     fig.tight_layout()
