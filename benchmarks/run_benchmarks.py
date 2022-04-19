@@ -8,6 +8,7 @@ from statistics import median
 BENCHMARK_JSON = 'benchmarks/benchmarks.json'
 TRIES = 5
 PYTHON = 'python3'
+# someplace with scikit-learn 1.0.2 sources, built and ready to test
 SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
 
 Case = namedtuple('Case', ['name', 'label', 'command'])
@@ -28,13 +29,14 @@ class Benchmark:
 
 
 def run_command(command: str, cwd=None):
+    import shlex
     import subprocess
     import resource
 
     print(command)
 
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
-    p = subprocess.run(command.split(), cwd=cwd, check=True) # capture_output=True)
+    p = subprocess.run(shlex.split(command), cwd=cwd, check=True) # capture_output=True)
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
 
     user_time = round(after.ru_utime - before.ru_utime, 2)
@@ -95,7 +97,7 @@ def path2bench(p: Path) -> str:
 
 benchmarks = [path2bench(p) for p in sorted(Path('benchmarks').glob('bm_*.py'))]
 benchmarks.append(
-    Benchmark('sklearn', '-m pytest sklearn', {
+    Benchmark('sklearn', "-m pytest sklearn -k 'not test_openmp_parallelism_enabled'", {
                 # coveragepy options from .coveragerc
                 'slipcover_opts': '--source=sklearn --omit=*/sklearn/externals/* --omit=*/sklearn/_build_utils/* --omit=*/benchmarks/* --omit=**/setup.py'
               },
