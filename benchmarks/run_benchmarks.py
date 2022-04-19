@@ -8,6 +8,7 @@ from statistics import median
 BENCHMARK_JSON = 'benchmarks/benchmarks.json'
 TRIES = 5
 PYTHON = 'python3'
+SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
 
 Case = namedtuple('Case', ['name', 'label', 'command'])
 
@@ -98,7 +99,7 @@ benchmarks.append(
                 # coveragepy options from .coveragerc
                 'slipcover_opts': '--source=sklearn --omit=*/sklearn/externals/* --omit=*/sklearn/_build_utils/* --omit=*/benchmarks/* --omit=**/setup.py'
               },
-              cwd='/home/juan/tmp/scikit-learn'
+              cwd=str(SCIKIT_LEARN)
     )
 )
 
@@ -108,7 +109,6 @@ def overhead(time, base_time):
     return ((time/base_time)-1)*100
 
 
-ran_any = False
 for case in cases:
     if case.name not in results:
         if case.label in results:   # they used to be saved by label
@@ -127,19 +127,18 @@ for case in cases:
 
         r = []
         for _ in range(TRIES):
-            r.append(run_command(case.command.format(**bench.format)))
+            r.append(run_command(case.command.format(**bench.format), cwd=bench.cwd))
 
         results[case.name][bench.name] = r
 
         m = median(r)
         b_m = median(results[base.name][bench.name])
-        print(f"median: {m:.1f}  +{overhead(m, b_m):.1f}%")
+        print(f"median: {m:.1f}" + (f"+{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
 
-        ran_any = True
+        # save after each benchmark, in case we abort running others
+        with open(BENCHMARK_JSON, 'w') as f:
+            json.dump(saved_results, f)
 
-if ran_any:
-    with open(BENCHMARK_JSON, 'w') as f:
-        json.dump(saved_results, f)
 
 def print_results():
     from tabulate import tabulate
