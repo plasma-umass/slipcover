@@ -10,6 +10,7 @@ TRIES = 5
 PYTHON = 'python3'
 # someplace with scikit-learn 1.0.2 sources, built and ready to test
 SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
+FLASK = Path.home() / "tmp" / "flask"
 
 Case = namedtuple('Case', ['name', 'label', 'command'])
 
@@ -52,7 +53,7 @@ def parse_args():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument('--rerun-case', choices=['all', 'none', *[c.name for c in cases]],
-                    default='Slipcover', help='select "case"(s) to re-run')
+                    default='slipcover', help='select "case"(s) to re-run')
     ap.add_argument('--rerun-bench', type=str, default=None, help='select benchmark to re-run')
     return ap.parse_args()
 
@@ -88,6 +89,28 @@ def load_results():
 saved_results, results = load_results()
 
 
+benchmarks = []
+if SCIKIT_LEARN.exists():
+    benchmarks.append(
+        Benchmark('sklearn', "-m pytest sklearn -k 'not test_openmp_parallelism_enabled'", {
+                    # coveragepy options from .coveragerc
+                    'slipcover_opts': '--source=sklearn ' + \
+                                      '--omit=*/sklearn/externals/*,*/sklearn/_build_utils/*,*/benchmarks/*,**/setup.py'
+                  },
+                  cwd=str(SCIKIT_LEARN)
+        )
+    )
+
+if FLASK.exists():
+    benchmarks.append(
+        Benchmark('flask', "-m pytest", {
+                    # coveragepy options from setup.cfg
+                    'slipcover_opts': '--source=src,*/site-packages'
+                  },
+                  cwd=FLASK
+        )
+    )
+
 def path2bench(p: Path) -> str:
     match = re.search('^(bm_)?(.*?)\.py$', p.name)
     bench_name = match.group(2) if match else p.name
@@ -95,15 +118,7 @@ def path2bench(p: Path) -> str:
     return Benchmark(bench_name, p, {'coveragepy_opts': f'--include={p}',
                                      'slipcover_opts': f'--source={p.parent}'})
 
-benchmarks = [path2bench(p) for p in sorted(Path('benchmarks').glob('bm_*.py'))]
-benchmarks.append(
-    Benchmark('sklearn', "-m pytest sklearn -k 'not test_openmp_parallelism_enabled'", {
-                # coveragepy options from .coveragerc
-                'slipcover_opts': '--source=sklearn --omit=*/sklearn/externals/* --omit=*/sklearn/_build_utils/* --omit=*/benchmarks/* --omit=**/setup.py'
-              },
-              cwd=str(SCIKIT_LEARN)
-    )
-)
+benchmarks.extend([path2bench(p) for p in sorted(Path('benchmarks').glob('bm_*.py'))])
 
 
 
@@ -174,35 +189,34 @@ def print_results():
         print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - " +
                                         f"{max(rel_times[case.name]):.0f}%")
 
-    diff_times = [cover - slip for cover, slip in zip(rel_times['coverage.py'],
-                                                      rel_times['Slipcover'])]
+    diff_times = [cover - slip for cover, slip in zip(rel_times['coveragepy'],
+                                                      rel_times['slipcover'])]
     print(f"Slipcover savings: {min(diff_times):.0f}% - {max(diff_times):.0f}%")
 
 print_results()
+
 
 def plot_results():
     import numpy as np
     import matplotlib.pyplot as plt
 
+    nonbase_cases = [c for c in cases if c.name != 'base']
+
     x = np.arange(len(benchmarks))
-    n_bars = len(cases)
+    n_bars = len(nonbase_cases)
     width = .70 # of all bars
     bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
     fig, ax = plt.subplots()
-    for case, bar_x in zip(cases, bars_x):
-        rects = ax.bar(x + bar_x, [round(median(results[case.name][b.name]),1) for b in benchmarks],
-                       width/n_bars, label=case.label)
-#        ax.boxplot([results[case.name][b.name] for b in benchmarks],
-#                   positions=x+bar_x, widths=width/n_bars, showfliers=False,
-#                   medianprops={'color': 'black'},
-#                   labels=[case.name] * len(benchmarks),
-#        )
-        ax.bar_label(rects, padding=3)
+    for case, bar_x in zip(nonbase_cases, bars_x):
+        r = [median(results[case.name][b.name]) / median(results['base'][b.name]) for b in benchmarks]
+        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label)
 
-    #ax.set_title('Execution time')
-    ax.set_ylabel('CPU seconds')
-    ax.set_xticks(x, labels=[b.label for b in benchmarks])
+        ax.bar_label(rects, padding=3, labels=[f'{"+" if round((v-1)*100)>=0 else ""}{round((v-1)*100)}%' for v in r], fontsize=8)
+
+#    ax.set_title('')
+    ax.set_ylabel('Normalized execution time')
+    ax.set_xticks(x, labels=[b.name for b in benchmarks], fontsize=8)
     ax.legend()
 
     fig.tight_layout()
