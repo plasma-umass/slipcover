@@ -21,12 +21,13 @@ cases = [Case('base', "(no coverage)", PYTHON + " {bench_command}"),
 base = cases[0]
 
 class Benchmark:
-    def __init__(self, name, command, opts=None, cwd=None):
+    def __init__(self, name, command, opts=None, cwd=None, tries=None):
         self.name = name
         self.format = {'bench_command': command}
         for k in ['slipcover_opts', 'coveragepy_opts']:
             self.format[k] = opts[k] if opts and k in opts else ''
         self.cwd = cwd 
+        self.tries = TRIES if tries == None else tries
 
 
 def run_command(command: str, cwd=None):
@@ -40,8 +41,8 @@ def run_command(command: str, cwd=None):
     p = subprocess.run(shlex.split(command), cwd=cwd, check=True) # capture_output=True)
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
 
-    user_time = round(after.ru_utime - before.ru_utime, 2)
-    sys_time = round(after.ru_stime - before.ru_stime, 2)
+    user_time = after.ru_utime - before.ru_utime
+    sys_time  = after.ru_stime - before.ru_stime
     results = (user_time, sys_time)
 
     print(results, round(sum(results), 1))
@@ -107,7 +108,7 @@ if FLASK.exists():
                     # coveragepy options from setup.cfg
                     'slipcover_opts': '--source=src,*/site-packages'
                   },
-                  cwd=FLASK
+                  cwd=FLASK, tries=15
         )
     )
 
@@ -143,14 +144,14 @@ for case in cases:
                 continue
 
         r = []
-        for _ in range(TRIES):
+        for _ in range(bench.tries):
             r.append(run_command(case.command.format(**bench.format), cwd=bench.cwd))
 
         results[case.name][bench.name] = r
 
         m = median(r)
         b_m = median(results[base.name][bench.name])
-        print(f"median: {m:.1f}" + (f"+{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
+        print(f"median: {m:.1f}" + (f" +{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
 
         # save after each benchmark, in case we abort running others
         with open(BENCHMARK_JSON, 'w') as f:
@@ -169,11 +170,11 @@ def print_results():
                 r = results[case.name][bench.name]
                 oh = round(overhead(median(r), median(results[base.name][bench.name])),1) \
                         if case != base else None
-                yield [bench.name, case.name, round(median(r),2), round(mean(r),2),
+                yield [bench.name, case.name, len(r), round(median(r),2), round(mean(r),2),
                        round(stdev(r),2),
                        round(stdev(r)/sqrt(len(r)),2), oh]
 
-    print(tabulate(get_stats(), headers=["bench", "case", "median", "mean", "stdev",
+    print(tabulate(get_stats(), headers=["bench", "case", "samples", "median", "mean", "stdev",
                                          "SE", "overhead %"]))
     print("")
 
