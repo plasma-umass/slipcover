@@ -56,5 +56,14 @@ setuptools.setup(
     install_requires=[
         "tabulate"
     ],
-    cmdclass={"build_ext": CppExtension}
+    cmdclass={"build_ext": CppExtension},
+    classifiers=[
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "License :: OSI Approved :: Apache Software License",
+        "Operating System :: POSIX :: Linux",
+        "Operating System :: MacOS :: MacOS X",
+        "Operating System :: Microsoft :: Windows :: Windows 10"
+    ]
 )
