@@ -6,21 +6,61 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-wheel:
+  pick-devN:
+    name: create .devN build date coordinated across all matrix jobs
     runs-on: ubuntu-latest
     steps:
-      - name: redirect to testpypi if not a release
+      - run: TZ='America/New_York' date '+%Y%m%d%H%M' > devN.txt
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: devN
+          path: devN.txt
+
+  build-wheel:
+    needs: pick-devN
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    strategy:
+      matrix:
+        python_version: ['3.8']
+        os: ['ubuntu-latest', 'macos-latest', 'windows-latest']
+        include:
+          - os: ubuntu-latest
+            container: quay.io/pypa/manylinux_2_24_x86_64  # https://github.com/pypa/manylinux
+            upload_source: true   # just need ONE of them to do it
+
+    steps:
+      - name: get coordinated .devN
+        uses: actions/download-artifact@v2
+        with:
+          name: devN
+
+      - name: make dev build and send to testpypi if not a release (Unix version)
         if: github.event.type != 'ReleaseEvent'
         run: |
-          echo "DEV_BUILD=$(TZ='America/New_York' date '+%Y%m%d%H%M')" >> $GITHUB_ENV  # for setup.py
+          echo "DEV_BUILD=$(cat devN.txt)" >> $GITHUB_ENV  # for setup.py
           echo "TWINE_REPOSITORY=testpypi" >> $GITHUB_ENV
+
+      - name: make dev build and send to testpypi if not a release (Windows version)
+        if: github.event.type != 'ReleaseEvent'
+        run: |
+          ("DEV_BUILD=" + (get-content devN.txt)) >> $env:GITHUB_ENV  # for setup.py
+          "TWINE_REPOSITORY=testpypi" >> $env:GITHUB_ENV
 
       - uses: actions/checkout@v2
 
-      - name: set up python
+      - name: set up python (script version)
+        if: matrix.container == ''
         uses: actions/setup-python@v2
         with:
-          python-version: '3.8'
+          python-version: ${{ matrix.python_version }}
+
+      - name: set up python (container version)
+        if: matrix.container != ''
+        run: |
+          PYV=`echo "${{ matrix.python_version }}" | tr -d "."`; ls -d -1 /opt/python/cp$PYV*/bin | head -n 1 >> $GITHUB_PATH
+          cat $GITHUB_PATH
 
       - name: install dependencies
         run: |
@@ -28,6 +68,17 @@ jobs:
 
       - name: build wheel
         run: python3 setup.py bdist_wheel
+
+      - name: run auditwheel for manylinux
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          auditwheel repair dist/*.whl
+          rm -f dist/*.whl
+          mv wheelhouse/*.whl dist/
+
+      - name: build source dist
+        if: matrix.upload_source
+        run: python3 setup.py sdist
 
       - name: upload
         env:
