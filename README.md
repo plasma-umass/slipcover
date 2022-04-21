@@ -1,5 +1,5 @@
 <!-- ![pyversions](https://img.shields.io/pypi/pyversions/slipcover) -->
-![pypi](https://img.shields.io/pypi/v/slipcover?color=blue)
+[![pypi](https://img.shields.io/pypi/v/slipcover?color=blue)](https://pypi.org/project/slipcover/)
 [![license](https://img.shields.io/github/license/plasma-umass/slipcover?color=blue)](LICENSE)
 ![tests](https://github.com/jaltmayerpizzorno/slipcover/workflows/tests/badge.svg)
 
