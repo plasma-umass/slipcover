@@ -20,7 +20,7 @@ Slipcover aims to provide the same information with **near-zero overhead**, ofte
 almost as fast as running the original Python program.
 
 ### How it works
-Previous coverage tools like [coverage.py](https://github.com/nedbat/coveragepy) rely on 
+Previous coverage tools like [Coverage.py](https://github.com/nedbat/coveragepy) rely on 
 [Python's tracing facilities](https://docs.python.org/3/library/sys.html?highlight=settrace#sys.settrace),
 which add significant overhead.
 Instead, Slipcover uses just-in-time instrumentation and de-instrumentation.
@@ -33,24 +33,30 @@ Care is taken thoughout Slipcover to keep things as efficient as possible.
 ### Performance
 <img src="benchmarks/benchmarks.png" align="right" width="50%"/>
 
-The image on the right shows the execution time of 
-programs. It compares their execution without any coverage
-tracking, tracking coverage using [coverage.py](https://github.com/nedbat/coveragepy)
-and tracking coverage using Slipcover.
+The image on the right shows the execution time of a few benchmarks.
+It compares how long they take to run while tracking coverage using [Coverage.py](https://github.com/nedbat/coveragepy)
+and tracking coverage using Slipcover, relative to their normal running times.
+
+The first two benchmarks are the test suites for [scikit-learn](https://scikit-learn.org/stable/)
+and [Flask](https://flask.palletsprojects.com/);
+"sudoku" runs [Peter Norvig's Sudoku solver](http://norvig.com/sudoku.html)
+while the others were derived from the 
+[Python Benchmark Suite](https://github.com/python/pyperformance).
+
+More "Python-intensive" programs such as sudoku and those from the benchmark
+suite (with a larger proportion of execution time spent in Python, rather than in native code)
+generate more tracing events, causing more overhead in Coverage.py.
 While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original;
-coverage.py incurs between 76% and 167% overhead, while
-Slipcover's stays between 2% and 6%.
+Coverage.py incurs between 27% and 183% overhead, while
+Slipcover's stays at 3% or less.
 
-Most sample programs were derived from the
-[Python Benchmark Suite](https://github.com/python/pyperformance);
-"sudoku" runs [Peter Norvig's Sudoku solver](http://norvig.com/sudoku.html).
 <br clear="right"/>
 
 ### Accuracy
-We verified slipcover's accuracy against [coverage.py](https://github.com/nedbat/coveragepy)
+We verified slipcover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
 and against a [simple script](tools/oracle.py) of our own that collects coverage using python tracing.
-We found slipcover's results to be accurate, in fact, in some cases [more accurate than coveragepy](https://github.com/nedbat/coveragepy/issues/1358).
+We found slipcover's results to be accurate, in fact, in some cases [more accurate than Coverage.py](https://github.com/nedbat/coveragepy/issues/1358).
 Caveat: slipcover doesn't currently collect coverage information of [pytest](https://github.com/pytest-dev/pytest) **test** files,
 as pytest loads these separately from the normal Python loader.
 This doesn't affect the code under test, which normally resides in other files.
