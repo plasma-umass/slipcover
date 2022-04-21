@@ -33,21 +33,18 @@ class Benchmark:
 def run_command(command: str, cwd=None):
     import shlex
     import subprocess
-    import resource
+    import time
 
     print(command)
 
-    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    begin = time.perf_counter_ns()
     p = subprocess.run(shlex.split(command), cwd=cwd, check=True) # capture_output=True)
-    after = resource.getrusage(resource.RUSAGE_CHILDREN)
+    end = time.perf_counter_ns()
 
-    user_time = after.ru_utime - before.ru_utime
-    sys_time  = after.ru_stime - before.ru_stime
-    results = (user_time, sys_time)
+    elapsed = (end - begin)/1000000000
+    print(round(elapsed, 1))
 
-    print(results, round(sum(results), 1))
-
-    return sum(results)
+    return elapsed
 
 
 def parse_args():
@@ -108,7 +105,7 @@ if FLASK.exists():
                     # coveragepy options from setup.cfg
                     'slipcover_opts': '--source=src,*/site-packages'
                   },
-                  cwd=FLASK, tries=15
+                  cwd=FLASK, tries=10
         )
     )
 
@@ -211,13 +208,14 @@ def plot_results():
     fig, ax = plt.subplots()
     for case, bar_x in zip(nonbase_cases, bars_x):
         r = [median(results[case.name][b.name]) / median(results['base'][b.name]) for b in benchmarks]
-        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label)
+        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, zorder=2)
 
         ax.bar_label(rects, padding=3, labels=[f'{"+" if round((v-1)*100)>=0 else ""}{round((v-1)*100)}%' for v in r], fontsize=8)
 
 #    ax.set_title('')
     ax.set_ylabel('Normalized execution time')
     ax.set_xticks(x, labels=[b.name for b in benchmarks], fontsize=8)
+    ax.axhline(y=1, color='grey', linewidth=1, alpha=.5, zorder=1)
     ax.legend()
 
     fig.tight_layout()
