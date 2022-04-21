@@ -17,6 +17,11 @@ dev_build = ('.dev' + environ['DEV_BUILD']) if 'DEV_BUILD' in environ else ''
 def cxx_version():
     return "-std=c++17" if sys.platform != "win32" else "/std:c++17"
 
+def platform_args():
+    if sys.platform == 'darwin':
+        return "-arch x86_64 -arch arm64 -arch arm64e".split()
+    return []
+
 class CppExtension(build_ext):
     def build_extensions(self):
         if sys.platform == "linux":
@@ -28,7 +33,7 @@ class CppExtension(build_ext):
 tracker = setuptools.extension.Extension(
             'slipcover.tracker',
             sources=['tracker.cxx'],
-            extra_compile_args=[cxx_version()],
+            extra_compile_args=[cxx_version()] + platform_args(),
             py_limited_api=True,
             language='C++'
 )
