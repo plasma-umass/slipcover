@@ -49,13 +49,11 @@ generate more tracing events, causing more overhead in Coverage.py.
 While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original, at 3% or less overhead.
 
-<br clear="right"/>
-
 ### Accuracy
-We verified slipcover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
-and against a [simple script](tools/oracle.py) of our own that collects coverage using python tracing.
-We found slipcover's results to be accurate, in fact, in some cases [more accurate than Coverage.py](https://github.com/nedbat/coveragepy/issues/1358).
-Caveat: slipcover doesn't currently collect coverage information of [pytest](https://github.com/pytest-dev/pytest) **test** files,
+We verified Slipcover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
+and against a [simple script](tools/oracle.py) of our own that collects coverage using Python tracing.
+We found Slipcover's results to be accurate, in fact, in certain cases [more accurate](https://github.com/nedbat/coveragepy/issues/1358).
+Caveat: Slipcover doesn't currently collect coverage information of [pytest](https://github.com/pytest-dev/pytest) **test** files,
 as pytest loads these separately from the normal Python loader.
 This doesn't affect the code under test, which normally resides in other files.
 
@@ -81,7 +79,7 @@ after the module name.
 
 ## Usage example
 ```console
-[juan@sam d2k]$ python3 -m slipcover -m pytest --disable-warnings
+$ python3 -m slipcover -m pytest --disable-warnings
 ============================================================================= test session starts ==============================================================================
 platform darwin -- Python 3.9.9, pytest-6.2.5, py-1.11.0, pluggy-1.0.0
 rootdir: /Users/juan/project/wally/d2k-5
@@ -103,7 +101,7 @@ d2k/network.py         359          1       100  236
 d2k/box.py             105         27        74  73, 142, 144-146, 148-149, 151, 154, 156-159, 161, 163-166, 168, 170-171, 173-174, 176-177, 180-181
 d2k/image.py            38          4        89  70-73
 tests/darknet.py       132         11        92  146, 179-181, 183-187, 189, 191
-[juan@sam d2k]$
+$
 ```
 As can be seen in the coverage report, d2k lacks some coverage, especially in
 its `box.py` and `image.py` components.
