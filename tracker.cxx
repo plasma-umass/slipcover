@@ -64,10 +64,10 @@ public:
         _collect_stats(false), _signalled(false), _instrumented(true),
         _d_miss_count(-1), _d_threshold(50) {
 
-        PyPtr collect_stats = PyObject_GetAttrString(_sci, "collect_stats");
+        PyPtr<> collect_stats = PyObject_GetAttrString(_sci, "collect_stats");
         _collect_stats = (collect_stats == Py_True);
 
-        PyPtr d_threshold = PyObject_GetAttrString(_sci, "d_threshold");
+        PyPtr<> d_threshold = PyObject_GetAttrString(_sci, "d_threshold");
         _d_threshold = PyLong_AsLong(d_threshold);
     }
 
@@ -85,13 +85,13 @@ public:
         if (!_signalled || _collect_stats) {
             _signalled = true;
 
-            PyPtr new_lines_seen = PyObject_GetAttrString(_sci, "new_lines_seen");
+            PyPtr<> new_lines_seen = PyObject_GetAttrString(_sci, "new_lines_seen");
             if (!new_lines_seen) {
                 PyErr_SetString(PyExc_Exception, "new_lines_seen missing");
                 return NULL;
             }
 
-            PyPtr line_set = PyObject_GetItem(new_lines_seen, _filename);
+            PyPtr<> line_set = PyObject_GetItem(new_lines_seen, _filename);
             if (!line_set) {
                 PyErr_SetString(PyExc_Exception, "line_set missing");
                 return NULL;
@@ -104,7 +104,7 @@ public:
                 }
             }
             else {  // assume it's a collections.Counter
-                PyPtr update = PyUnicode_FromString("update");
+                PyPtr<> update = PyUnicode_FromString("update");
                 if (!update) {
                     PyErr_SetString(PyExc_Exception, "Unable to find update method");
                     return NULL;
@@ -126,8 +126,8 @@ public:
             // Any other lines getting D misses get deinstrumented at the same time,
             // so this needn't be a large threshold.
             if (++_d_miss_count == _d_threshold) {
-                PyPtr deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
-                PyPtr result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
+                PyPtr<> deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
+                PyPtr<> result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
             }
         }
 
@@ -140,7 +140,7 @@ public:
             _instrumented = false;
 
             if (_collect_stats) {
-                PyPtr neg = PyLong_FromLong(-PyLong_AsLong(_lineno));
+                PyPtr<> neg = PyLong_FromLong(-PyLong_AsLong(_lineno));
 
                 Tracker* t = new Tracker(_sci, _filename, (PyObject*)neg);
                 t->_instrumented = false;
