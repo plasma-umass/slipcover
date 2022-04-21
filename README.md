@@ -47,9 +47,7 @@ More "Python-intensive" programs such as sudoku and those from the benchmark
 suite (with a larger proportion of execution time spent in Python, rather than in native code)
 generate more tracing events, causing more overhead in Coverage.py.
 While each program's structure can affect Slipcover's ability to de-instrument,
-its running time stays relatively close to the original;
-Coverage.py incurs between 27% and 183% overhead, while
-Slipcover's stays at 3% or less.
+its running time stays relatively close to the original, at 3% or less overhead.
 
 <br clear="right"/>
 
