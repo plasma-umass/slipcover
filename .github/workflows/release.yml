@@ -69,8 +69,7 @@ jobs:
       - name: build wheel (MacOS)
         if: matrix.os == 'macos-latest'
         run: |
-            python3 -c 'import pkg_resources as pr; p=pr.get_build_platform(); print(p[:p.rindex("-")] + "-universal2")'
-            python3 setup.py bdist_wheel `python3 -c 'import pkg_resources as pr; p=pr.get_build_platform(); print(p[:p.rindex("-")] + "-universal2")'`
+            python3 setup.py bdist_wheel --plat-name `python3 -c 'import pkg_resources as pr; p=pr.get_build_platform(); print(p[:p.rindex("-")] + "-universal2")'`
 
       - name: build wheel (non-MacOS)
         if: matrix.os != 'macos-latest'
