@@ -1,5 +1,5 @@
+<!-- ![pyversions](https://img.shields.io/pypi/pyversions/slipcover) -->
 ![pypi](https://img.shields.io/pypi/v/slipcover)
-![pyversions](https://img.shields.io/pypi/pyversions/slipcover)
 [![license](https://img.shields.io/pypi/l/slipcover)](LICENSE)
 ![tests](https://github.com/jaltmayerpizzorno/slipcover/workflows/tests/badge.svg)
 
