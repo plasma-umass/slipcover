@@ -2,7 +2,7 @@ name: release
 
 on:
   release:
-    types: [ published ]
+    types: [ published, updated ]
   workflow_dispatch:
 
 jobs:
@@ -37,13 +37,13 @@ jobs:
           name: devN
 
       - name: make dev build and send to testpypi if not a release (non-Windows version)
-        if: github.event.type != 'ReleaseEvent' && matrix.os != 'windows-latest'
+        if: github.event_name != 'release' && matrix.os != 'windows-latest'
         run: |
           echo "DEV_BUILD=$(cat devN.txt)" >> $GITHUB_ENV  # for setup.py
           echo "TWINE_REPOSITORY=testpypi" >> $GITHUB_ENV
 
       - name: make dev build and send to testpypi if not a release (Windows version)
-        if: github.event.type != 'ReleaseEvent' && matrix.os == 'windows-latest'
+        if: github.event_name != 'release' && matrix.os == 'windows-latest'
         run: |
           ("DEV_BUILD=" + (get-content devN.txt)) >> $env:GITHUB_ENV  # for setup.py
           "TWINE_REPOSITORY=testpypi" >> $env:GITHUB_ENV
