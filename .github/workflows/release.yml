@@ -66,13 +66,16 @@ jobs:
         run: |
           python3 -m pip install setuptools wheel twine
 
-      - name: figure out Python platform for universal MacOS
+      - name: build wheel (MacOS)
         if: matrix.os == 'macos-latest'
         run: |
-            python3 -c 'from pkg_resources import get_build_platform; p=get_build_platform(); print("PYTHON_PLAT=" + p[:p.rindex("-")] + "-universal2")' >> $GITHUB_ENV
+            python3 -c 'import pkg_resources as pr; p=pr.get_build_platform(); print(p[:p.rindex("-")] + "-universal2")'
+            python3 setup.py bdist_wheel `python3 -c 'import pkg_resources as pr; p=pr.get_build_platform(); print(p[:p.rindex("-")] + "-universal2")'`
 
-      - name: build wheel
-        run: python3 setup.py bdist_wheel $(PYTHON_PLAT)
+      - name: build wheel (non-MacOS)
+        if: matrix.os != 'macos-latest'
+        run: |
+            python3 setup.py bdist_wheel
 
       - name: run auditwheel for manylinux
         if: matrix.os == 'ubuntu-latest'
