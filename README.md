@@ -28,7 +28,7 @@ When Slipcover gathers coverage information, it modifies the program's Python by
 inserting instructions that let it keep track the lines executed by the program.
 As the program executes, Slipcover gradually removes instrumentation that
 is no longer needed, allowing those parts to run at full speed.
-Care is taken thoughout Slipcover to keep things as efficient as possible.
+Care is taken throughout Slipcover to keep things as efficient as possible.
 
 ### Performance
 <img src="benchmarks/benchmarks.png" align="right" width="50%"/>
