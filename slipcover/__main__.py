@@ -26,20 +26,20 @@ class SlipcoverLoader(Loader):
         exec(code, module.__dict__)
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
-    def __init__(self, sci, file_matcher, meta_path):
+    def __init__(self, args, sci, file_matcher, meta_path):
+        self.args = args
         self.sci = sci
         self.file_matcher = file_matcher
         self.meta_path = meta_path
 
     def find_spec(self, fullname, path, target=None):
-        global args
-        if args.debug:
+        if self.args.debug:
             print(f"Looking for {fullname}")
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target)
             if (found):
                 if found.origin and file_matcher.matches(found.origin):
-                    if args.debug:
+                    if self.args.debug:
                         print(f"adding {fullname} from {found.origin}")
                     found.loader = SlipcoverLoader(self.sci, found.loader)
                 return found
@@ -112,7 +112,7 @@ if args.wrap_exec:
 
     builtins.exec = exec_wrapper
 else:
-    sys.meta_path=[SlipcoverMetaPathFinder(sci, file_matcher, sys.meta_path)]
+    sys.meta_path=[SlipcoverMetaPathFinder(args, sci, file_matcher, sys.meta_path)]
 
 
 def print_coverage(outfile):
