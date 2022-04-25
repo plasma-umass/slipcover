@@ -11,6 +11,17 @@ for i in [0, 1]:
     with open(file[i], "r") as f:
         data[i] = json.load(f)
 
+def merge_consecutives(L):
+    # Neat little trick due to John La Rooy: the difference between the numbers
+    # on a list and a counter is constant for consecutive items :)
+    from itertools import groupby, count
+
+    groups = groupby(sorted(L), key=lambda item, c=count(): item - next(c))
+    return [
+        str(g[0]) if g[0] == g[-1] else f"{g[0]}-{g[-1]}"
+        for g in [list(g) for _, g in groups]
+    ]
+
 for (f_name, f0_cover) in data[0]['files'].items():
     if f_name in data[1]['files']:
         for item in ('executed_lines', 'missing_lines'):
@@ -19,9 +30,9 @@ for (f_name, f0_cover) in data[0]['files'].items():
             if f0_item != f1_item:
                 print(f"{f_name}  {item}  differs:")
                 if f0_item - f1_item:
-                    print(f"    only in {file[0]}: {sorted(f0_item - f1_item)}")
+                    print(f"    only in {file[0]}: {merge_consecutives(f0_item - f1_item)}")
                 if f1_item - f0_item:
-                    print(f"    only in {file[1]}: {sorted(f1_item - f0_item)}")
+                    print(f"    only in {file[1]}: {merge_consecutives(f1_item - f0_item)}")
                 print("")
 
 def is_pytest(filename):
