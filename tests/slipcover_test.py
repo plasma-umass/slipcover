@@ -1057,6 +1057,7 @@ def test_find_functions():
 
 def test_interpose_on_module_load(tmp_path):
     # FIXME include this test in coverage results
+    from pathlib import Path
     import subprocess
     import json
 
@@ -1066,7 +1067,7 @@ def test_interpose_on_module_load(tmp_path):
     with open(out_file, "r") as f:
         cov = json.load(f)
 
-    module_file = 'tests/imported/__init__.py'
+    module_file = str(Path('tests') / 'imported' / '__init__.py')
 
     assert module_file in cov['files']
     assert list(range(1,5+1)) == cov['files'][module_file]['executed_lines']
@@ -1075,12 +1076,13 @@ def test_interpose_on_module_load(tmp_path):
 
 def test_pytest_interpose(tmp_path):
     # FIXME include this test in coverage results
+    from pathlib import Path
     import subprocess
     import json
 
     out_file = tmp_path / "out.json"
 
-    test_file = 'tests/pyt.py'
+    test_file = str(Path('tests') / 'pyt.py')
 
     subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} -m pytest {test_file}".split())
     with open(out_file, "r") as f:
