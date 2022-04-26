@@ -67,6 +67,7 @@ ap.add_argument('--threshold', type=int, default=50, metavar="T", help="threshol
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--stats', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
+ap.add_argument('--dont-wrap-pytest', action='store_true', help=argparse.SUPPRESS)
 
 g = ap.add_mutually_exclusive_group(required=True)
 g.add_argument('-m', dest='module', nargs=1, help="run given module as __main__")
@@ -148,7 +149,8 @@ def wrap_pytest():
                     co_consts=tuple(consts),
                 )
 
-wrap_pytest()
+if not args.dont_wrap_pytest:
+    wrap_pytest()
 
 sys.meta_path=[SlipcoverMetaPathFinder(args, sci, file_matcher, sys.meta_path)]
 
