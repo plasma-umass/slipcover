@@ -60,8 +60,12 @@ def get_code_lines(filename):
     import types
     lines = set()
 
-    with open(filename, 'r') as f:
-        code = compile(f.read(), filename, 'exec')
+    try:
+        with open(filename, 'r') as f:
+            code = compile(f.read(), filename, 'exec')
+    except Exception as e:
+        print("Error compiling", filename, ":", e)
+        return set()
 
     q = [code]
     while q:
