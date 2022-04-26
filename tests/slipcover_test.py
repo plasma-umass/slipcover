@@ -4,6 +4,7 @@ import dis
 import sys
 
 
+PYTHON = 'python3'
 PYTHON_VERSION = sys.version_info[0:2]
 
 
@@ -1032,8 +1033,6 @@ def test_print_coverage(stats, capsys):
         assert re.match('^tests[/\\\\]slipcover_test\\.py +28.6 +0', output[8])
 
 
-# FIXME test module loading & instrumentation
-
 def func_names(funcs):
     return sorted(map(lambda f: f.__name__, funcs))
 
@@ -1054,3 +1053,40 @@ def test_find_functions():
     assert [] == \
            func_names(sc.Slipcover.find_functions([*t.__dict__.values(), t.Test.Inner],
                                                   visited))
+
+
+def test_interpose_on_module_load(tmp_path):
+    # FIXME include this test in coverage results
+    import subprocess
+    import json
+
+    out_file = tmp_path / "out.json"
+
+    subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} tests/importer.py".split())
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    module_file = 'tests/imported/__init__.py'
+
+    assert module_file in cov['files']
+    assert list(range(1,5+1)) == cov['files'][module_file]['executed_lines']
+    assert [] == cov['files'][module_file]['missing_lines']
+
+
+def test_pytest_interpose(tmp_path):
+    # FIXME include this test in coverage results
+    import subprocess
+    import json
+
+    out_file = tmp_path / "out.json"
+
+    test_file = 'tests/pyt.py'
+
+    subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} -m pytest {test_file}".split())
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    assert test_file in cov['files']
+    cov = cov['files'][test_file]
+    assert [1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13] == cov['executed_lines']
+    assert [] == cov['missing_lines']

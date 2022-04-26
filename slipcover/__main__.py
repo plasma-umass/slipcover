@@ -98,6 +98,59 @@ if args.omit:
 
 sci = sc.Slipcover(collect_stats=args.stats, d_threshold=args.threshold)
 
+def wrap_pytest():
+    import dis
+
+    def exec_wrapper(obj, g):
+        obj = sci.instrument(obj)
+        exec(obj, g)
+
+    load_g_op, load_const_op, call_op = (dis.opmap['LOAD_GLOBAL'],
+                                         dis.opmap['LOAD_CONST'],
+                                         dis.opmap['CALL_FUNCTION'])
+
+    import _pytest.assertion.rewrite
+    for f in sc.Slipcover.find_functions(_pytest.assertion.rewrite.__dict__.values(), set()):
+        if 'exec' in f.__code__.co_names:
+            co = f.__code__
+
+            patch = None
+
+            exec_wrapper_index = len(co.co_consts) # will be appended
+
+            exec_index = co.co_names.index('exec')
+            seq = bytes(sc.opcode_arg(load_g_op, exec_index))
+            # FIXME refactor function call finder, break and test
+            for start in [i for i in range(0, len(co.co_code), 2) if co.co_code[i:i+len(seq)] == seq]:
+                exts_used = (len(seq)-2)//2
+                end = None
+                stack_size = 0
+                for (off, oplen, op, arg) in sc.unpack_opargs(co.co_code[start:]):
+                    stack_size += dis.stack_effect(op, arg if op >= dis.HAVE_ARGUMENT else None)
+                    if (op == call_op and stack_size == 1):
+                        end = start + off + oplen
+                        break
+                    if not stack_size or op in dis.hasjrel or op in dis.hasjabs:
+                        break   # couldn't find call sequence
+
+                # FIXME rewrite adjusting branches, etc.
+                if end and sc.arg_ext_needed(exec_wrapper_index) <= exts_used:
+                    if not patch:
+                        patch = bytearray(co.co_code)
+
+                    patch[start:start+len(seq)] = sc.opcode_arg(load_const_op, exec_wrapper_index, exts_used)
+
+            if patch:
+                consts = list(co.co_consts)
+                consts.append(exec_wrapper)
+
+                f.__code__ = co.replace(
+                    co_code=bytes(patch),
+                    co_consts=tuple(consts),
+                )
+
+wrap_pytest()
+
 if args.wrap_exec:
     import types
     import builtins

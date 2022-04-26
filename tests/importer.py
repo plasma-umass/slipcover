@@ -1,3 +1,3 @@
-import testme
+import imported
 
-testme.stuff()
+imported.do_stuff()
