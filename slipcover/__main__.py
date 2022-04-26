@@ -59,7 +59,6 @@ ap = argparse.ArgumentParser(prog='slipcover')
 ap.add_argument('--json', action='store_true', help="select JSON output")
 ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
 ap.add_argument('--out', type=Path, help="specify output file name")
-ap.add_argument('--wrap-exec', action='store_true', help="experimental: wrap around exec()")
 ap.add_argument('--source', help="specify directories to cover")
 ap.add_argument('--omit', help="specify file(s) to omit")
 ap.add_argument('--threshold', type=int, default=50, metavar="T", help="threshold for de-instrumentation")
@@ -151,21 +150,7 @@ def wrap_pytest():
 
 wrap_pytest()
 
-if args.wrap_exec:
-    import types
-    import builtins
-
-    orig_exec = builtins.exec
-    def exec_wrapper(*p):
-        if isinstance(p[0], types.CodeType) and '__slipcover__' not in p[0].co_consts and \
-                file_matcher.matches(p[0].co_filename):
-            p = (sci.instrument(p[0]), *p[1:])
-            # XXX add p[1] globals to those tracked by slipcover, like the modules?
-        orig_exec(*p)
-
-    builtins.exec = exec_wrapper
-else:
-    sys.meta_path=[SlipcoverMetaPathFinder(args, sci, file_matcher, sys.meta_path)]
+sys.meta_path=[SlipcoverMetaPathFinder(args, sci, file_matcher, sys.meta_path)]
 
 
 def print_coverage(outfile):
