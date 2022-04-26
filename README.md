@@ -53,9 +53,6 @@ its running time stays relatively close to the original, at 3% or less overhead.
 We verified Slipcover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
 and against a [simple script](tools/oracle.py) of our own that collects coverage using Python tracing.
 We found Slipcover's results to be accurate, in fact, in certain cases [more accurate](https://github.com/nedbat/coveragepy/issues/1358).
-Caveat: Slipcover doesn't currently collect coverage information of [pytest](https://github.com/pytest-dev/pytest) **test** files,
-as pytest loads these separately from the normal Python loader.
-This doesn't affect the code under test, which normally resides in other files.
 
 ## Getting started
 Slipcover is available from [PyPI](https://pypi.org/project/slipcover).
