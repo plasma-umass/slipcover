@@ -1039,14 +1039,20 @@ def func_names(funcs):
 def test_find_functions():
     import class_test as t
 
-    assert ["f1", "f2", "f3", "f4", "f5", "f7"] == \
+    assert ["b", "b_classm", "b_static", "f1", "f2", "f3", "f4", "f5", "f7",
+            "f_classm", "f_static"] == \
            func_names(sc.Slipcover.find_functions(t.__dict__.values(), set()))
+
+    assert ["b", "b_classm", "b_static", "f1", "f2", "f3", "f4",
+            "f_classm", "f_static"] == \
+           func_names(sc.Slipcover.find_functions([t.Test], set()))
 
     assert ["f5", "f7"] == \
            func_names(sc.Slipcover.find_functions([t.f5, t.f7], set()))
 
     visited = set()
-    assert ["f1", "f2", "f3", "f4", "f5", "f7"] == \
+    assert ["b", "b_classm", "b_static", "f1", "f2", "f3", "f4", "f5", "f7",
+            "f_classm", "f_static"] == \
            func_names(sc.Slipcover.find_functions([*t.__dict__.values(), t.Test.Inner],
                                                   visited))
 

@@ -667,6 +667,12 @@ class Slipcover:
                     visited.add(root)
                     yield root
 
+            elif (isinstance(root, classmethod) or isinstance(root, staticmethod)) and \
+                 inspect.isfunction(root.__func__):
+                if root.__func__ not in visited:
+                    visited.add(root.__func__)
+                    yield root.__func__
+
             # Prefer isinstance(x,type) over isclass(x) because many many
             # things, such as str(), are classes
             elif isinstance(root, type):
@@ -679,9 +685,9 @@ class Slipcover:
                     # invoked in an unexpected way.
                     obj_names = dir(root)
                     for obj_key in obj_names:
-                        mro = (root,) # FIXME should be "+ obj.__mro__" to look in all bases, but add tests first
+                        mro = (root,) + root.__mro__
                         for base in mro:
-                            if obj_key in base.__dict__:
+                            if (base == root or base not in visited) and obj_key in base.__dict__:
                                 yield from find_funcs(base.__dict__[obj_key])
                                 break
 
