@@ -109,7 +109,11 @@ def wrap_pytest():
                                          dis.opmap['LOAD_CONST'],
                                          dis.opmap['CALL_FUNCTION'])
 
-    import _pytest.assertion.rewrite
+    try:
+        import _pytest.assertion.rewrite
+    except ModuleNotFoundError:
+        return
+
     for f in sc.Slipcover.find_functions(_pytest.assertion.rewrite.__dict__.values(), set()):
         if 'exec' in f.__code__.co_names:
             co = f.__code__
