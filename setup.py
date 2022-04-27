@@ -41,7 +41,7 @@ tracker = setuptools.extension.Extension(
 
 setuptools.setup(
     name="slipcover",
-    version="0.1.1" + dev_build,
+    version="0.1.2" + dev_build,
     description="Near Zero-Overhead Python Code Coverage",
     keywords="coverage testing",
     long_description=read_file("README.md"),
