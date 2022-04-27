@@ -667,12 +667,6 @@ class Slipcover:
                     visited.add(root)
                     yield root
 
-            elif (isinstance(root, classmethod) or isinstance(root, staticmethod)) and \
-                 inspect.isfunction(root.__func__):
-                if root.__func__ not in visited:
-                    visited.add(root.__func__)
-                    yield root.__func__
-
             # Prefer isinstance(x,type) over isclass(x) because many many
             # things, such as str(), are classes
             elif isinstance(root, type):
@@ -690,6 +684,12 @@ class Slipcover:
                             if (base == root or base not in visited) and obj_key in base.__dict__:
                                 yield from find_funcs(base.__dict__[obj_key])
                                 break
+
+            elif (isinstance(root, classmethod) or isinstance(root, staticmethod)) and \
+                 inspect.isfunction(root.__func__):
+                if root.__func__ not in visited:
+                    visited.add(root.__func__)
+                    yield root.__func__
 
         # FIXME this may yield "dictionary changed size during iteration"
         return [f for it in items for f in find_funcs(it)]
