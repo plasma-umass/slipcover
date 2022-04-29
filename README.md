@@ -31,7 +31,7 @@ is no longer needed, allowing those parts to run at full speed.
 Care is taken throughout Slipcover to keep things as efficient as possible.
 
 ### Performance
-<img src="benchmarks/benchmarks.png" align="right" width="50%"/>
+<img src="benchmarks/benchmarks.png?raw=True" align="right" width="50%"/>
 
 The image on the right shows the execution time of a few benchmarks.
 It compares how long they take to run while tracking coverage using [Coverage.py](https://github.com/nedbat/coveragepy)
