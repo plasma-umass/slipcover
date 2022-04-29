@@ -39,7 +39,7 @@ class CppExtension(build_ext):
 tracker = setuptools.extension.Extension(
             'slipcover.tracker',
             sources=['tracker.cxx'],
-            extra_compile_args=cxx_version() + platform_args + limited_api_args()
+            extra_compile_args=cxx_version() + platform_args() + limited_api_args(),
             py_limited_api=bool(limited_api_args()),
             language='C++'
 )
