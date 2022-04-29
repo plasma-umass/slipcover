@@ -275,12 +275,15 @@ class PathSimplifier:
 
 class FileMatcher:
     def __init__(self):
-        import inspect
-        pylib_path = Path(inspect.getfile(inspect)).parent
-
         self.cwd = Path.cwd()
         self.sources = []
-        self.omit = [pylib_path]
+        self.omit = []
+
+        import inspect  # usually in Python lib
+        # pip is usually in site-packages; importing it causes warnings
+
+        self.pylib_paths = [Path(inspect.__file__).parent] + \
+                           [Path(p) for p in sys.path if (Path(p) / "pip").exists()]
 
     def addSource(self, source : Path):
         if isinstance(source, str):
@@ -313,6 +316,9 @@ class FileMatcher:
 
         if self.sources:
             return any(s in filename.parents for s in self.sources)
+
+        if any(p in self.pylib_paths for p in filename.parents):
+            return False
 
         return self.cwd in filename.parents
 

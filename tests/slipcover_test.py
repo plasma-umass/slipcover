@@ -492,8 +492,9 @@ def test_pathsimplifier_not_relative():
 
 
 def test_filematcher_defaults():
+    import os
     from pathlib import Path
-    cwd = str(Path.cwd())
+    cwd = Path.cwd()
 
     fm = sc.FileMatcher()
 
@@ -505,14 +506,47 @@ def test_filematcher_defaults():
     assert fm.matches('mymodule/mymodule.py')
     assert fm.matches('./mymodule/mymodule.py')
     assert fm.matches('./other/other.py')
-    assert fm.matches(cwd + '/myscript.py')
-    assert fm.matches(cwd + '/mymodule/mymodule.py')
-    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
+    assert fm.matches(cwd / 'myscript.py')
+    assert fm.matches(cwd / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(Path.cwd().parent / 'other.py')
 
-    import inspect
-    import collections
+    import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
-    assert not fm.matches(inspect.getfile(collections))
+
+    import numpy    # usually in site-packages
+    assert not fm.matches(inspect.getfile(numpy))
+
+
+@pytest.fixture
+def return_to_dir():
+    import os
+    from pathlib import Path
+    cwd = str(Path.cwd())
+    yield
+    os.chdir(cwd)
+
+
+def test_filematcher_defaults_from_root(return_to_dir):
+    import os
+    from pathlib import Path
+
+    os.chdir('/')
+    fm = sc.FileMatcher()
+
+    assert fm.matches('myscript.py')
+    assert not fm.matches('built-in')
+    assert not fm.matches('myscript.pyd')
+    assert not fm.matches('myscript.so')
+    assert fm.matches(Path('.') / 'myscript.py')
+    assert fm.matches(Path('mymodule') / 'mymodule.py')
+    assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
+    assert fm.matches(Path('.') / 'other' / 'other.py')
+
+    import inspect  # should be in python's own lib
+    assert not fm.matches(inspect.getfile(inspect))
+
+    import numpy    # usually in site-packages
+    assert not fm.matches(inspect.getfile(numpy))
 
 def test_filematcher_source():
     from pathlib import Path
@@ -538,10 +572,11 @@ def test_filematcher_source():
     assert fm.matches(cwd + '/mymodule/mymodule.py')
     assert not fm.matches(str(Path.cwd().parent) + '/other.py')
 
-    import inspect
-    import collections
+    import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
-    assert not fm.matches(inspect.getfile(collections))
+
+    import numpy    # usually in site-packages
+    assert not fm.matches(inspect.getfile(numpy))
 
 
 def test_filematcher_omit_pattern():
@@ -563,10 +598,11 @@ def test_filematcher_omit_pattern():
     assert fm.matches(cwd + '/mymodule/mymodule.py')
     assert not fm.matches(str(Path.cwd().parent) + '/other.py')
 
-    import inspect
-    import collections
+    import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
-    assert not fm.matches(inspect.getfile(collections))
+
+    import numpy    # usually in site-packages
+    assert not fm.matches(inspect.getfile(numpy))
 
 # FIXME what about patterns starting with '?'
 
