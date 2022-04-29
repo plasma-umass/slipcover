@@ -25,6 +25,12 @@ def platform_args():
 def limited_api_args():
     # We would like to use METH_FASTCALL, but that's only available in the
     # Python 3.10+ stable ABI, and we'd like to support Python 3.8+
+    #
+    # To re-enable, we also need setup.cfg with
+    #
+    # [bdist_wheel]
+    # py-limited-api=cp310
+    #
 #    return ['-DPy_LIMITED_API=0x030a0000']
     return []
 
