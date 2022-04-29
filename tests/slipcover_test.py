@@ -513,8 +513,8 @@ def test_filematcher_defaults():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    import numpy    # usually in site-packages
-    assert not fm.matches(inspect.getfile(numpy))
+    import pip      # usually in site-packages
+    assert not fm.matches(inspect.getfile(pip))
 
 
 @pytest.fixture
@@ -545,8 +545,8 @@ def test_filematcher_defaults_from_root(return_to_dir):
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    import numpy    # usually in site-packages
-    assert not fm.matches(inspect.getfile(numpy))
+    import pip      # usually in site-packages
+    assert not fm.matches(inspect.getfile(pip))
 
 def test_filematcher_source():
     from pathlib import Path
@@ -575,8 +575,8 @@ def test_filematcher_source():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    import numpy    # usually in site-packages
-    assert not fm.matches(inspect.getfile(numpy))
+    import pip      # usually in site-packages
+    assert not fm.matches(inspect.getfile(pip))
 
 
 def test_filematcher_omit_pattern():
@@ -601,8 +601,8 @@ def test_filematcher_omit_pattern():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    import numpy    # usually in site-packages
-    assert not fm.matches(inspect.getfile(numpy))
+    import pip      # usually in site-packages
+    assert not fm.matches(inspect.getfile(pip))
 
 # FIXME what about patterns starting with '?'
 
