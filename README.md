@@ -12,7 +12,7 @@ Slipcover is a fast [code coverage](https://en.wikipedia.org/wiki/Code_coverage)
 It tracks a Python program as it runs and reports on the parts that executed and
 those that didn't.
 That can help guide your testing (showing code that isn't being tested), debugging,
-or [fuzzing](https://en.wikipedia.org/wiki/Fuzzing).
+[fuzzing](https://en.wikipedia.org/wiki/Fuzzing) or to find "dead" code.
 
 Past code coverage tools can make programs significantly slower;
 it is not uncommon for them to take twice as long to execute.
@@ -73,6 +73,7 @@ python3 -m slipcover -m pytest -x -v
 ```
 which starts `pytest`, passing it any options (`-x -v` in this example)
 after the module name.
+No plug-in is required for pytest.
 
 ## Usage example
 ```console
