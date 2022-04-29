@@ -20,6 +20,8 @@ def cxx_version():
 def platform_args():
     if sys.platform == 'darwin':
         return "-arch x86_64 -arch arm64 -arch arm64e".split()
+    elif sys.platform == 'win32':
+        return ["/DPy_LIMITED_API"]
     return []
 
 class CppExtension(build_ext):
