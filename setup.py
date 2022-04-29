@@ -13,7 +13,7 @@ def get_description():
     text = readme_md.read_text(encoding="utf-8")
 
     # rewrite any relative paths to version-specific absolute paths
-    sub = r'\1' + REPO_URL + "/tree/v" + VERSION + r'/\2'
+    sub = r'\1' + REPO_URL + "/blob/v" + VERSION + r'/\2'
     text = re.sub(r'(src=")((?!https?://))', sub, text)
     text = re.sub(r'(\[.*?\]\()((?!https?://))', sub, text)
 
