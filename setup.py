@@ -3,10 +3,21 @@ from setuptools.command.build_ext import build_ext
 from os import path, environ
 import sys
 
-def read_file(name):
-    """Returns a file's contents"""
-    with open(path.join(path.dirname(__file__), name), encoding="utf-8") as f:
-        return f.read()
+VERSION = "0.1.2"
+REPO_URL = "https://github.com/plasma-umass/slipcover"
+
+def get_description():
+    from pathlib import Path
+    import re
+    readme_md = Path("README.md")
+    text = readme_md.read_text(encoding="utf-8")
+
+    # rewrite any relative paths to version-specific absolute paths
+    sub = r'\1' + REPO_URL + "/tree/v" + VERSION + r'/\2'
+    text = re.sub(r'(src=")((?!https?://))', sub, text)
+    text = re.sub(r'(\[.*?\]\()((?!https?://))', sub, text)
+
+    return text
 
 # If we're testing packaging, build using a ".devN" suffix in the version number,
 # so that we can upload new files (as testpypi/pypi don't allow re-uploading files with
@@ -55,10 +66,10 @@ tracker = setuptools.extension.Extension(
 
 setuptools.setup(
     name="slipcover",
-    version="0.1.2" + dev_build,
+    version=VERSION + dev_build,
     description="Near Zero-Overhead Python Code Coverage",
     keywords="coverage testing",
-    long_description=read_file("README.md"),
+    long_description=get_description(),
     long_description_content_type="text/markdown",
     url="https://github.com/plasma-umass/slipcover",
     author="Juan Altmayer Pizzorno, Emery Berger",
