@@ -15,13 +15,17 @@ def read_file(name):
 dev_build = ('.dev' + environ['DEV_BUILD']) if 'DEV_BUILD' in environ else ''
 
 def cxx_version():
-    return "-std=c++17" if sys.platform != "win32" else "/std:c++17"
+    return ["-std=c++17" if sys.platform != "win32" else "/std:c++17"]
 
 def platform_args():
     if sys.platform == 'darwin':
         return "-arch x86_64 -arch arm64 -arch arm64e".split()
-    elif sys.platform == 'win32':
-        return ["/DPy_LIMITED_API"]
+    return []
+
+def limited_api_args():
+    # We would like to use METH_FASTCALL, but that's only available in the
+    # Python 3.10+ stable ABI, and we'd like to support Python 3.8+
+#    return ['-DPy_LIMITED_API=0x030a0000']
     return []
 
 class CppExtension(build_ext):
@@ -35,8 +39,8 @@ class CppExtension(build_ext):
 tracker = setuptools.extension.Extension(
             'slipcover.tracker',
             sources=['tracker.cxx'],
-            extra_compile_args=[cxx_version()] + platform_args(),
-            py_limited_api=True,
+            extra_compile_args=cxx_version() + platform_args + limited_api_args()
+            py_limited_api=bool(limited_api_args()),
             language='C++'
 )
 
