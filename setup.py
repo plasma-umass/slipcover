@@ -21,7 +21,7 @@ def platform_args():
     if sys.platform == 'darwin':
         return "-arch x86_64 -arch arm64 -arch arm64e".split()
     if sys.platform == 'win32':
-        return ['/MT']
+        return ['/MT']  # avoids creating Visual Studio dependencies
     return []
 
 def limited_api_args():
