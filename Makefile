@@ -10,7 +10,7 @@ test:
 	    if ! [ -z $$P ]; then \
 	      $$P --version; \
 	      $$P -m pip -q install -e .; \
-	      $$P -m coverage run -a --branch --include 'slipcover/*' -m pytest --no-header --tb=no; \
+	      $$P -m coverage run -a --branch --include 'slipcover/*' -m pytest --no-header --tb=no || break; \
 	    fi; \
 	done
 	- python3 -m coverage report -m
