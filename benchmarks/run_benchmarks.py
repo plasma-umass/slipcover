@@ -20,7 +20,7 @@ git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
 Case = namedtuple('Case', ['name', 'label', 'command'])
 
 cases = [Case('base', "(no coverage)", PYTHON + " {bench_command}"),
-         Case('coveragepy', "coveragepy", PYTHON + " -m coverage run {coveragepy_opts} {bench_command}"),
+         Case('coveragepy', "Coverage.py", PYTHON + " -m coverage run {coveragepy_opts} {bench_command}"),
          Case('slipcover', "Slipcover", PYTHON + " -m slipcover {slipcover_opts} {bench_command}")
 ]
 base = cases[0]
