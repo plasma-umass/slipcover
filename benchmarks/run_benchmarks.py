@@ -3,6 +3,8 @@ import re
 from pathlib import Path
 from collections import namedtuple
 from statistics import median
+from datetime import datetime
+import subprocess
 
 
 BENCHMARK_JSON = 'benchmarks/benchmarks.json'
@@ -11,6 +13,9 @@ PYTHON = 'python3'
 # someplace with scikit-learn 1.0.2 sources, built and ready to test
 SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
 FLASK = Path.home() / "tmp" / "flask"
+
+git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
+                          capture_output=True, text=True).stdout.strip()
 
 Case = namedtuple('Case', ['name', 'label', 'command'])
 
@@ -32,7 +37,6 @@ class Benchmark:
 
 def run_command(command: str, cwd=None):
     import shlex
-    import subprocess
     import time
 
     print(command)
@@ -134,20 +138,28 @@ for case in cases:
 
     for bench in benchmarks:
         if bench.name in results[case.name]:
+            # 'results' used to be just a list
+            if isinstance(results[case.name][bench.name], list):
+                results[case.name][bench.name] = {'times': results[case.name][bench.name]}
+
             if args.rerun_case != 'all' and args.rerun_case != case.name:
                 continue
 
             if args.rerun_bench and args.rerun_bench != bench.name:
                 continue
 
-        r = []
+        times = []
         for _ in range(bench.tries):
-            r.append(run_command(case.command.format(**bench.format), cwd=bench.cwd))
+            times.append(run_command(case.command.format(**bench.format), cwd=bench.cwd))
 
-        results[case.name][bench.name] = r
+        results[case.name][bench.name] = {
+            'datetime': datetime.now().isoformat(),
+            'git_head': git_head,
+            'times': times
+        }
 
-        m = median(r)
-        b_m = median(results[base.name][bench.name])
+        m = median(times)
+        b_m = median(results[base.name][bench.name]['times'])
         print(f"median: {m:.1f}" + (f" +{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
 
         # save after each benchmark, in case we abort running others
@@ -163,25 +175,31 @@ def print_results():
         from statistics import mean, stdev
 
         for bench in benchmarks:
+            base_median = median(results[base.name][bench.name]['times'])
             for case in cases:
-                r = results[case.name][bench.name]
-                oh = round(overhead(median(r), median(results[base.name][bench.name])),1) \
-                        if case != base else None
+                rd = results[case.name][bench.name]
+                date = str(datetime.fromisoformat(rd['datetime']).date()) if 'datetime' in rd else None
+                r = rd['times']
+
+                oh = round(overhead(median(r), base_median),1) if case != base else None
                 yield [bench.name, case.name, len(r), round(median(r),2), round(mean(r),2),
                        round(stdev(r),2),
-                       round(stdev(r)/sqrt(len(r)),2), oh]
+                       round(stdev(r)/sqrt(len(r)),2), oh,
+                       date,
+                       rd['git_head'] if 'git_head' in rd else None
+                ]
 
     print(tabulate(get_stats(), headers=["bench", "case", "samples", "median", "mean", "stdev",
-                                         "SE", "overhead %"]))
+                                         "SE", "overhead %", "date", "git_head"]))
     print("")
 
-    base_times = [median(results[base.name][b.name]) for b in benchmarks]
+    base_times = [median(results[base.name][b.name]['times']) for b in benchmarks]
     rel_times = dict()
     for case in cases:
         if case == base:
             continue
 
-        times = [median(results[case.name][b.name]) for b in benchmarks]
+        times = [median(results[case.name][b.name]['times']) for b in benchmarks]
         rel_times[case.name] = [overhead(t, bt) for t, bt in zip(times, base_times)]
 
         print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - " +
@@ -207,7 +225,7 @@ def plot_results():
 
     fig, ax = plt.subplots()
     for case, bar_x in zip(nonbase_cases, bars_x):
-        r = [median(results[case.name][b.name]) / median(results['base'][b.name]) for b in benchmarks]
+        r = [median(results[case.name][b.name]['times']) / median(results['base'][b.name]['times']) for b in benchmarks]
         rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, zorder=2)
 
         ax.bar_label(rects, padding=3, labels=[f'{"+" if round((v-1)*100)>=0 else ""}{round((v-1)*100)}%' for v in r], fontsize=8)
