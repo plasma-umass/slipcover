@@ -1140,11 +1140,12 @@ def test_pytest_interpose(tmp_path):
 def test_pytest_plugins_visible(tmp_path):
     import subprocess
 
-    # Note: the plugins could also be detected with:
-    # def pytest_plugins():
-    #     from importlib import metadata
-    #     return [dist.metadata['Name'] for dist in metadata.distributions() \
-    #             if any(ep.group == "pytest11" for ep in dist.entry_points)]
+    def pytest_plugins():
+        from importlib import metadata
+        return [dist.metadata['Name'] for dist in metadata.distributions() \
+                if any(ep.group == "pytest11" for ep in dist.entry_points)]
+
+    assert pytest_plugins, "No pytest plugins installed, can't tell if they'd be visible."
 
     plain = subprocess.run(f"{PYTHON} -m pytest -VV".split(), check=True, capture_output=True)
     with_sc = subprocess.run(f"{PYTHON} -m slipcover --silent -m pytest -VV".split(), check=True,
