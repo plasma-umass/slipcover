@@ -4,9 +4,7 @@ import dis
 import sys
 
 
-PYTHON = 'python3'
 PYTHON_VERSION = sys.version_info[0:2]
-
 
 def current_line():
     import inspect as i
@@ -513,7 +511,8 @@ def test_filematcher_defaults():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    site_packages = next(Path(p) for p in sys.path if 'site-packages' in p)
+    # pip is usually in site-packages, but importing it causes warnings
+    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
     assert not fm.matches(site_packages / 'foo.py')
 
 @pytest.fixture
@@ -544,7 +543,8 @@ def test_filematcher_defaults_from_root(return_to_dir):
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    site_packages = next(Path(p) for p in sys.path if 'site-packages' in p)
+    # pip is usually in site-packages, but importing it causes warnings
+    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
     assert not fm.matches(site_packages / 'foo.py')
 
 def test_filematcher_source():
@@ -574,7 +574,8 @@ def test_filematcher_source():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    site_packages = next(Path(p) for p in sys.path if 'site-packages' in p)
+    # pip is usually in site-packages, but importing it causes warnings
+    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
     assert not fm.matches(site_packages / 'foo.py')
 
 
@@ -600,7 +601,8 @@ def test_filematcher_omit_pattern():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    site_packages = next(Path(p) for p in sys.path if 'site-packages' in p)
+    # pip is usually in site-packages, but importing it causes warnings
+    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
     assert not fm.matches(site_packages / 'foo.py')
 
 # FIXME what about patterns starting with '?'
@@ -1097,14 +1099,14 @@ def test_find_functions():
 
 
 def test_interpose_on_module_load(tmp_path):
-    # FIXME include this test in coverage results
+    # FIXME include in coverage info
     from pathlib import Path
     import subprocess
     import json
 
     out_file = tmp_path / "out.json"
 
-    subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} tests/importer.py".split(),
+    subprocess.run(f"{sys.executable} -m slipcover --json --out {out_file} tests/importer.py".split(),
                    check=True)
     with open(out_file, "r") as f:
         cov = json.load(f)
@@ -1117,7 +1119,7 @@ def test_interpose_on_module_load(tmp_path):
 
 
 def test_pytest_interpose(tmp_path):
-    # FIXME include this test in coverage results
+    # FIXME include in coverage info
     from pathlib import Path
     import subprocess
     import json
@@ -1126,7 +1128,7 @@ def test_pytest_interpose(tmp_path):
 
     test_file = str(Path('tests') / 'pyt.py')
 
-    subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} -m pytest {test_file}".split(),
+    subprocess.run(f"{sys.executable} -m slipcover --json --out {out_file} -m pytest {test_file}".split(),
                    check=True)
     with open(out_file, "r") as f:
         cov = json.load(f)
@@ -1147,8 +1149,8 @@ def test_pytest_plugins_visible(tmp_path):
 
     assert pytest_plugins, "No pytest plugins installed, can't tell if they'd be visible."
 
-    plain = subprocess.run(f"{PYTHON} -m pytest -VV".split(), check=True, capture_output=True)
-    with_sc = subprocess.run(f"{PYTHON} -m slipcover --silent -m pytest -VV".split(), check=True,
+    plain = subprocess.run(f"{sys.executable} -m pytest -VV".split(), check=True, capture_output=True)
+    with_sc = subprocess.run(f"{sys.executable} -m slipcover --silent -m pytest -VV".split(), check=True,
                              capture_output=True)
 
     assert plain.stdout == with_sc.stdout
