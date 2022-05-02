@@ -156,7 +156,7 @@ def wrap_pytest():
 if not args.dont_wrap_pytest:
     wrap_pytest()
 
-sys.meta_path=[SlipcoverMetaPathFinder(args, sci, file_matcher, sys.meta_path)]
+sys.meta_path.insert(0, SlipcoverMetaPathFinder(args, sci, file_matcher, sys.meta_path.copy()))
 
 
 def print_coverage(outfile):

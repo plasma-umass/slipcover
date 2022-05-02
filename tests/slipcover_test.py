@@ -1135,3 +1135,19 @@ def test_pytest_interpose(tmp_path):
     cov = cov['files'][test_file]
     assert [1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13] == cov['executed_lines']
     assert [] == cov['missing_lines']
+
+
+def test_pytest_plugins_visible(tmp_path):
+    import subprocess
+
+    # Note: the plugins could also be detected with:
+    # def pytest_plugins():
+    #     from importlib import metadata
+    #     return [dist.metadata['Name'] for dist in metadata.distributions() \
+    #             if any(ep.group == "pytest11" for ep in dist.entry_points)]
+
+    plain = subprocess.run(f"{PYTHON} -m pytest -VV".split(), check=True, capture_output=True)
+    with_sc = subprocess.run(f"{PYTHON} -m slipcover --silent -m pytest -VV".split(), check=True,
+                             capture_output=True)
+
+    assert plain.stdout == with_sc.stdout
