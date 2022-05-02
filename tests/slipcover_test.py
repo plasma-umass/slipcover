@@ -513,9 +513,8 @@ def test_filematcher_defaults():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    import pip      # usually in site-packages
-    assert not fm.matches(inspect.getfile(pip))
-
+    site_packages = next(Path(p) for p in sys.path if 'site-packages' in p)
+    assert not fm.matches(site_packages / 'foo.py')
 
 @pytest.fixture
 def return_to_dir():
@@ -545,8 +544,8 @@ def test_filematcher_defaults_from_root(return_to_dir):
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    import pip      # usually in site-packages
-    assert not fm.matches(inspect.getfile(pip))
+    site_packages = next(Path(p) for p in sys.path if 'site-packages' in p)
+    assert not fm.matches(site_packages / 'foo.py')
 
 def test_filematcher_source():
     from pathlib import Path
@@ -575,8 +574,8 @@ def test_filematcher_source():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    import pip      # usually in site-packages
-    assert not fm.matches(inspect.getfile(pip))
+    site_packages = next(Path(p) for p in sys.path if 'site-packages' in p)
+    assert not fm.matches(site_packages / 'foo.py')
 
 
 def test_filematcher_omit_pattern():
@@ -601,8 +600,8 @@ def test_filematcher_omit_pattern():
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
 
-    import pip      # usually in site-packages
-    assert not fm.matches(inspect.getfile(pip))
+    site_packages = next(Path(p) for p in sys.path if 'site-packages' in p)
+    assert not fm.matches(site_packages / 'foo.py')
 
 # FIXME what about patterns starting with '?'
 
@@ -1105,7 +1104,8 @@ def test_interpose_on_module_load(tmp_path):
 
     out_file = tmp_path / "out.json"
 
-    subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} tests/importer.py".split())
+    subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} tests/importer.py".split(),
+                   check=True)
     with open(out_file, "r") as f:
         cov = json.load(f)
 
@@ -1126,7 +1126,8 @@ def test_pytest_interpose(tmp_path):
 
     test_file = str(Path('tests') / 'pyt.py')
 
-    subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} -m pytest {test_file}".split())
+    subprocess.run(f"{PYTHON} -m slipcover --json --out {out_file} -m pytest {test_file}".split(),
+                   check=True)
     with open(out_file, "r") as f:
         cov = json.load(f)
 
