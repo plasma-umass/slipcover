@@ -105,11 +105,11 @@ if SCIKIT_LEARN.exists():
 
 if FLASK.exists():
     benchmarks.append(
-        Benchmark('flask', "-m pytest", {
+        Benchmark('flask', "-m pytest --count 5", {
                     # coveragepy options from setup.cfg
                     'slipcover_opts': '--source=src,*/site-packages'
                   },
-                  cwd=FLASK, tries=10
+                  cwd=FLASK
         )
     )
 
