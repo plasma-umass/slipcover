@@ -3,7 +3,7 @@ from setuptools.command.build_ext import build_ext
 from os import path, environ
 import sys
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 REPO_URL = "https://github.com/plasma-umass/slipcover"
 
 def get_description():
