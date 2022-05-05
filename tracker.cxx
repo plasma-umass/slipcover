@@ -51,25 +51,20 @@ class Tracker {
     PyPtr<> _sci;
     PyPtr<> _filename;
     PyPtr<> _lineno;
-    bool _collect_stats;
     bool _signalled;
     bool _instrumented;
     int _d_miss_count;
+    int _u_miss_count;
+    int _hit_count;
     int _d_threshold;
 
 public:
-    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno):
+    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno, PyObject* d_threshold):
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
         _lineno(PyPtr<>::borrowed(lineno)),
-        _collect_stats(false), _signalled(false), _instrumented(true),
-        _d_miss_count(-1), _d_threshold(50) {
-
-        PyPtr<> collect_stats = PyObject_GetAttrString(_sci, "collect_stats");
-        _collect_stats = (collect_stats == Py_True);
-
-        PyPtr<> d_threshold = PyObject_GetAttrString(_sci, "d_threshold");
-        _d_threshold = PyLong_AsLong(d_threshold);
-    }
+        _signalled(false), _instrumented(true),
+        _d_miss_count(-1), _u_miss_count(0), _hit_count(0),
+        _d_threshold(PyLong_AsLong(d_threshold)) {}
 
 
     static PyObject*
@@ -82,7 +77,7 @@ public:
 
 
     PyObject* signal() {
-        if (!_signalled || _collect_stats) {
+        if (!_signalled) {
             _signalled = true;
 
             PyPtr<> new_lines_seen = PyObject_GetAttrString(_sci, "new_lines_seen");
@@ -97,27 +92,9 @@ public:
                 return NULL;
             }
 
-            if (PySet_Check(line_set)) {
-                if (PySet_Add(line_set, _lineno) < 0) {
-                    PyErr_SetString(PyExc_Exception, "Unable to add to set");
-                    return NULL;
-                }
-            }
-            else {  // assume it's a collections.Counter
-                PyPtr<> update = PyUnicode_FromString("update");
-                if (!update) {
-                    PyErr_SetString(PyExc_Exception, "Unable to find update method");
-                    return NULL;
-                }
-
-                PyPtr<> tuple = PyTuple_Pack(1, (PyObject*)_lineno);
-
-                PyPtr<> result = PyObject_CallMethodObjArgs(line_set, update,
-                                                            (PyObject*)tuple, NULL);
-                if (!result) {
-                    PyErr_SetString(PyExc_Exception, "Unable to call Counter.update");
-                    return NULL;
-                }
+            if (PySet_Add(line_set, _lineno) < 0) {
+                PyErr_SetString(PyExc_Exception, "Unable to add to set");
+                return NULL;
             }
         }
 
@@ -130,72 +107,70 @@ public:
                 PyPtr<> result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
             }
         }
+        else {
+            ++_u_miss_count;
+        }
 
         Py_RETURN_NONE;
     }
 
 
-    PyObject* deinstrument() {
-        if (_instrumented) {
-            _instrumented = false;
-
-            if (_collect_stats) {
-                PyPtr<> neg = PyLong_FromLong(-PyLong_AsLong(_lineno));
-
-                Tracker* t = new Tracker(_sci, _filename, (PyObject*)neg);
-                t->_instrumented = false;
-
-                return newCapsule(t);
-            }
-        }
-
+    PyObject* hit() {
+        ++_hit_count;
         Py_RETURN_NONE;
+    }
+
+
+    PyObject* deinstrument() {
+        _instrumented = false;
+        Py_RETURN_NONE;
+    }
+
+
+    PyObject* get_stats() {
+        PyPtr<> d_miss_count = PyLong_FromLong(_d_miss_count);
+        PyPtr<> u_miss_count = PyLong_FromLong(_u_miss_count);
+        PyPtr<> total_count = PyLong_FromLong(1 + _d_miss_count + _u_miss_count + _hit_count);
+        return PyTuple_Pack(5, (PyObject*)_filename, (PyObject*)_lineno,
+                            (PyObject*)d_miss_count, (PyObject*)u_miss_count,
+                            (PyObject*)total_count);
     }
 };
 
 
 PyObject*
 tracker_register(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
-    if (nargs < 3) {
+    if (nargs < 4) {
         PyErr_SetString(PyExc_Exception, "Missing argument(s)");
         return NULL;
     }
 
-    PyObject* sci = args[0];
-    PyObject* filename = args[1];
-    PyObject* lineno = args[2];
-
-    return Tracker::newCapsule(new Tracker(sci, filename, lineno));
+    return Tracker::newCapsule(new Tracker(args[0], args[1], args[2], args[3]));
 }
 
-
-static PyObject*
-tracker_signal(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
-    if (nargs < 1) {
-        PyErr_SetString(PyExc_Exception, "Missing argument");
-        return NULL;
+#define METHOD_WRAPPER(method) \
+    static PyObject*\
+    tracker_##method(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {\
+        if (nargs < 1) {\
+            PyErr_SetString(PyExc_Exception, "Missing argument");\
+            return NULL;\
+        }\
+    \
+        return static_cast<Tracker*>(PyCapsule_GetPointer(args[0], NULL))->method();\
     }
 
-    return static_cast<Tracker*>(PyCapsule_GetPointer(args[0], NULL))->signal();
-}
-
-
-static PyObject*
-tracker_deinstrument(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
-    if (nargs < 1) {
-        PyErr_SetString(PyExc_Exception, "Missing argument");
-        return NULL;
-    }
-
-    return static_cast<Tracker*>(PyCapsule_GetPointer(args[0], NULL))->deinstrument();
-}
+METHOD_WRAPPER(signal);
+METHOD_WRAPPER(hit);
+METHOD_WRAPPER(deinstrument);
+METHOD_WRAPPER(get_stats);
 
 
 static PyMethodDef methods[] = {
-    {"register", (PyCFunction)tracker_register, METH_FASTCALL, "registers a new tracker"},
-    {"signal", (PyCFunction)tracker_signal, METH_FASTCALL, "signal a tracker"},
-    {"deinstrument", (PyCFunction)tracker_deinstrument, METH_FASTCALL,
-     "mark a tracker deinstrumented"},
+    {"register",     (PyCFunction)tracker_register, METH_FASTCALL, "registers a new tracker"},
+    {"signal",       (PyCFunction)tracker_signal, METH_FASTCALL, "signals the line was reached"},
+    {"hit",          (PyCFunction)tracker_hit, METH_FASTCALL, "signals the line was reached after full deinstrumentation"},
+    {"deinstrument", (PyCFunction)tracker_deinstrument, METH_FASTCALL, "marks a tracker deinstrumented"},
+    {"get_stats",    (PyCFunction)tracker_get_stats, METH_FASTCALL, "returns tracker stats"},
     {NULL, NULL, 0, NULL}
 };
 

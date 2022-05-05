@@ -347,12 +347,8 @@ class Slipcover:
         # notes lines seen since last de-instrumentation
         self._get_new_lines()
 
-        # stats
-        self.u_misses: Dict[str, Counter[int]] = defaultdict(Counter)
-        self.reported: Dict[str, Counter[int]] = defaultdict(Counter)
-        self.deinstrumented: Dict[str, Counter[int]] = defaultdict(Counter)
-
         self.modules = []
+        self.all_trackers = []
 
     def _get_new_lines(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
@@ -364,11 +360,7 @@ class Slipcover:
 
         with self.lock:
             new_lines = self.new_lines_seen if hasattr(self, "new_lines_seen") else None
-
-            if not self.collect_stats:
-                self.new_lines_seen: Dict[str, Set[int]] = defaultdict(set)
-            else:
-                self.new_lines_seen: Dict[str, Counter[int]] = defaultdict(Counter)
+            self.new_lines_seen: Dict[str, Set[int]] = defaultdict(set)
 
         return new_lines
 
@@ -388,8 +380,9 @@ class Slipcover:
 
         consts = list(co.co_consts)
 
-        tracker_signal_index = len(consts)
+        consts.append(tracker.hit)
         consts.append(tracker.signal)
+        tracker_signal_index = len(consts)-1
 
         # handle functions-within-functions
         for i, c in enumerate(consts):
@@ -406,8 +399,8 @@ class Slipcover:
         prev_lineno = None
         patch_offset = 0
         for (offset, lineno) in dis.findlinestarts(co):
-            patch.extend(co.co_code[prev_offset:offset])
             if offset > prev_offset:
+                patch.extend(co.co_code[prev_offset:offset])
                 lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
             prev_offset = offset
             prev_lineno = lineno
@@ -422,7 +415,9 @@ class Slipcover:
             patch.extend([op_NOP, 0])       # for deinstrument jump
             patch.extend(opcode_arg(op_LOAD_CONST, tracker_signal_index))
             patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
-            consts.append(tracker.register(self, co.co_filename, lineno))
+            consts.append(tracker.register(self, co.co_filename, lineno, self.d_threshold))
+            if self.collect_stats:
+                self.all_trackers.append(consts[-1])
             patch.extend([op_CALL_FUNCTION, 1,
                           op_POP_TOP, 0])    # ignore return
             inserted = len(patch) - patch_offset
@@ -482,8 +477,6 @@ class Slipcover:
             self.code_lines[co.co_filename].update(
                         map(lambda line: line[1], dis.findlinestarts(co)))
 
-            self.replace_map[co] = new_code
-
             if not parent:
                 self.instrumented[co.co_filename].add(new_code)
 
@@ -521,19 +514,26 @@ class Slipcover:
             if lineno in lines and co_code[offset] == op_NOP:
                 it = iter(unpack_opargs(co.co_code[offset:]))
                 next(it) # NOP
-                next(it) # LOAD_CONST tracker_signal_index
+                op_offset, op_len, op, op_arg = next(it)
                 _, _, _, tracker_index = next(it)
 
-                stats_deinstr_tracker = tracker.deinstrument(co_consts[tracker_index])
+                if op == op_LOAD_CONST and co_consts[op_arg] == tracker.signal:
+                    tracker.deinstrument(co_consts[tracker_index])
 
-                if not self.collect_stats:
                     if not patch:
                         patch = bytearray(co_code)
-                    patch[offset] = op_JUMP_FORWARD
-                elif stats_deinstr_tracker:
-                    if not consts:
-                        consts = list(co_consts)
-                    consts[tracker_index] = stats_deinstr_tracker
+
+                    if not self.collect_stats:
+                        patch[offset] = op_JUMP_FORWARD
+                    else:
+                        # If collecting stats, rather than disabling the tracker, we
+                        # switch to calling the 'tracker.hit' function on it, so that
+                        # we have a total execution count with which to compute the
+                        # top lines and the percentages of misses
+                        op_offset += offset # we unpacked from co.co_code[offset:]
+                        patch[op_offset:op_offset+op_len] = \
+                            opcode_arg(op, op_arg-1, arg_ext_needed(op_arg))
+
 
         if not patch and not consts:
             return co
@@ -545,6 +545,7 @@ class Slipcover:
         new_code = co.replace(**changed)
 
         with self.lock:
+            # Interesting (and useful fact): dict sees code edited this way as being the same
             self.replace_map[co] = new_code
 
             if co in self.instrumented[co.co_filename]:
@@ -554,35 +555,27 @@ class Slipcover:
         return new_code
 
 
-    def _update_stats(self, new_lines) -> None:
-        # XXX assert self.lock owned
-        if self.collect_stats:
-            for file, lines in new_lines.items():
-                pos_lines = Counter({line:count for line, count in lines.items() if line >= 0})
-                neg_lines = Counter({-line:count for line, count in lines.items() if line < 0})
-
-                self.deinstrumented[file] += neg_lines
-
-                self.reported[file].update(pos_lines)
-                self.u_misses[file].update({l: pos_lines[l] for l in pos_lines \
-                                       if l in self.lines_seen[file]})
-
-                # hide negative lines from normal processing
-                new_lines[file] = pos_lines
-
-
     def get_coverage(self):
         """Returns coverage information collected."""
 
         with self.lock:
             # FIXME calling _get_new_lines will prevent de-instrumentation if still running!
             new_lines = self._get_new_lines()
-            self._update_stats(new_lines)
 
             for file, lines in new_lines.items():
                 self.lines_seen[file].update(lines)
 
             simp = PathSimplifier()
+
+            if self.collect_stats:
+                d_misses = defaultdict(Counter)
+                u_misses = defaultdict(Counter)
+                totals = defaultdict(Counter)
+                for t in self.all_trackers:
+                    filename, lineno, d_miss_count, u_miss_count, total_count = tracker.get_stats(t)
+                    if d_miss_count: d_misses[filename].update({lineno: d_miss_count})
+                    if u_miss_count: u_misses[filename].update({lineno: u_miss_count})
+                    totals[filename].update({lineno: total_count})
 
             files = dict()
             for f, f_code_lines in self.code_lines.items():
@@ -600,17 +593,12 @@ class Slipcover:
                     # reports in after it _could_ have been de-instrumented and (use) "U misses"
                     # and where a line reports in after it _has_ been de-instrumented, but
                     # didn't use the code object where it's deinstrumented.
-                    u_misses = self.u_misses[f]
-                    d_misses = self.reported[f] - u_misses
-                    d_misses.subtract(self.reported[f].keys())  # 1st time is normal, not a d miss
-                    d_misses = +d_misses    # drop any 0 counts
-                    all_for_file = self.reported[f] + self.deinstrumented[f]
                     f_files['stats'] = {
-                        'd_misses_pct': round(d_misses.total()/all_for_file.total()*100, 1),
-                        'u_misses_pct': round(u_misses.total()/all_for_file.total()*100, 1),
-                        'top_d_misses': [f"{it[0]}:{it[1]}" for it in d_misses.most_common(5)],
-                        'top_u_misses': [f"{it[0]}:{it[1]}" for it in u_misses.most_common(5)],
-                        'top_lines': [f"{it[0]}:{it[1]}" for it in all_for_file.most_common(5)]
+                        'd_misses_pct': round(d_misses[f].total()/totals[f].total()*100, 1),
+                        'u_misses_pct': round(u_misses[f].total()/totals[f].total()*100, 1),
+                        'top_d_misses': [f"{it[0]}:{it[1]}" for it in d_misses[f].most_common(5)],
+                        'top_u_misses': [f"{it[0]}:{it[1]}" for it in u_misses[f].most_common(5)],
+                        'top_lines': [f"{it[0]}:{it[1]}" for it in totals[f].most_common(5)],
                     }
 
                 files[simp.simplify(f)] = f_files
@@ -708,7 +696,6 @@ class Slipcover:
     def deinstrument_seen(self) -> None:
         with self.lock:
             new_lines = self._get_new_lines()
-            self._update_stats(new_lines)
 
             for file, new_set in new_lines.items():
                 if self.collect_stats: new_set = set(new_set)    # Counter -> set
