@@ -27,25 +27,29 @@ def test_tracker_signal(stats):
     from slipcover import tracker
 
     sci = sc.Slipcover(collect_stats=stats)
+
+    t_123 = tracker.register(sci, "/foo/bar.py", 123, -1)
+    tracker.signal(t_123)
+
+    t_42 = tracker.register(sci, "/foo2/baz.py", 42, -1)
+    tracker.signal(t_42)
+    tracker.signal(t_42)
+
+    t_314 = tracker.register(sci, "/foo2/baz.py", 314, -1)
+    tracker.signal(t_314)
+
+    # line never executed
+    t_666 = tracker.register(sci, "/foo/beast.py", 666, -1)
+
     d = sci.new_lines_seen
-
-    t = tracker.register(sci, "/foo/bar.py", 123)
-    tracker.signal(t)
-
-    t = tracker.register(sci, "/foo2/baz.py", 42)
-    tracker.signal(t)
-    tracker.signal(t)
-
-    t = tracker.register(sci, "/foo2/baz.py", 314)
-    tracker.signal(t)
-
     assert ["/foo/bar.py", "/foo2/baz.py"] == sorted(d.keys())
     assert [123] == sorted(list(d["/foo/bar.py"]))
     assert [42, 314] == sorted(list(d["/foo2/baz.py"]))
 
-    if stats:
-        assert 2 == d["/foo2/baz.py"][42]
-        assert 1 == d["/foo2/baz.py"][314]
+    assert ("/foo2/baz.py", 42, 1, 0, 2) == tracker.get_stats(t_42)
+    assert ("/foo2/baz.py", 314, 0, 0, 1) == tracker.get_stats(t_314)
+
+    assert ("/foo/beast.py", 666, 0, 0, 0) == tracker.get_stats(t_666)
 
 
 @pytest.mark.parametrize("stats", [False, True])
@@ -53,31 +57,25 @@ def test_tracker_deinstrument(stats):
     from slipcover import tracker
 
     sci = sc.Slipcover(collect_stats=stats)
-    d = sci.new_lines_seen
 
-    t = tracker.register(sci, "/foo/bar.py", 123)
+    t = tracker.register(sci, "/foo/bar.py", 123, 3)
     tracker.signal(t)
 
-    t = tracker.deinstrument(t)
-    if not stats:
-        assert None == t
+    assert ["/foo/bar.py"] == sorted(sci.new_lines_seen.keys())
 
-    else:
-        assert None != t
-        tracker.signal(t)
-        tracker.signal(t)
-        assert None == tracker.deinstrument(t)
+    tracker.signal(t)
+    tracker.signal(t)
+    tracker.signal(t)   # triggers deinstrument_seen... but not instrumented through sci
 
-    assert ["/foo/bar.py"] == sorted(d.keys())
+    tracker.deinstrument(t) # fake it since sci didn't instrument it
+    tracker.signal(t)   # u-miss
 
-    if not stats:
-        assert [123] == sorted(list(d["/foo/bar.py"]))
+    tracker.hit(t)
 
-    else:
-        assert [-123, 123] == sorted(list(d["/foo/bar.py"]))
+    assert [] == sorted(sci.new_lines_seen.keys())
+    assert ["/foo/bar.py"] == sorted(sci.lines_seen.keys())
 
-        assert 1 == d["/foo/bar.py"][123]
-        assert 2 == d["/foo/bar.py"][-123]
+    assert ("/foo/bar.py", 123, 3, 1, 6) == tracker.get_stats(t)
 
 
 def test_opcode_arg():

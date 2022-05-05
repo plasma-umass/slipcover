@@ -1,5 +1,6 @@
 #define PY_SSIZE_T_CLEAN    // programmers love obscure statements
 #include <Python.h>
+#include <algorithm>
 
 
 /**
@@ -128,7 +129,7 @@ public:
 
 
     PyObject* get_stats() {
-        PyPtr<> d_miss_count = PyLong_FromLong(_d_miss_count);
+        PyPtr<> d_miss_count = PyLong_FromLong(std::max(_d_miss_count, 0));
         PyPtr<> u_miss_count = PyLong_FromLong(_u_miss_count);
         PyPtr<> total_count = PyLong_FromLong(1 + _d_miss_count + _u_miss_count + _hit_count);
         return PyTuple_Pack(5, (PyObject*)_filename, (PyObject*)_lineno,
