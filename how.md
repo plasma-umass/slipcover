@@ -64,13 +64,15 @@ The code from the example above could become
 Slipcover’s code insert starts with a `NOP` operation just to reserve space for easy/fast de-instrumentation; it will later be replaced by a jump over the other inserted byte codes.
 The rest of the insert simply signals Slipcover’s tracker for the line. The return value, which is mandatory in Python but which isn’t used, is discarded, leaving Python ready to execute that line’s original byte codes.
 
-In order to perform these insertions, Slipcover needs to adjust all branches'
-targets (such as that of the `POP_JUMP_IF_FALSE` above), and re-calculate the
+In order to perform these insertions, Slipcover adjusts all branches'
+targets (such as that of the `POP_JUMP_IF_FALSE` above), and re-calculates the
 Python metadata that maps byte code offsets to line numbers.
 
 ## The tracker
 Slipcover’s trackers are implemented as C++ objects, and collaborate in building Python `set`s that indicate which lines were reached during the execution.
 Each tracker also counts how many times it has been signaled; if that count crosses a threshold, the tracker triggers de-instrumentation, calling back into Python for that.
+
+<<more to say??>>
 
 ## De-instrumentation
 De-instrumentation is done in two steps:
@@ -86,3 +88,5 @@ To help understand evaluate its behavior, Slipcover can optionally gather certai
 - “D” (de-instrument) misses are counted when a tracker is signaled more than once before it is de-instrumented, and
 - “U” (use) misses are counted when the tracker signaling code was de-instrumented, but hasn’t yet been picked up by the program (for lack of on-stack replacement).
 Gathering these statistics costs some performance, so it isn’t done by default.
+
+<<insert sample output, discuss it>>
