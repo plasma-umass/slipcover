@@ -1134,6 +1134,7 @@ def test_pytest_interpose(tmp_path):
         cov = json.load(f)
 
     assert test_file in cov['files']
+    assert {test_file} == set(cov['files'].keys())  # any unrelated files included?
     cov = cov['files'][test_file]
     assert [1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13] == cov['executed_lines']
     assert [] == cov['missing_lines']

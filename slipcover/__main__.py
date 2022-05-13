@@ -102,7 +102,8 @@ def wrap_pytest():
     import dis
 
     def exec_wrapper(obj, g):
-        obj = sci.instrument(obj)
+        if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
+            obj = sci.instrument(obj)
         exec(obj, g)
 
     load_g_op, load_const_op, call_op = (dis.opmap['LOAD_GLOBAL'],
