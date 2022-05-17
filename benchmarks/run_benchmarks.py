@@ -234,10 +234,16 @@ def plot_results():
     width = .70 # of all bars
     bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
+    hide_slipcover = False
+
     fig, ax = plt.subplots()
     for case, bar_x in zip(nonbase_cases, bars_x):
         r = [median(results[case.name][b.name]['times']) / median(results['base'][b.name]['times']) for b in benchmarks]
-        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, zorder=2)
+
+        showit = not hide_slipcover or (case.name != 'slipcover')
+
+        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, zorder=2, alpha=(None if showit else 0))
+        if not showit: continue
 
         ax.bar_label(rects, padding=3, labels=[f'{"+" if round((v-1)*100)>=0 else ""}{round((v-1)*100)}%' for v in r], fontsize=8)
 
@@ -245,7 +251,8 @@ def plot_results():
     ax.set_ylabel('Normalized execution time')
     ax.set_xticks(x, labels=[b.name for b in benchmarks], fontsize=8)
     ax.axhline(y=1, color='grey', linewidth=1, alpha=.5, zorder=1)
-    ax.legend()
+    if not hide_slipcover:
+        ax.legend()
 
     fig.tight_layout()
     fig.savefig("benchmarks/benchmarks.png")
