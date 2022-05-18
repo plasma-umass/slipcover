@@ -1039,6 +1039,21 @@ def test_no_deinstrument_seen_negative_threshold():
     assert old_code == foo.__code__, "Code de-instrumented"
 
 
+def test_format_missing():
+    fm = sc.Slipcover.format_missing
+
+    assert "" == fm([],[])
+    assert "" == fm([], [1,2,3])
+    assert "2, 4" == fm([2,4], [1,3,5])
+    assert "2-4, 6, 9" == fm([2,3,4, 6, 9], [1, 5, 7,8])
+
+    assert "2-6, 9-11" == fm([2,4,6, 9,11], [1, 7,8])
+
+    assert "2-11" == fm([2,4,6, 9,11], [])
+
+    assert "2-6, 9-11" == fm([2,4,6, 9,11], [8])
+
+
 @pytest.mark.parametrize("stats", [False, True])
 def test_print_coverage(stats, capsys):
     sci = sc.Slipcover(collect_stats=stats)

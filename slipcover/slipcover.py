@@ -606,36 +606,49 @@ class Slipcover:
             return {'files': files}
 
 
+    @staticmethod
+    def format_missing(missing_lines : List[int], executed_lines : List[int]) -> List[str]:
+        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall between missed ones"""
+        def find_ranges():
+            executed = set(executed_lines)
+            it = iter(missing_lines)    # assumed sorted
+            a = next(it, None)
+            while a is not None:
+                b = a
+                n = next(it, None)
+                while n is not None:
+                    if any(l in executed for l in range(b+1, n+1)):
+                        break
+
+                    b = n
+                    n = next(it, None)
+
+                yield str(a) if a == b else f"{a}-{b}"
+
+                a = n
+
+        return ", ".join(find_ranges())
+
+
     def print_coverage(self, outfile=sys.stdout) -> None:
         cov = self.get_coverage()
-
-        def merge_consecutives(L):
-            # Neat little trick due to John La Rooy: the difference between the numbers
-            # on a list and a counter is constant for consecutive items :)
-            from itertools import groupby, count
-
-            groups = groupby(sorted(L), key=lambda item, c=count(): item - next(c))
-            return [
-                str(g[0]) if g[0] == g[-1] else f"{g[0]}-{g[-1]}"
-                for g in [list(g) for _, g in groups]
-            ]
 
         from tabulate import tabulate
 
         def table(files):
-            for f, f_info in files.items():
+            for f, f_info in sorted(files.items()):
                 seen = len(f_info['executed_lines'])
                 miss = len(f_info['missing_lines'])
                 total = seen+miss
-                yield [f, total, miss, round(100*seen/total),
-                       ', '.join(merge_consecutives(f_info['missing_lines']))]
+                yield [f, total, miss, int(100*seen/total),
+                       Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'])]
 
         print("", file=outfile)
         print(tabulate(table(cov['files']),
-              headers=["File", "#lines", "#missed", "Cover%", "Lines missing"]), file=outfile)
+              headers=["File", "#lines", "#miss", "Cover%", "Lines missing"]), file=outfile)
 
         def stats_table(files):
-            for f, f_info in files.items():
+            for f, f_info in sorted(files.items()):
                 stats = f_info['stats']
 
                 yield (f, stats['d_misses_pct'], stats['u_misses_pct'],
