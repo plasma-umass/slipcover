@@ -1,4 +1,4 @@
-![slipcover](https://github.com/plasma-umass/slipcover/raw/master/docs/slipcover-logo.png)
+![slipcover](https://github.com/plasma-umass/slipcover/raw/main/docs/slipcover-logo.png)
 
 # Slipcover: Near Zero-Overhead Python Code Coverage
 by [Juan Altmayer Pizzorno](https://www.linkedin.com/in/juan-altmayer-pizzorno/) and [Emery Berger](https://emeryberger.com)
