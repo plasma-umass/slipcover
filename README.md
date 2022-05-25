@@ -1,11 +1,13 @@
-[![license](https://img.shields.io/github/license/plasma-umass/slipcover?color=blue)](LICENSE)
-[![pypi](https://img.shields.io/pypi/v/slipcover?color=blue)](https://pypi.org/project/slipcover/)
-![pyversions](https://img.shields.io/pypi/pyversions/slipcover)
-![tests](https://github.com/jaltmayerpizzorno/slipcover/workflows/tests/badge.svg)
+![slipcover](https://github.com/plasma-umass/slipcover/raw/master/docs/slipcover-logo.png)
 
 # Slipcover: Near Zero-Overhead Python Code Coverage
 by [Juan Altmayer Pizzorno](https://www.linkedin.com/in/juan-altmayer-pizzorno/) and [Emery Berger](https://emeryberger.com)
 at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
+
+[![license](https://img.shields.io/github/license/plasma-umass/slipcover?color=blue)](LICENSE)
+[![pypi](https://img.shields.io/pypi/v/slipcover?color=blue)](https://pypi.org/project/slipcover/)
+![pyversions](https://img.shields.io/pypi/pyversions/slipcover)
+![tests](https://github.com/jaltmayerpizzorno/slipcover/workflows/tests/badge.svg)
 
 ## About Slipcover
 Slipcover is a fast [code coverage](https://en.wikipedia.org/wiki/Code_coverage) tool.
@@ -119,6 +121,9 @@ Please feel free to [create a new issue](https://github.com/jaltmayerpizzorno/sl
 with any suggestions or issues you may encounter.
 
 # Acknowledgements
+
+Logo design by [Sophia Berger](https://www.linkedin.com/in/sophia-berger/).
+
 This material is based upon work supported by the National Science
 Foundation under Grant No. 1955610. Any opinions, findings, and
 conclusions or recommendations expressed in this material are those of
