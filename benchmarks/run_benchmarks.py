@@ -5,11 +5,11 @@ from collections import namedtuple
 from statistics import median
 from datetime import datetime
 import subprocess
+import sys
 
 
 BENCHMARK_JSON = 'benchmarks/benchmarks.json'
 TRIES = 5
-PYTHON = 'python3'
 # someplace with scikit-learn 1.0.2 sources, built and ready to test
 SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
 FLASK = Path.home() / "tmp" / "flask"
@@ -20,9 +20,9 @@ git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
 
 Case = namedtuple('Case', ['name', 'label', 'command'])
 
-cases = [Case('base', "(no coverage)", PYTHON + " {bench_command}"),
-         Case('coveragepy', "Coverage.py", PYTHON + " -m coverage run {coveragepy_opts} {bench_command}"),
-         Case('slipcover', "Slipcover", PYTHON + " -m slipcover {slipcover_opts} {bench_command}")
+cases = [Case('base', "(no coverage)", sys.executable + " {bench_command}"),
+         Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}"),
+         Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}")
 ]
 base = cases[0]
 
