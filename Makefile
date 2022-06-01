@@ -5,7 +5,7 @@ all:
 HOMEBREW_PYTHON=/usr/local/opt/python@
 test:
 	- rm -f .coverage
-	@ for V in 3.8 3.9 3.10; do \
+	@ for V in 3.8 3.9 3.10 3.11; do \
 	    P=$$(command -v ${HOMEBREW_PYTHON}$$V/bin/python3 || command -v python$$V); \
 	    if ! [ -z $$P ]; then \
 	      $$P --version; \

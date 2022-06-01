@@ -37,10 +37,20 @@ if PYTHON_VERSION < (3,10):
 
 
 op_EXTENDED_ARG = dis.EXTENDED_ARG
+is_EXTENDED_ARG = [op_EXTENDED_ARG]
 op_LOAD_CONST = dis.opmap["LOAD_CONST"]
-op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
+
+if PYTHON_VERSION >= (3,11):
+    op_PUSH_NULL = dis.opmap["PUSH_NULL"]
+    op_PRECALL = dis.opmap["PRECALL"]
+    op_CALL = dis.opmap["CALL"]
+    op_CACHE = dis.opmap["CACHE"]
+    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])
+else:
+    op_PUSH_NULL = None
+    op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
+
 op_POP_TOP = dis.opmap["POP_TOP"]
-op_JUMP_ABSOLUTE = dis.opmap["JUMP_ABSOLUTE"]
 op_JUMP_FORWARD = dis.opmap["JUMP_FORWARD"]
 op_NOP = dis.opmap["NOP"]
 
@@ -60,6 +70,8 @@ def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
             [op_EXTENDED_ARG, (arg >> (ext - i) * 8) & 0xFF]
         )
     bytecode.extend([opcode, arg & 0xFF])
+    if PYTHON_VERSION >= (3,11):
+        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])
     return bytecode
 
 
@@ -75,7 +87,7 @@ def unpack_opargs(code: bytes) -> List[(int, int, int, int)]:
     next_off = 0
     for off in range(0, len(code), 2):
         op = code[off]
-        if op == op_EXTENDED_ARG:
+        if op in is_EXTENDED_ARG:
             ext_arg = (ext_arg | code[off+1]) << 8
         else:
             arg = (ext_arg | code[off+1])
@@ -113,13 +125,14 @@ class Branch:
         self.length = length
         self.opcode = opcode
         self.is_relative = (opcode in dis.hasjrel)
+        self.is_backward = 'JUMP_BACKWARD' in dis.opname[opcode]
         self.target = branch2offset(arg) if not self.is_relative \
-                      else offset + length + branch2offset(arg)
+                      else offset + length + branch2offset(-arg if self.is_backward else arg)
 
     def arg(self) -> int:
         """Returns this branch's opcode argument."""
         if self.is_relative:
-            return offset2branch(self.target - (self.offset + self.length))
+            return offset2branch(abs(self.target - (self.offset + self.length)))
         return offset2branch(self.target)
 
     def adjust(self, insert_offset : int, insert_length : int) -> None:
@@ -161,6 +174,98 @@ class Branch:
                 branches.append(Branch(off, length, op, arg))
 
         return branches
+
+
+def append_varint(data, n):
+    """Appends a (little endian) variable length unsigned integer to 'data'"""
+    while n > 0x3f:
+        data.append(0x40|(n&0x3f))
+        n = n >> 6
+    data.append(n)
+    return data
+
+
+def append_svarint(data, n):
+    """Appends a (little endian) variable length signed integer to 'data'"""
+    return append_varint(data, ((-n)<<1)|1 if n < 0 else n<<1)
+
+
+def write_varint_be(n, mark_first=None):
+    """Encodes a (big endian) variable length unsigned integer"""
+    data = bytearray()
+    top_bit = n.bit_length()-1
+    for shift in range(top_bit - top_bit%6, 0, -6):
+        data.append(0x40|((n >> shift)&0x3f))
+    data.append(n&0x3f)
+    if mark_first:
+        data[0] |= mark_first
+    return data
+
+
+def read_varint_be(it):
+    """Decodes a (big endian) variable length unsigned integer from 'it'"""
+    value = 0
+    while (b := next(it)) & 0x40:
+        value |= b & 0x3f
+        value <<= 6
+    value |= b & 0x3f
+
+    return value
+
+
+class ExceptionTableEntry:
+    """Represents an entry from Python 3.11+'s exception table."""
+    def __init__(self, start: int, end: int, target: int, other: int):
+        self.start = start
+        self.end = end
+        self.target = target
+        self.other = other
+
+
+    # FIXME tests missing
+    def adjust(self, insert_offset: int, insert_length: int) -> None:
+        """Adjusts this exception table entry, handling a code insertion."""
+        old_start, old_end, old_target = self.start, self.end, self.target
+        if insert_offset <= self.start:
+            self.start += insert_length
+        if insert_offset < self.end:
+            self.end += insert_length
+        if insert_offset < self.target:
+            self.target += insert_length
+#        print(f"{old_start}-{old_end}->{old_target} ==> {self.start}-{self.end}->{self.target}")
+
+
+    @staticmethod
+    def from_code(code: types.CodeType) -> List[ExceptionTableEntry]:
+        """Returns a list of exception table entries from a code object."""
+        entries = []
+        it = iter(code.co_exceptiontable)
+        try:
+            while True:
+                start = branch2offset(read_varint_be(it))
+                length = branch2offset(read_varint_be(it))
+                end = start + length
+                target = branch2offset(read_varint_be(it))
+                other = read_varint_be(it)
+                entries.append(ExceptionTableEntry(start, end, target, other))
+        except StopIteration:
+#            for e in entries:
+#                print(f"{e.start}-{e.end}: {e.target}")
+            return entries
+
+
+    @staticmethod
+    def make_exceptiontable(entries: List[ExceptionTableEntry]) -> bytes:
+        """Generates an exception table from a list of entries."""
+        table = bytearray()
+
+        for e in entries:
+            table.extend(write_varint_be(offset2branch(e.start), mark_first=0x80))
+            table.extend(write_varint_be(offset2branch(e.end - e.start)))
+            table.extend(write_varint_be(offset2branch(e.target)))
+            table.extend(write_varint_be(e.other))
+
+        return bytes(table)
 
 
 class LineEntry:
@@ -221,7 +326,7 @@ class LineEntry:
 
     @staticmethod
     def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
-        """Generates the line number table used by Python 3.10+ to map offsets to line numbers."""
+        """Generates the line number table used by Python 3.10 to map offsets to line numbers."""
 
         linetable = []
 
@@ -254,6 +359,48 @@ class LineEntry:
                     delta_end -= 254
 
                 linetable.extend([delta_end, delta_number & 0xFF])
+                prev_number = l.number
+
+            prev_end = l.end
+
+        return bytes(linetable)
+
+
+    @staticmethod
+    def make_positions(firstlineno : int, lines : List[LineEntry]) -> bytes:
+        """Generates the positions table used by Python 3.11+ to map offsets to line numbers."""
+
+        linetable = []
+
+        prev_end = 0
+        prev_number = firstlineno
+
+        for l in lines:
+#            print(f"{l.start} {l.end} {l.number}")
+
+            if l.number is None:
+                bytecodes = (l.end - prev_end)//2
+                while bytecodes > 0:
+#                    print(f"->15 {min(bytecodes, 8)-1}")
+                    linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
+                    bytecodes -= 8
+            else:
+                if prev_end < l.start:
+                    bytecodes = (l.end - prev_end)//2
+                    while bytecodes > 0:
+#                        print(f"->15 {min(bytecodes, 8)-1}")
+                        linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
+                        bytecodes -= 8
+
+                line_delta = l.number - prev_number
+                bytecodes = (l.end - l.start)//2
+                while bytecodes > 0:
+#                    print(f"->13 {min(bytecodes, 8)-1} {line_delta}")
+                    linetable.extend([0x80|(13<<3)|(min(bytecodes, 8)-1)])
+                    append_svarint(linetable, line_delta)
+                    line_delta = 0
+                    bytecodes -= 8
+
                 prev_number = l.number
 
             prev_end = l.end
@@ -325,9 +472,6 @@ class FileMatcher:
 
 class Slipcover:
     def __init__(self, collect_stats : bool = False, d_threshold = 50):
-        if not ((3,8) <= PYTHON_VERSION <= (3,10)):
-            raise RuntimeError("Unsupported Python version; please use 3.8 to 3.10")
-
         self.collect_stats = collect_stats
         self.d_threshold = d_threshold
 
@@ -393,6 +537,8 @@ class Slipcover:
         patch = bytearray()
         lines = []
 
+        ex_table = ExceptionTableEntry.from_code(co) if PYTHON_VERSION >= (3,11) else []
+
         max_addtl_stack = 0
 
         prev_offset = 0
@@ -412,14 +558,25 @@ class Slipcover:
             # FIXME test out if prev_offset is larger than the next offset
 
             patch_offset = len(patch)
-            patch.extend([op_NOP, 0])       # for deinstrument jump
-            patch.extend(opcode_arg(op_LOAD_CONST, tracker_signal_index))
-            patch.extend(opcode_arg(op_LOAD_CONST, len(consts)))
+            if PYTHON_VERSION >= (3,11):
+                patch.extend([op_NOP, 0,    # for deinstrument jump
+                              op_PUSH_NULL, 0] +
+                             opcode_arg(op_LOAD_CONST, tracker_signal_index) +
+                             opcode_arg(op_LOAD_CONST, len(consts)) +
+                             opcode_arg(op_PRECALL, 1) +
+                             opcode_arg(op_CALL, 1) +
+                             [op_POP_TOP, 0])   # ignore return
+            else:
+                patch.extend([op_NOP, 0] +  # for deinstrument jump
+                             opcode_arg(op_LOAD_CONST, tracker_signal_index) +
+                             opcode_arg(op_LOAD_CONST, len(consts)) +
+                             [op_CALL_FUNCTION, 1,
+                              op_POP_TOP, 0])   # ignore return
+
             consts.append(tracker.register(self, co.co_filename, lineno, self.d_threshold))
             if self.collect_stats:
                 self.all_trackers.append(consts[-1])
-            patch.extend([op_CALL_FUNCTION, 1,
-                          op_POP_TOP, 0])    # ignore return
+
             inserted = len(patch) - patch_offset
             assert inserted <= 255
             patch[patch_offset+1] = offset2branch(inserted-2)
@@ -428,6 +585,9 @@ class Slipcover:
 
             for b in branches:
                 b.adjust(patch_offset, inserted)
+
+            for e in ex_table:
+                e.adjust(patch_offset, inserted)
 
         if prev_offset != None:
             patch.extend(co.co_code[prev_offset:])
@@ -452,6 +612,8 @@ class Slipcover:
                     for l in lines:
                         l.adjust(b.offset, change)
 
+                    # FIXME adjust ex_table
+
                     any_adjusted = True
 
         for b in branches:
@@ -461,8 +623,11 @@ class Slipcover:
         kwargs = {}
         if PYTHON_VERSION < (3,10):
             kwargs["co_lnotab"] = LineEntry.make_lnotab(co.co_firstlineno, lines)
-        else:
+        elif PYTHON_VERSION == (3,10):
             kwargs["co_linetable"] = LineEntry.make_linetable(co.co_firstlineno, lines)
+        else:
+            kwargs["co_linetable"] = LineEntry.make_positions(co.co_firstlineno, lines)
+            kwargs["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(ex_table)
 
         consts.append('__slipcover__')  # mark instrumented
 
@@ -474,8 +639,7 @@ class Slipcover:
         )
 
         with self.lock:
-            self.code_lines[co.co_filename].update(
-                        map(lambda line: line[1], dis.findlinestarts(co)))
+            self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co))
 
             if not parent:
                 self.instrumented[co.co_filename].add(new_code)
@@ -515,6 +679,8 @@ class Slipcover:
                 it = iter(unpack_opargs(co.co_code[offset:]))
                 next(it) # NOP
                 op_offset, op_len, op, op_arg = next(it)
+                if op == op_PUSH_NULL:
+                    op_offset, op_len, op, op_arg = next(it)
                 _, _, _, tracker_index = next(it)
 
                 if op == op_LOAD_CONST and co_consts[op_arg] == tracker.signal:

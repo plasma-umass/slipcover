@@ -83,7 +83,7 @@ setuptools.setup(
     license="Apache License 2.0",
     packages=['slipcover'],
     ext_modules=([tracker]),
-    python_requires=">=3.8,<3.11",
+    python_requires=">=3.8,<3.12",
     install_requires=[
         "tabulate"
     ],
