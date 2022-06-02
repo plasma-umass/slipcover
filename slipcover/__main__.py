@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 from slipcover import slipcover as sc
+from slipcover import bytecode as bc
 import atexit
 
 
@@ -127,13 +128,13 @@ def wrap_pytest():
             exec_wrapper_index = len(co.co_consts) # will be appended
 
             exec_index = co.co_names.index('exec')
-            seq = bytes(sc.opcode_arg(load_g_op, exec_index))
+            seq = bytes(bc.opcode_arg(load_g_op, exec_index))
             # FIXME refactor function call finder, break and test
             for start in [i for i in range(0, len(co.co_code), 2) if co.co_code[i:i+len(seq)] == seq]:
                 exts_used = (len(seq)-2)//2
                 end = None
                 stack_size = 0
-                for (off, oplen, op, arg) in sc.unpack_opargs(co.co_code[start:]):
+                for (off, oplen, op, arg) in bc.unpack_opargs(co.co_code[start:]):
                     stack_size += dis.stack_effect(op, arg if op >= dis.HAVE_ARGUMENT else None)
                     if (op == call_op and stack_size == 1):
                         end = start + off + oplen
@@ -142,11 +143,11 @@ def wrap_pytest():
                         break   # couldn't find call sequence
 
                 # FIXME rewrite adjusting branches, etc.
-                if end and sc.arg_ext_needed(exec_wrapper_index) <= exts_used:
+                if end and bc.arg_ext_needed(exec_wrapper_index) <= exts_used:
                     if not patch:
                         patch = bytearray(co.co_code)
 
-                    patch[start:start+len(seq)] = sc.opcode_arg(load_const_op, exec_wrapper_index, exts_used)
+                    patch[start:start+len(seq)] = bc.opcode_arg(load_const_op, exec_wrapper_index, exts_used)
 
             if patch:
                 consts = list(co.co_consts)

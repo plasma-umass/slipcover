@@ -1,5 +1,7 @@
 import pytest
 from slipcover import slipcover as sc
+from slipcover import bytecode as bc
+import types
 import dis
 import sys
 
@@ -76,34 +78,34 @@ def test_tracker_deinstrument(stats):
 
 
 def test_opcode_arg():
-    JUMP = sc.op_JUMP_FORWARD
-    EXT = sc.op_EXTENDED_ARG
+    JUMP = bc.op_JUMP_FORWARD
+    EXT = bc.op_EXTENDED_ARG
 
-    assert [JUMP, 0x42] == list(sc.opcode_arg(JUMP, 0x42))
-    assert [EXT, 0xBA, JUMP, 0xBE] == list(sc.opcode_arg(JUMP, 0xBABE))
+    assert [JUMP, 0x42] == list(bc.opcode_arg(JUMP, 0x42))
+    assert [EXT, 0xBA, JUMP, 0xBE] == list(bc.opcode_arg(JUMP, 0xBABE))
     assert [EXT, 0xBA, EXT, 0xBE, JUMP, 0xFA] == \
-           list(sc.opcode_arg(JUMP, 0xBABEFA))
+           list(bc.opcode_arg(JUMP, 0xBABEFA))
     assert [EXT, 0xBA, EXT, 0xBE, EXT, 0xFA, JUMP, 0xCE] == \
-           list(sc.opcode_arg(JUMP, 0xBABEFACE))
+           list(bc.opcode_arg(JUMP, 0xBABEFACE))
 
-    assert [EXT, 0, JUMP, 0x42] == list(sc.opcode_arg(JUMP, 0x42, min_ext=1))
-    assert [EXT, 0, EXT, 0, JUMP, 0x42] == list(sc.opcode_arg(JUMP, 0x42, min_ext=2))
+    assert [EXT, 0, JUMP, 0x42] == list(bc.opcode_arg(JUMP, 0x42, min_ext=1))
+    assert [EXT, 0, EXT, 0, JUMP, 0x42] == list(bc.opcode_arg(JUMP, 0x42, min_ext=2))
     assert [EXT, 0, EXT, 0, EXT, 0, JUMP, 0x42] == \
-           list(sc.opcode_arg(JUMP, 0x42, min_ext=3))
+           list(bc.opcode_arg(JUMP, 0x42, min_ext=3))
 
 
-@pytest.mark.parametrize("EXT", [sc.op_EXTENDED_ARG] +\
+@pytest.mark.parametrize("EXT", [bc.op_EXTENDED_ARG] +\
                                 ([dis._all_opmap["EXTENDED_ARG_QUICK"]] if PYTHON_VERSION >= (3,11) else []))
 def test_unpack_opargs(EXT):
-    NOP = sc.op_NOP
-    JUMP = sc.op_JUMP_FORWARD
+    NOP = bc.op_NOP
+    JUMP = bc.op_JUMP_FORWARD
 
     octets = bytearray([NOP, 0,
                         EXT, 1, JUMP, 2,
                         EXT, 1, EXT, 2, JUMP, 3,
                         EXT, 1, EXT, 2, EXT, 3, JUMP, 4
                        ])
-    it = iter(sc.unpack_opargs(octets))
+    it = iter(bc.unpack_opargs(octets))
 
     b, l, op, arg = next(it)
     assert 0 == b
@@ -136,7 +138,7 @@ def test_unpack_opargs(EXT):
 @pytest.mark.parametrize("source", ["foo(1)", "x.foo(*range(10))", "x = sum(*range(10))"])
 def test_calc_max_stack(source):
     code = compile(source, "foo", "exec")
-    assert code.co_stacksize == sc.calc_max_stack(code.co_code)
+    assert code.co_stacksize == bc.calc_max_stack(code.co_code)
 
 
 def test_branch_from_code():
@@ -145,7 +147,7 @@ def test_branch_from_code():
             if x: print(True)
             else: print(False)
 
-    branches = sc.Branch.from_code(foo.__code__)
+    branches = bc.Branch.from_code(foo.__code__)
     dis.dis(foo)
     assert 4 == len(branches)  # may be brittle
 
@@ -191,32 +193,32 @@ def test_branch_from_code():
 @pytest.mark.parametrize("length, arg",
                          [(length, arg) for length in range(2, 8+1, 2) \
                                         for arg in [0x02, 0x102, 0x10203, 0x1020304] \
-                                        if length >= 2+2*sc.arg_ext_needed(arg)])
+                                        if length >= 2+2*bc.arg_ext_needed(arg)])
 def test_branch_init_abs(length, arg):
     opcode = dis.opmap["JUMP_ABSOLUTE"]
 
-    b = sc.Branch(100, length, opcode, arg)
+    b = bc.Branch(100, length, opcode, arg)
     assert 100 == b.offset
     assert length == b.length
     assert opcode == b.opcode
     assert not b.is_relative
-    assert sc.branch2offset(arg) == b.target
+    assert bc.branch2offset(arg) == b.target
     assert arg == b.arg()
 
 
 @pytest.mark.parametrize("length, arg",
                          [(length, arg) for length in range(2, 8+1, 2) \
                                         for arg in [0x02, 0x102, 0x10203, 0x1020304] \
-                                        if length >= 2+2*sc.arg_ext_needed(arg)])
+                                        if length >= 2+2*bc.arg_ext_needed(arg)])
 def test_branch_init_rel_fw(length, arg):
     opcode = dis.opmap["JUMP_FORWARD"]
 
-    b = sc.Branch(100, length, opcode, arg)
+    b = bc.Branch(100, length, opcode, arg)
     assert 100 == b.offset
     assert length == b.length
     assert opcode == b.opcode
     assert b.is_relative
-    assert b.offset + b.length + sc.branch2offset(arg) == b.target
+    assert b.offset + b.length + bc.branch2offset(arg) == b.target
     assert arg == b.arg()
 
 
@@ -224,16 +226,16 @@ def test_branch_init_rel_fw(length, arg):
 @pytest.mark.parametrize("length, arg",
                          [(length, arg) for length in range(2, 8+1, 2) \
                                         for arg in [0x02, 0x102, 0x10203, 0x1020304] \
-                                        if length >= 2+2*sc.arg_ext_needed(arg)])
+                                        if length >= 2+2*bc.arg_ext_needed(arg)])
 def test_branch_init_rel_bw(length, arg):
     opcode = dis.opmap["JUMP_BACKWARD"]
 
-    b = sc.Branch(100, length, opcode, arg)
+    b = bc.Branch(100, length, opcode, arg)
     assert 100 == b.offset
     assert length == b.length
     assert opcode == b.opcode
     assert b.is_relative
-    assert b.offset + b.length + sc.branch2offset(-arg) == b.target
+    assert b.offset + b.length + bc.branch2offset(-arg) == b.target
     assert arg == b.arg()
 
 # Test case building rationale:
@@ -249,18 +251,18 @@ def test_branch_init_rel_bw(length, arg):
 if PYTHON_VERSION < (3,11):
     def make_bw_branch(at_offset, to_offset):
         assert to_offset < at_offset
-        arg = sc.offset2branch(to_offset)
-        return sc.Branch(at_offset, 2 + sc.arg_ext_needed(arg)*2, dis.opmap["JUMP_ABSOLUTE"], arg)
+        arg = bc.offset2branch(to_offset)
+        return bc.Branch(at_offset, 2 + bc.arg_ext_needed(arg)*2, dis.opmap["JUMP_ABSOLUTE"], arg)
 else:
     def make_bw_branch(at_offset, to_offset):
         assert to_offset < at_offset
         ext = 0
-        arg = sc.offset2branch(at_offset + 2 - to_offset)
-        while ext < sc.arg_ext_needed(arg):
-            ext = sc.arg_ext_needed(arg)
-            arg = sc.offset2branch(at_offset + 2 + 2*ext - to_offset)
+        arg = bc.offset2branch(at_offset + 2 - to_offset)
+        while ext < bc.arg_ext_needed(arg):
+            ext = bc.arg_ext_needed(arg)
+            arg = bc.offset2branch(at_offset + 2 + 2*ext - to_offset)
 
-        return sc.Branch(at_offset, 2 + 2*ext, dis.opmap["JUMP_BACKWARD"], arg)
+        return bc.Branch(at_offset, 2 + 2*ext, dis.opmap["JUMP_BACKWARD"], arg)
 
 
 def test_branch_adjust_bw_before_target():
@@ -270,7 +272,7 @@ def test_branch_adjust_bw_before_target():
     assert 102 == b.offset
     assert 2 == b.length
     assert 92 == b.target
-    assert sc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
+    assert bc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
 
 def test_branch_adjust_bw_at_target():
     b = make_bw_branch(100, 90)
@@ -279,7 +281,7 @@ def test_branch_adjust_bw_at_target():
     assert 102 == b.offset
     assert 2 == b.length
     assert 90 == b.target
-    assert sc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
+    assert bc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
 
 def test_branch_adjust_bw_after_target_before_offset():
     b = make_bw_branch(100, 90)
@@ -288,7 +290,7 @@ def test_branch_adjust_bw_after_target_before_offset():
     assert 102 == b.offset
     assert 2 == b.length
     assert 90 == b.target
-    assert sc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
+    assert bc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
 
 def test_branch_adjust_bw_at_offset():
     b = make_bw_branch(100, 90)
@@ -297,7 +299,7 @@ def test_branch_adjust_bw_at_offset():
     assert 102 == b.offset
     assert 2 == b.length
     assert 90 == b.target
-    assert sc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
+    assert bc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
 
 def test_branch_adjust_bw_after_offset():
     b = make_bw_branch(100, 90)
@@ -306,56 +308,56 @@ def test_branch_adjust_bw_after_offset():
     assert 100 == b.offset
     assert 2 == b.length
     assert 90 == b.target
-    assert sc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
+    assert bc.offset2branch(b.offset+b.length-b.target if b.is_relative else b.target) == b.arg()
 
 def test_branch_adjust_fw_before_offset():
-    b = sc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=sc.offset2branch(30))
+    b = bc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=bc.offset2branch(30))
     b.adjust(90, 2)
 
     assert 102 == b.offset
     assert 2 == b.length
     assert 134 == b.target
-    assert sc.offset2branch(30) == b.arg()
+    assert bc.offset2branch(30) == b.arg()
 
 def test_branch_adjust_fw_at_offset():
-    b = sc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=sc.offset2branch(30))
+    b = bc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=bc.offset2branch(30))
     b.adjust(100, 2)
 
     assert 102 == b.offset
     assert 2 == b.length
     assert 134 == b.target
-    assert sc.offset2branch(30) == b.arg()
+    assert bc.offset2branch(30) == b.arg()
 
 def test_branch_adjust_fw_after_offset_before_target():
-    b = sc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=sc.offset2branch(30))
+    b = bc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=bc.offset2branch(30))
     b.adjust(105, 2)
 
     assert 100 == b.offset
     assert 2 == b.length
     assert 134 == b.target
-    assert sc.offset2branch(30) != b.arg()
+    assert bc.offset2branch(30) != b.arg()
 
 def test_branch_adjust_fw_at_target():
-    b = sc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=sc.offset2branch(30))
+    b = bc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=bc.offset2branch(30))
     b.adjust(132, 2)
 
     assert 100 == b.offset
     assert 2 == b.length
     assert 132 == b.target
-    assert sc.offset2branch(30) == b.arg()
+    assert bc.offset2branch(30) == b.arg()
 
 def test_branch_adjust_fw_after_target():
-    b = sc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=sc.offset2branch(30))
+    b = bc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=bc.offset2branch(30))
     b.adjust(140, 2)
 
     assert 100 == b.offset
     assert 2 == b.length
     assert 132 == b.target
-    assert sc.offset2branch(30) == b.arg()
+    assert bc.offset2branch(30) == b.arg()
 
 
 def test_branch_adjust_length_no_change():
-    b = sc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=sc.offset2branch(30))
+    b = bc.Branch(100, 2, dis.opmap["JUMP_FORWARD"], arg=bc.offset2branch(30))
     b.adjust(10, 50)
 
     change = b.adjust_length()
@@ -370,8 +372,8 @@ def test_branch_adjust_length_no_change():
                             (8, 0x100, 0), (8, 0x10000, 0), (8, 0x1000000, 0)
                          ])
 def test_branch_adjust_length_increases(prev_size, shift, increase_by):
-    b = sc.Branch(100, prev_size, dis.opmap["JUMP_FORWARD"], arg=sc.offset2branch(30))
-    b.adjust(b.offset+prev_size, sc.branch2offset(shift))
+    b = bc.Branch(100, prev_size, dis.opmap["JUMP_FORWARD"], arg=bc.offset2branch(30))
+    b.adjust(b.offset+prev_size, bc.branch2offset(shift))
 
     change = b.adjust_length()
     assert increase_by == change
@@ -379,7 +381,7 @@ def test_branch_adjust_length_increases(prev_size, shift, increase_by):
 
 
 def test_branch_adjust_length_decreases():
-    b = sc.Branch(100, 4, dis.opmap["JUMP_FORWARD"], arg=sc.offset2branch(30))
+    b = bc.Branch(100, 4, dis.opmap["JUMP_FORWARD"], arg=bc.offset2branch(30))
 
     change = b.adjust_length()
     assert 0 == change
@@ -390,26 +392,26 @@ def test_branch_adjust_length_decreases():
 @pytest.mark.parametrize("length, arg",
                          [(length, arg) for length in range(2, 8+1, 2) \
                                         for arg in [0x02, 0x102, 0x10203, 0x1020304] \
-                                        if length >= 2+2*sc.arg_ext_needed(arg)])
+                                        if length >= 2+2*bc.arg_ext_needed(arg)])
 def test_branch_code_unchanged(length, arg):
     opcode = dis.opmap["JUMP_FORWARD"]
 
-    b = sc.Branch(100, length, opcode, arg=arg)
-    assert sc.opcode_arg(opcode, arg, (length-2)//2) == b.code()
+    b = bc.Branch(100, length, opcode, arg=arg)
+    assert bc.opcode_arg(opcode, arg, (length-2)//2) == b.code()
 
 
 @pytest.mark.parametrize("length, arg",
                          [(length, arg) for length in range(2, 8+1, 2) \
                                         for arg in [0x02, 0x102, 0x10203, 0x1020304] \
-                                        if length >= 2+2*sc.arg_ext_needed(arg)])
+                                        if length >= 2+2*bc.arg_ext_needed(arg)])
 def test_branch_code_adjusted(length, arg):
     opcode = dis.opmap["JUMP_FORWARD"]
 
-    b = sc.Branch(100, length, opcode, arg=arg)
-    b.adjust(b.offset+b.length, sc.branch2offset(arg))
+    b = bc.Branch(100, length, opcode, arg=arg)
+    b.adjust(b.offset+b.length, bc.branch2offset(arg))
     b.adjust_length()
 
-    assert sc.opcode_arg(opcode, 2*arg, (length-2)//2) == b.code()
+    assert bc.opcode_arg(opcode, 2*arg, (length-2)//2) == b.code()
 
 
 def unpack_bytes(b: bytes) -> list:
@@ -418,14 +420,14 @@ def unpack_bytes(b: bytes) -> list:
 
 
 def test_make_lnotab():
-    lines = [sc.LineEntry(0, 6, 1),
-             sc.LineEntry(6, 50, 2),
-             sc.LineEntry(50, 350, 7),
-             sc.LineEntry(350, 361, 207),
-             sc.LineEntry(361, 370, 208),
-             sc.LineEntry(370, 380, 50)]
+    lines = [bc.LineEntry(0, 6, 1),
+             bc.LineEntry(6, 50, 2),
+             bc.LineEntry(50, 350, 7),
+             bc.LineEntry(350, 361, 207),
+             bc.LineEntry(361, 370, 208),
+             bc.LineEntry(370, 380, 50)]
 
-    lnotab = sc.LineEntry.make_lnotab(0, lines)
+    lnotab = bc.LineEntry.make_lnotab(0, lines)
 
     assert [0, 1,
             6, 1,
@@ -439,17 +441,17 @@ def test_make_lnotab():
 
 
 def test_make_linetable():
-    lines = [sc.LineEntry(0, 6, 1),
-             sc.LineEntry(6, 50, 2),
-             sc.LineEntry(50, 350, 7),
-             sc.LineEntry(350, 360, None),
-             sc.LineEntry(360, 376, 8),
-             sc.LineEntry(376, 380, 208),
+    lines = [bc.LineEntry(0, 6, 1),
+             bc.LineEntry(6, 50, 2),
+             bc.LineEntry(50, 350, 7),
+             bc.LineEntry(350, 360, None),
+             bc.LineEntry(360, 376, 8),
+             bc.LineEntry(376, 380, 208),
              # XXX the lines below are presumptive, check for accuracy
-             sc.LineEntry(380, 390, 50),
-             sc.LineEntry(390, 690, None)]
+             bc.LineEntry(380, 390, 50),
+             bc.LineEntry(390, 690, None)]
 
-    linetable = sc.LineEntry.make_linetable(0, lines)
+    linetable = bc.LineEntry.make_linetable(0, lines)
 
     assert [6, 1,
             44, 1,
@@ -467,73 +469,79 @@ def test_make_linetable():
 
 @pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
 def test_append_varint():
-    assert [42] == sc.append_varint([], 42)
-    assert [0x3f] == sc.append_varint([], 63)
-    assert [0x48, 0x03] == sc.append_varint([], 200)
+    assert [42] == bc.append_varint([], 42)
+    assert [0x3f] == bc.append_varint([], 63)
+    assert [0x48, 0x03] == bc.append_varint([], 200)
 
 
 @pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
 def test_append_svarint():
-    assert [0x20] == sc.append_svarint([], 0x10)
-    assert [0x21] == sc.append_svarint([], -0x10)
+    assert [0x20] == bc.append_svarint([], 0x10)
+    assert [0x21] == bc.append_svarint([], -0x10)
 
-    assert [0x3e] == sc.append_svarint([], 31)
-    assert [0x3f] == sc.append_svarint([], -31)
+    assert [0x3e] == bc.append_svarint([], 31)
+    assert [0x3f] == bc.append_svarint([], -31)
 
-    assert sc.append_varint([], 200<<1) == sc.append_svarint([], 200)
-    assert sc.append_varint([], (200<<1)|1) == sc.append_svarint([], -200)
+    assert bc.append_varint([], 200<<1) == bc.append_svarint([], 200)
+    assert bc.append_varint([], (200<<1)|1) == bc.append_svarint([], -200)
 
 
 @pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
 @pytest.mark.parametrize("n", [0, 42, 63, 200, 65539])
 def test_write_varint_be(n):
-    assert n == dis.parse_varint(iter(sc.write_varint_be(n)))
+    assert n == dis.parse_varint(iter(bc.write_varint_be(n)))
 
 
 @pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
 @pytest.mark.parametrize("n", [0, 42, 63, 200, 65539])
 def test_read_varint_be(n):
-    assert n == sc.read_varint_be(iter(sc.write_varint_be(n)))
+    assert n == bc.read_varint_be(iter(bc.write_varint_be(n)))
 
 
-def lines_from_code(code):
-    if PYTHON_VERSION >= (3,10):
-        # XXX might co_lines() return the same line multiple times?
-        return [sc.LineEntry(*l) for l in code.co_lines() if l[2] != None]
+@pytest.mark.parametrize("code", [
+        (lambda x: x).__code__,
+        (x \
+         for x in range(10)).gi_code,
+        compile("x=0;\ny=x;\n", "foo", "exec"),
+        compile("""
+def foo(n):
+    x = 0
 
-    lines = [sc.LineEntry(start, 0, number) \
-            for start, number in dis.findlinestarts(code)]
-    for i in range(len(lines)-1):
-        lines[i].end = lines[i+1].start
-    lines[-1].end = len(code.co_code)
-    return lines
+    for i in range(n):
+        x += (i+1)
 
+    return x
+        """, "foo", "exec").co_consts[0], # should contain "foo" code
+        # in 3.10, this yields byte codes without any lines
+        compile("""
+def foo(n):
+    for i in range(n+1):
+        yield i
+        """, "foo", "exec").co_consts[0], # should contain "foo" code
+    ])
+def test_make_lines_and_compare(code):
+    assert isinstance(code, types.CodeType)
+    lines = bc.LineEntry.from_code(code)
 
-def test_make_lines_and_compare():
-    # XXX test with more code!
-    def foo(n):
-        x = 0
-
-        for i in range(n):
-            x += (i+1)
-
-        return x
-
-    code = foo.__code__
-
-    lines = lines_from_code(code)
+    dis.dis(code)
+    print(code.co_firstlineno)
+    print([str(l) for l in lines])
 
     if PYTHON_VERSION < (3,10):
-        my_lnotab = sc.LineEntry.make_lnotab(code.co_firstlineno, lines)
+        my_lnotab = bc.LineEntry.make_lnotab(code.co_firstlineno, lines)
         assert list(code.co_lnotab) == list(my_lnotab)
     elif PYTHON_VERSION == (3,10):
-        my_linetable = sc.LineEntry.make_linetable(code.co_firstlineno, lines)
+        my_linetable = bc.LineEntry.make_linetable(code.co_firstlineno, lines)
         assert list(code.co_linetable) == list(my_linetable)
     else:
-        newcode = code.replace(co_linetable=sc.LineEntry.make_positions(code.co_firstlineno, lines))
-        assert list(newcode.co_lines()) == list(code.co_lines())
-# Slipcover doesn't currently retain column information
-#        assert list(newcode.co_positions()) == list(code.co_positions())
+        newcode = code.replace(co_linetable=bc.LineEntry.make_positions(code.co_firstlineno, lines))
+        assert list(dis.findlinestarts(newcode)) == list(dis.findlinestarts(code))
+
+        # co_lines() repeats the same lines several times  FIXME -- do we care?
+        #assert list(newcode.co_lines()) == list(code.co_lines())
+
+        # Slipcover doesn't currently retain column information  FIXME
+        #assert list(newcode.co_positions()) == list(code.co_positions())
 
 
 @pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
@@ -554,8 +562,8 @@ def test_make_exceptions_and_compare():
         return x
 
     code = foo.__code__
-    table = sc.ExceptionTableEntry.from_code(code)
-    assert list(code.co_exceptiontable) == list(sc.ExceptionTableEntry.make_exceptiontable(table))
+    table = bc.ExceptionTableEntry.from_code(code)
+    assert list(code.co_exceptiontable) == list(bc.ExceptionTableEntry.make_exceptiontable(table))
 
 
 def test_pathsimplifier_not_relative():
@@ -722,12 +730,12 @@ def test_instrument(stats):
     dis.dis(foo)
     sci.instrument(foo)
 
-    assert foo.__code__.co_stacksize >= sc.calc_max_stack(foo.__code__.co_code)
+    assert foo.__code__.co_stacksize >= bc.calc_max_stack(foo.__code__.co_code)
     assert '__slipcover__' in foo.__code__.co_consts
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(foo.__code__):
-        assert sc.op_NOP == foo.__code__.co_code[offset]
+        assert bc.op_NOP == foo.__code__.co_code[offset]
 
     dis.dis(foo)
     assert 6 == foo(3)
@@ -762,12 +770,12 @@ def test_instrument_generators(stats):
 #    dis.dis(foo)
     sci.instrument(foo)
 
-    assert foo.__code__.co_stacksize >= sc.calc_max_stack(foo.__code__.co_code)
+    assert foo.__code__.co_stacksize >= bc.calc_max_stack(foo.__code__.co_code)
     assert '__slipcover__' in foo.__code__.co_consts
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(foo.__code__):
-        assert sc.op_NOP == foo.__code__.co_code[offset]
+        assert bc.op_NOP == foo.__code__.co_code[offset]
 
 #    dis.dis(foo)
     assert X == foo(123)
@@ -813,7 +821,7 @@ def test_instrument_exception(stats):
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(foo.__code__):
-        assert sc.op_NOP == foo.__code__.co_code[offset]
+        assert bc.op_NOP == foo.__code__.co_code[offset]
 
     dis.dis(foo)
     assert X == foo(42)
@@ -845,6 +853,7 @@ def test_instrument_code_before_first_line():
     last_line = current_line()
 
     dis.dis(foo)
+    print([str(l) for l in bc.LineEntry.from_code(foo.__code__)])
 
     # Generators in 3.10 start with a GEN_START that's not assigned to any lines;
     # that's what we're trying to test here
@@ -856,7 +865,7 @@ def test_instrument_code_before_first_line():
 
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(foo.__code__):
-        assert sc.op_NOP == foo.__code__.co_code[offset]
+        assert bc.op_NOP == foo.__code__.co_code[offset]
 
     assert 6 == sum(foo(3))
 
@@ -902,9 +911,9 @@ def test_instrument_threads():
 
 
 @pytest.mark.xfail(PYTHON_VERSION >= (3,11), reason="FIXME -- is this still applicable to Python 3.10+?", run=False)
-@pytest.mark.parametrize("N", [260, 65600])
+@pytest.mark.parametrize("N", [260])#, 65600])
 def test_instrument_doesnt_interrupt_ext_sequence(N):
-    EXT = sc.op_EXTENDED_ARG
+    EXT = bc.op_EXTENDED_ARG
 
     sci = sc.Slipcover()
 
@@ -920,16 +929,16 @@ def test_instrument_doesnt_interrupt_ext_sequence(N):
     # 2109        1408 EXTENDED_ARG             1
     # 2108        1410 LOAD_CONST             267 ((False, 'float64'))
     #
-    lines = lines_from_code(code)
+    lines = bc.LineEntry.from_code(code)
     for i in range(len(lines)):
         if lines[i].number > 257:
             assert EXT == code.co_code[lines[i].start]
             lines[i].start = lines[i-1].end = lines[i-1].end + 2
 
     if PYTHON_VERSION >= (3,10):
-        code = code.replace(co_linetable=sc.LineEntry.make_linetable(1, lines))
+        code = code.replace(co_linetable=bc.LineEntry.make_linetable(1, lines))
     else:
-        code = code.replace(co_lnotab=sc.LineEntry.make_lnotab(1, lines))
+        code = code.replace(co_lnotab=bc.LineEntry.make_lnotab(1, lines))
 
     orig = {}
     exec(code, globals(), orig)
@@ -988,7 +997,7 @@ def gen_long_jump_code(N):
 
 def gen_test_sequence():
     code = compile(gen_long_jump_code(64*1024), "foo", "exec")
-    branches = sc.Branch.from_code(code)
+    branches = bc.Branch.from_code(code)
 
     b = next(b for b in branches if b.is_relative)
 
@@ -1005,18 +1014,21 @@ def test_instrument_long_jump(N):
     src = gen_long_jump_code(N)
 
     code = compile(src, "foo", "exec")
+    dis.dis(code)
 
-    orig_branches = sc.Branch.from_code(code)
+    orig_branches = bc.Branch.from_code(code)
     assert 2 <= len(orig_branches)
 
     sci = sc.Slipcover()
     code = sci.instrument(code)
 
+    dis.dis(code)
+
     # Are all lines where we expect?
     for (offset, _) in dis.findlinestarts(code):
         # This catches any lines not where we expect,
         # such as any not adjusted after adjusting branch lengths
-        assert sc.op_NOP == code.co_code[offset]
+        assert bc.op_NOP == code.co_code[offset]
 
     exec(code, locals(), globals())
     assert N == x
@@ -1027,8 +1039,8 @@ def test_instrument_long_jump(N):
 
     # we want at least one branch to have grown in length
     print([b.arg() for b in orig_branches])
-    print([b.arg() for b in sc.Branch.from_code(code)])
-    assert any(b.length > orig_branches[i].length for i, b in enumerate(sc.Branch.from_code(code)))
+    print([b.arg() for b in bc.Branch.from_code(code)])
+    assert any(b.length > orig_branches[i].length for i, b in enumerate(bc.Branch.from_code(code)))
 
 
 @pytest.mark.parametrize("stats", [False, True])

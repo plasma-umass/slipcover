@@ -6,406 +6,16 @@ from typing import Dict, Set, List
 from collections import defaultdict, Counter
 import threading
 from . import tracker
+from . import bytecode as bc
 from pathlib import Path
-
-PYTHON_VERSION = sys.version_info[0:2]
 
 # FIXME provide __all__
 
-# Python 3.10a7 changed branch opcodes' argument to mean instruction
-# (word) offset, rather than bytecode offset.
-if PYTHON_VERSION >= (3,10):
-    def offset2branch(offset: int) -> int:
-        assert offset % 2 == 0
-        return offset//2
-
-    def branch2offset(arg: int) -> int:
-        return arg*2
-else:
-    def offset2branch(offset: int) -> int:
-        return offset
-
-    def branch2offset(arg: int) -> int:
-        return arg
-
-
 # Counter.total() is new in 3.10
-if PYTHON_VERSION < (3,10):
+if sys.version_info[0:2] < (3,10):
     def counter_total(self: Counter) -> int:
         return sum([self[n] for n in self])
     setattr(Counter, 'total', counter_total)
-
-
-op_EXTENDED_ARG = dis.EXTENDED_ARG
-is_EXTENDED_ARG = [op_EXTENDED_ARG]
-op_LOAD_CONST = dis.opmap["LOAD_CONST"]
-
-if PYTHON_VERSION >= (3,11):
-    op_PUSH_NULL = dis.opmap["PUSH_NULL"]
-    op_PRECALL = dis.opmap["PRECALL"]
-    op_CALL = dis.opmap["CALL"]
-    op_CACHE = dis.opmap["CACHE"]
-    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])
-else:
-    op_PUSH_NULL = None
-    op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
-
-op_POP_TOP = dis.opmap["POP_TOP"]
-op_JUMP_FORWARD = dis.opmap["JUMP_FORWARD"]
-op_NOP = dis.opmap["NOP"]
-
-
-def arg_ext_needed(arg: int) -> int:
-    """Returns the number of EXTENDED_ARGs needed for an argument."""
-    return (arg.bit_length() - 1) // 8
-
-
-def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
-    """Emits an opcode and its (variable length) argument."""
-    bytecode = []
-    ext = max(arg_ext_needed(arg), min_ext)
-    assert ext <= 3
-    for i in range(ext):
-        bytecode.extend(
-            [op_EXTENDED_ARG, (arg >> (ext - i) * 8) & 0xFF]
-        )
-    bytecode.extend([opcode, arg & 0xFF])
-    if PYTHON_VERSION >= (3,11):
-        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])
-    return bytecode
-
-
-def unpack_opargs(code: bytes) -> List[(int, int, int, int)]:
-    """Unpacks opcodes and their arguments, returning:
-
-    - the beginning offset, including that of the first EXTENDED_ARG, if any
-    - the length (offset + length is where the next opcode starts)
-    - the opcode
-    - its argument (decoded)
-    """
-    ext_arg = 0
-    next_off = 0
-    for off in range(0, len(code), 2):
-        op = code[off]
-        if op in is_EXTENDED_ARG:
-            ext_arg = (ext_arg | code[off+1]) << 8
-        else:
-            arg = (ext_arg | code[off+1])
-            yield (next_off, off+2-next_off, op, arg)
-            ext_arg = 0
-            next_off = off+2
-
-
-def calc_max_stack(code: bytes) -> int:
-    """Calculates the maximum stack size for code to execute.
-
-    Assumes linear execution (i.e., not things like a loop pushing to the stack).
-    """
-    max_stack = stack = 0
-    for (_, _, op, arg) in unpack_opargs(code):
-        stack += dis.stack_effect(op, arg if op >= dis.HAVE_ARGUMENT else None)
-        max_stack = max(stack, max_stack)
-
-    return max_stack
-
-
-class Branch:
-    """Describes a branch instruction."""
-
-    def __init__(self, offset : int, length : int, opcode : int, arg : int):
-        """Initializes a new Branch.
-
-        offset - offset in code where the instruction starts; if EXTENDED_ARGs are
-            used, it should be the offset of the first EXTENDED_ARG
-        length - instruction length, including that of any EXTENDED_ARGs
-        opcode - the instruction's opcode
-        arg - the instruction's argument (decoded if using EXTENDED_ARGs)
-        """
-        self.offset = offset
-        self.length = length
-        self.opcode = opcode
-        self.is_relative = (opcode in dis.hasjrel)
-        self.is_backward = 'JUMP_BACKWARD' in dis.opname[opcode]
-        self.target = branch2offset(arg) if not self.is_relative \
-                      else offset + length + branch2offset(-arg if self.is_backward else arg)
-
-    def arg(self) -> int:
-        """Returns this branch's opcode argument."""
-        if self.is_relative:
-            return offset2branch(abs(self.target - (self.offset + self.length)))
-        return offset2branch(self.target)
-
-    def adjust(self, insert_offset : int, insert_length : int) -> None:
-        """Adjusts this branch after a code insertion."""
-        assert insert_length > 0
-        if self.offset >= insert_offset:
-            self.offset += insert_length
-        if self.target > insert_offset:
-            self.target += insert_length
-
-    def adjust_length(self) -> int:
-        """Adjusts this branch's opcode length, if needed.
-
-        Returns the number of bytes by which the length increased.
-        """
-        length_needed = 2 + 2*arg_ext_needed(self.arg())
-        change = max(0, length_needed - self.length)
-        if change:
-            if self.target > self.offset:
-                self.target += change
-            self.length = length_needed
-
-        return change
-
-    def code(self) -> bytes:
-        """Emits this branch's code."""
-        assert self.length >= 2 + 2*arg_ext_needed(self.arg())
-        return opcode_arg(self.opcode, self.arg(), (self.length-2)//2)
-
-    @staticmethod
-    def from_code(code : types.CodeType) -> List[Branch]:
-        """Finds all Branches in code."""
-        branches = []
-
-        branch_opcodes = set(dis.hasjrel).union(dis.hasjabs)
-
-        for (off, length, op, arg) in unpack_opargs(code.co_code):
-            if op in branch_opcodes:
-                branches.append(Branch(off, length, op, arg))
-
-        return branches
-
-
-def append_varint(data, n):
-    """Appends a (little endian) variable length unsigned integer to 'data'"""
-    while n > 0x3f:
-        data.append(0x40|(n&0x3f))
-        n = n >> 6
-    data.append(n)
-    return data
-
-
-def append_svarint(data, n):
-    """Appends a (little endian) variable length signed integer to 'data'"""
-    return append_varint(data, ((-n)<<1)|1 if n < 0 else n<<1)
-
-
-def write_varint_be(n, mark_first=None):
-    """Encodes a (big endian) variable length unsigned integer"""
-    data = bytearray()
-    top_bit = n.bit_length()-1
-    for shift in range(top_bit - top_bit%6, 0, -6):
-        data.append(0x40|((n >> shift)&0x3f))
-    data.append(n&0x3f)
-    if mark_first:
-        data[0] |= mark_first
-    return data
-
-
-def read_varint_be(it):
-    """Decodes a (big endian) variable length unsigned integer from 'it'"""
-    value = 0
-    while (b := next(it)) & 0x40:
-        value |= b & 0x3f
-        value <<= 6
-    value |= b & 0x3f
-
-    return value
-
-
-class ExceptionTableEntry:
-    """Represents an entry from Python 3.11+'s exception table."""
-    def __init__(self, start: int, end: int, target: int, other: int):
-        self.start = start
-        self.end = end
-        self.target = target
-        self.other = other
-
-
-    # FIXME tests missing
-    def adjust(self, insert_offset: int, insert_length: int) -> None:
-        """Adjusts this exception table entry, handling a code insertion."""
-        old_start, old_end, old_target = self.start, self.end, self.target
-        if insert_offset <= self.start:
-            self.start += insert_length
-        if insert_offset < self.end:
-            self.end += insert_length
-        if insert_offset < self.target:
-            self.target += insert_length
-#        print(f"{old_start}-{old_end}->{old_target} ==> {self.start}-{self.end}->{self.target}")
-
-
-    @staticmethod
-    def from_code(code: types.CodeType) -> List[ExceptionTableEntry]:
-        """Returns a list of exception table entries from a code object."""
-        entries = []
-        it = iter(code.co_exceptiontable)
-        try:
-            while True:
-                start = branch2offset(read_varint_be(it))
-                length = branch2offset(read_varint_be(it))
-                end = start + length
-                target = branch2offset(read_varint_be(it))
-                other = read_varint_be(it)
-                entries.append(ExceptionTableEntry(start, end, target, other))
-        except StopIteration:
-#            for e in entries:
-#                print(f"{e.start}-{e.end}: {e.target}")
-            return entries
-
-
-    @staticmethod
-    def make_exceptiontable(entries: List[ExceptionTableEntry]) -> bytes:
-        """Generates an exception table from a list of entries."""
-        table = bytearray()
-
-        for e in entries:
-            table.extend(write_varint_be(offset2branch(e.start), mark_first=0x80))
-            table.extend(write_varint_be(offset2branch(e.end - e.start)))
-            table.extend(write_varint_be(offset2branch(e.target)))
-            table.extend(write_varint_be(e.other))
-
-        return bytes(table)
-
-
-class LineEntry:
-    def __init__(self, start : int, end : int, number : int):
-        """Initializes a new line entry.
-
-        start, end: start and end offsets in the code
-        number: line number
-        """
-        self.start = start
-        self.end = end
-        self.number = number
-
-    # FIXME tests missing
-    def adjust(self, insert_offset : int, insert_length : int) -> None:
-        """Adjusts this line after a code insertion."""
-        assert insert_length > 0
-        if self.start > insert_offset:
-            self.start += insert_length
-        if self.end > insert_offset:
-            self.end += insert_length
-
-
-    @staticmethod
-    def make_lnotab(firstlineno : int, lines : List[LineEntry]) -> bytes:
-        """Generates the line number table used by Python 3.9- to map offsets to line numbers."""
-
-        lnotab = []
-
-        prev_start = 0
-        prev_number = firstlineno
-
-        for l in lines:
-            delta_start = l.start - prev_start
-            delta_number = l.number - prev_number
-
-            while delta_start > 255:
-                lnotab.extend([255, 0])
-                delta_start -= 255
-
-            while delta_number > 127:
-                lnotab.extend([delta_start, 127])
-                delta_start = 0
-                delta_number -= 127
-
-            while delta_number < -128:
-                lnotab.extend([delta_start, -128 & 0xFF])
-                delta_start = 0
-                delta_number += 128
-
-            lnotab.extend([delta_start, delta_number & 0xFF])
-
-            prev_start = l.start
-            prev_number = l.number
-
-        return bytes(lnotab)
-
-
-    @staticmethod
-    def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
-        """Generates the line number table used by Python 3.10 to map offsets to line numbers."""
-
-        linetable = []
-
-        prev_end = 0
-        prev_number = firstlineno
-
-        for l in lines:
-            delta_end = l.end - prev_end
-
-            if l.number is None:
-                while delta_end > 254:
-                    linetable.extend([254, -128 & 0xFF])
-                    delta_end -= 254
-
-                linetable.extend([delta_end, -128 & 0xFF])
-            else:
-                delta_number = l.number - prev_number
-
-                while delta_number > 127:
-                    linetable.extend([0, 127])
-                    delta_number -= 127
-
-                while delta_number < -127:
-                    linetable.extend([0, -127 & 0xFF])
-                    delta_number += 127
-
-                while delta_end > 254:
-                    linetable.extend([254, delta_number & 0xFF])
-                    delta_number = 0
-                    delta_end -= 254
-
-                linetable.extend([delta_end, delta_number & 0xFF])
-                prev_number = l.number
-
-            prev_end = l.end
-
-        return bytes(linetable)
-
-
-    @staticmethod
-    def make_positions(firstlineno : int, lines : List[LineEntry]) -> bytes:
-        """Generates the positions table used by Python 3.11+ to map offsets to line numbers."""
-
-        linetable = []
-
-        prev_end = 0
-        prev_number = firstlineno
-
-        for l in lines:
-#            print(f"{l.start} {l.end} {l.number}")
-
-            if l.number is None:
-                bytecodes = (l.end - prev_end)//2
-                while bytecodes > 0:
-#                    print(f"->15 {min(bytecodes, 8)-1}")
-                    linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
-                    bytecodes -= 8
-            else:
-                if prev_end < l.start:
-                    bytecodes = (l.end - prev_end)//2
-                    while bytecodes > 0:
-#                        print(f"->15 {min(bytecodes, 8)-1}")
-                        linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
-                        bytecodes -= 8
-
-                line_delta = l.number - prev_number
-                bytecodes = (l.end - l.start)//2
-                while bytecodes > 0:
-#                    print(f"->13 {min(bytecodes, 8)-1} {line_delta}")
-                    linetable.extend([0x80|(13<<3)|(min(bytecodes, 8)-1)])
-                    append_svarint(linetable, line_delta)
-                    line_delta = 0
-                    bytecodes -= 8
-
-                prev_number = l.number
-
-            prev_end = l.end
-
-        return bytes(linetable)
 
 
 class PathSimplifier:
@@ -522,121 +132,32 @@ class Slipcover:
         assert isinstance(co, types.CodeType)
         # print(f"instrumenting {co.co_name}")
 
-        consts = list(co.co_consts)
-
-        consts.append(tracker.hit)
-        consts.append(tracker.signal)
-        tracker_signal_index = len(consts)-1
+        ed = bc.Editor(co)
 
         # handle functions-within-functions
-        for i, c in enumerate(consts):
+        for i, c in enumerate(ed.consts):   # FIXME clean up attribute access
             if isinstance(c, types.CodeType):
-                consts[i] = self.instrument(c, co)
+                ed.consts[i] = self.instrument(c, co)
 
-        branches = Branch.from_code(co)
-        patch = bytearray()
-        lines = []
+        ed.add_const(tracker.hit)
+        tracker_signal_index = ed.add_const(tracker.signal)
 
-        ex_table = ExceptionTableEntry.from_code(co) if PYTHON_VERSION >= (3,11) else []
-
-        max_addtl_stack = 0
-
-        prev_offset = 0
-        prev_lineno = None
-        patch_offset = 0
+        delta = 0
         for (offset, lineno) in dis.findlinestarts(co):
-            if offset > prev_offset:
-                patch.extend(co.co_code[prev_offset:offset])
-                lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
-            prev_offset = offset
-            prev_lineno = lineno
+            # Can't insert between an EXTENDED_ARG and the final opcode
+            if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                    offset += 2 # TODO will we overtake the next offset from findlinestarts?
 
-            while (prev_offset >= 2 and co.co_code[prev_offset-2] == op_EXTENDED_ARG):
-                patch.extend(co.co_code[prev_offset:prev_offset+2])
-                prev_offset += 2
-
-            # FIXME test out if prev_offset is larger than the next offset
-
-            patch_offset = len(patch)
-            if PYTHON_VERSION >= (3,11):
-                patch.extend([op_NOP, 0,    # for deinstrument jump
-                              op_PUSH_NULL, 0] +
-                             opcode_arg(op_LOAD_CONST, tracker_signal_index) +
-                             opcode_arg(op_LOAD_CONST, len(consts)) +
-                             opcode_arg(op_PRECALL, 1) +
-                             opcode_arg(op_CALL, 1) +
-                             [op_POP_TOP, 0])   # ignore return
-            else:
-                patch.extend([op_NOP, 0] +  # for deinstrument jump
-                             opcode_arg(op_LOAD_CONST, tracker_signal_index) +
-                             opcode_arg(op_LOAD_CONST, len(consts)) +
-                             [op_CALL_FUNCTION, 1,
-                              op_POP_TOP, 0])   # ignore return
-
-            consts.append(tracker.register(self, co.co_filename, lineno, self.d_threshold))
+            tr = tracker.register(self, co.co_filename, lineno, self.d_threshold)
+            tr_index = ed.add_const(tr)
             if self.collect_stats:
-                self.all_trackers.append(consts[-1])
+                self.all_trackers.append(tr)
 
-            inserted = len(patch) - patch_offset
-            assert inserted <= 255
-            patch[patch_offset+1] = offset2branch(inserted-2)
+            delta += ed.insert_function_call(offset+delta, tracker_signal_index, (tr_index,))
 
-            max_addtl_stack = max(max_addtl_stack, calc_max_stack(patch[patch_offset:]))
-
-            for b in branches:
-                b.adjust(patch_offset, inserted)
-
-            for e in ex_table:
-                e.adjust(patch_offset, inserted)
-
-        if prev_offset != None:
-            patch.extend(co.co_code[prev_offset:])
-            lines.append(LineEntry(patch_offset, len(patch), prev_lineno))
-
-        # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
-        # Inserting space for those may in turn trigger needing more space for others...
-        # FIXME missing test for length adjustment triggering other length adjustments
-        any_adjusted = True
-        while any_adjusted:
-            any_adjusted = False
-
-            for b in branches:
-                change = b.adjust_length()
-                if change:
-#                    print(f"adjusted branch {b.offset} to {b.target} by {change} to {b.length}")
-                    patch[b.offset:b.offset] = [0] * change
-                    for c in branches:
-                        if b != c:
-                            c.adjust(b.offset, change)
-
-                    for l in lines:
-                        l.adjust(b.offset, change)
-
-                    # FIXME adjust ex_table
-
-                    any_adjusted = True
-
-        for b in branches:
-            assert patch[b.offset+b.length-2] == b.opcode
-            patch[b.offset:b.offset+b.length] = b.code()
-
-        kwargs = {}
-        if PYTHON_VERSION < (3,10):
-            kwargs["co_lnotab"] = LineEntry.make_lnotab(co.co_firstlineno, lines)
-        elif PYTHON_VERSION == (3,10):
-            kwargs["co_linetable"] = LineEntry.make_linetable(co.co_firstlineno, lines)
-        else:
-            kwargs["co_linetable"] = LineEntry.make_positions(co.co_firstlineno, lines)
-            kwargs["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(ex_table)
-
-        consts.append('__slipcover__')  # mark instrumented
-
-        new_code = co.replace(
-            co_code=bytes(patch),
-            co_stacksize=co.co_stacksize + max_addtl_stack,
-            co_consts=tuple(consts),
-            **kwargs
-        )
+        ed.add_const('__slipcover__')  # mark instrumented
+        new_code = ed.finish()
 
         with self.lock:
             self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co))
@@ -675,22 +196,22 @@ class Slipcover:
                     consts[i] = nc
 
         for (offset, lineno) in dis.findlinestarts(co):
-            if lineno in lines and co_code[offset] == op_NOP:
-                it = iter(unpack_opargs(co.co_code[offset:]))
+            if lineno in lines and co_code[offset] == bc.op_NOP:
+                it = iter(bc.unpack_opargs(co.co_code[offset:]))
                 next(it) # NOP
                 op_offset, op_len, op, op_arg = next(it)
-                if op == op_PUSH_NULL:
+                if op == bc.op_PUSH_NULL:
                     op_offset, op_len, op, op_arg = next(it)
                 _, _, _, tracker_index = next(it)
 
-                if op == op_LOAD_CONST and co_consts[op_arg] == tracker.signal:
+                if op == bc.op_LOAD_CONST and co_consts[op_arg] == tracker.signal:
                     tracker.deinstrument(co_consts[tracker_index])
 
                     if not patch:
                         patch = bytearray(co_code)
 
                     if not self.collect_stats:
-                        patch[offset] = op_JUMP_FORWARD
+                        patch[offset] = bc.op_JUMP_FORWARD
                     else:
                         # If collecting stats, rather than disabling the tracker, we
                         # switch to calling the 'tracker.hit' function on it, so that
@@ -698,7 +219,7 @@ class Slipcover:
                         # top lines and the percentages of misses
                         op_offset += offset # we unpacked from co.co_code[offset:]
                         patch[op_offset:op_offset+op_len] = \
-                            opcode_arg(op, op_arg-1, arg_ext_needed(op_arg))
+                            bc.opcode_arg(op, op_arg-1, bc.arg_ext_needed(op_arg))
 
 
         if not patch and not consts:
