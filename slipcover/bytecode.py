@@ -28,6 +28,7 @@ else:
 op_EXTENDED_ARG = dis.EXTENDED_ARG
 is_EXTENDED_ARG = [op_EXTENDED_ARG]
 op_LOAD_CONST = dis.opmap["LOAD_CONST"]
+op_LOAD_GLOBAL = dis.opmap["LOAD_GLOBAL"]
 
 if PYTHON_VERSION >= (3,11):
     op_PUSH_NULL = dis.opmap["PUSH_NULL"]
@@ -74,15 +75,20 @@ def unpack_opargs(code: bytes) -> List[(int, int, int, int)]:
     """
     ext_arg = 0
     next_off = 0
-    for off in range(0, len(code), 2):
+    off = 0
+    while off < len(code):
         op = code[off]
         if op in is_EXTENDED_ARG:
             ext_arg = (ext_arg | code[off+1]) << 8
         else:
             arg = (ext_arg | code[off+1])
+            if PYTHON_VERSION >= (3,11):
+                while off+2 < len(code) and code[off+2] == op_CACHE:
+                    off += 2
             yield (next_off, off+2-next_off, op, arg)
             ext_arg = 0
             next_off = off+2
+        off += 2
 
 
 def calc_max_stack(code: bytes) -> int:
@@ -126,7 +132,6 @@ class Branch:
 
     def adjust(self, insert_offset : int, insert_length : int) -> None:
         """Adjusts this branch after a code insertion."""
-        assert insert_length > 0
         if self.offset >= insert_offset:
             self.offset += insert_length
         if self.target > insert_offset:
@@ -271,8 +276,7 @@ class LineEntry:
     # FIXME tests missing
     def adjust(self, insert_offset : int, insert_length : int) -> None:
         """Adjusts this line after a code insertion."""
-        assert insert_length > 0
-        if self.start > insert_offset:
+        if self.start > insert_offset:  # note this may extend/shrink the line
             self.start += insert_length
         if self.end > insert_offset:
             self.end += insert_length
@@ -480,6 +484,45 @@ class Editor:
             e.adjust(offset, len_insert)
 
         return len_insert
+
+
+    def replace_global_with_const(self, global_name, const_index):
+        if global_name in self.orig_code.co_names:
+            name_index = self.orig_code.co_names.index(global_name)
+
+            def find_load_globals():
+                for op_off, op_len, op, op_arg in unpack_opargs(self.patch):
+                    if op == op_LOAD_GLOBAL:
+                        if PYTHON_VERSION >= (3,11):
+                            if (op_arg>>1) == name_index:
+                                yield (op_off, op_len, op, op_arg)
+                        else:
+                            if op_arg == name_index:
+                                yield (op_off, op_len, op, op_arg)
+
+            delta = 0
+            # read from pre-computed list so we can modify on the fly
+            for op_off, op_len, op, op_arg in list(find_load_globals()):
+                repl = bytearray()
+                if sys.version_info[0:2] >= (3,11) and op_arg&1:
+                    repl.extend(opcode_arg(dis.opmap['PUSH_NULL'], 0))
+                repl.extend(opcode_arg(op_LOAD_CONST, const_index))
+
+                op_off += delta     # adjust for any other changes
+                self.patch[op_off:op_off+op_len] = repl
+
+                change = len(repl) - op_len
+                if change:
+                    for l in self.lines:
+                        l.adjust(op_off, change)
+
+                    for b in self.branches:
+                        b.adjust(op_off, change)
+
+                    for e in self.ex_table:
+                        e.adjust(op_off, change)
+
+                delta += change
 
 
     def finish(self):

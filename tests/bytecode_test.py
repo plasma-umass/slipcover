@@ -37,6 +37,16 @@ def test_opcode_arg():
            list(bc.opcode_arg(JUMP, 0x42, min_ext=3))
 
 
+@pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
+def test_opcode_arg_includes_cache():
+    for opcode, entries in enumerate(dis._inline_cache_entries):
+        if entries:
+            b = bc.opcode_arg(opcode, 0)
+            assert len(b) >= 4, f"opcode={opcode}"
+            assert b[2] == bc.op_CACHE
+            assert b[3] == 0
+
+
 @pytest.mark.parametrize("EXT", [bc.op_EXTENDED_ARG] +\
                                 ([dis._all_opmap["EXTENDED_ARG_QUICK"]] if PYTHON_VERSION >= (3,11) else []))
 def test_unpack_opargs(EXT):
@@ -76,6 +86,33 @@ def test_unpack_opargs(EXT):
 
     with pytest.raises(StopIteration):
         b, l, op, arg = next(it)
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
+def test_unpack_opargs_skips_cache():
+    # check that assumptions haven't changed
+    assert dis._inline_cache_entries[bc.op_LOAD_GLOBAL]
+    assert dis._inline_cache_entries[bc.op_PRECALL]
+    assert dis._inline_cache_entries[bc.op_CALL]
+
+    b = bytearray()
+    b.extend(bc.opcode_arg(bc.op_LOAD_GLOBAL, 0))
+    b.extend(bc.opcode_arg(bc.op_PRECALL, 1))
+    b.extend(bc.opcode_arg(bc.op_CALL, 2))
+    b.extend(bc.opcode_arg(bc.op_NOP, 0))
+
+    it = iter(bc.unpack_opargs(b))
+    _, _, op, _ = next(it)
+    assert op == bc.op_LOAD_GLOBAL
+
+    _, _, op, _ = next(it)
+    assert op == bc.op_PRECALL
+
+    _, _, op, _ = next(it)
+    assert op == bc.op_CALL
+
+    _, _, op, _ = next(it)
+    assert op == bc.op_NOP
 
 
 @pytest.mark.parametrize("source", ["foo(1)", "x.foo(*range(10))", "x = sum(*range(10))"])

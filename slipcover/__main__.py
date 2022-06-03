@@ -100,16 +100,10 @@ if args.omit:
 sci = sc.Slipcover(collect_stats=args.stats, d_threshold=args.threshold)
 
 def wrap_pytest():
-    import dis
-
     def exec_wrapper(obj, g):
         if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
             obj = sci.instrument(obj)
         exec(obj, g)
-
-    load_g_op, load_const_op, call_op = (dis.opmap['LOAD_GLOBAL'],
-                                         dis.opmap['LOAD_CONST'],
-                                         dis.opmap['CALL_FUNCTION'])
 
     try:
         import _pytest.assertion.rewrite
@@ -118,46 +112,13 @@ def wrap_pytest():
 
     for f in sc.Slipcover.find_functions(_pytest.assertion.rewrite.__dict__.values(), set()):
         if 'exec' in f.__code__.co_names:
-            co = f.__code__
-
-            patch = None
-
-            exec_wrapper_index = len(co.co_consts) # will be appended
-
-            exec_index = co.co_names.index('exec')
-            seq = bytes(bc.opcode_arg(load_g_op, exec_index))
-            # FIXME refactor function call finder, break and test
-            for start in [i for i in range(0, len(co.co_code), 2) if co.co_code[i:i+len(seq)] == seq]:
-                exts_used = (len(seq)-2)//2
-                end = None
-                stack_size = 0
-                for (off, oplen, op, arg) in bc.unpack_opargs(co.co_code[start:]):
-                    stack_size += dis.stack_effect(op, arg if op >= dis.HAVE_ARGUMENT else None)
-                    if (op == call_op and stack_size == 1):
-                        end = start + off + oplen
-                        break
-                    if not stack_size or op in dis.hasjrel or op in dis.hasjabs:
-                        break   # couldn't find call sequence
-
-                # FIXME rewrite adjusting branches, etc.
-                if end and bc.arg_ext_needed(exec_wrapper_index) <= exts_used:
-                    if not patch:
-                        patch = bytearray(co.co_code)
-
-                    patch[start:start+len(seq)] = bc.opcode_arg(load_const_op, exec_wrapper_index, exts_used)
-
-            if patch:
-                consts = list(co.co_consts)
-                consts.append(exec_wrapper)
-
-                f.__code__ = co.replace(
-                    co_code=bytes(patch),
-                    co_consts=tuple(consts),
-                )
+            ed = bc.Editor(f.__code__)
+            wrapper_index = ed.add_const(exec_wrapper)
+            ed.replace_global_with_const('exec', wrapper_index)
+            f.__code__ = ed.finish()
 
 if not args.dont_wrap_pytest:
-    if sys.version_info[0:2] < (3,11):
-        wrap_pytest()
+    wrap_pytest()
 
 sys.meta_path.insert(0, SlipcoverMetaPathFinder(args, sci, file_matcher, sys.meta_path.copy()))
 

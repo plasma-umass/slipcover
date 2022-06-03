@@ -827,7 +827,6 @@ def test_find_functions():
                                                   visited))
 
 
-@pytest.mark.xfail(PYTHON_VERSION >= (3,11), reason="FIXME -- pytest interposition broken", run=False)
 def test_interpose_on_module_load(tmp_path):
     # FIXME include in coverage info
     from pathlib import Path
@@ -848,7 +847,6 @@ def test_interpose_on_module_load(tmp_path):
     assert [] == cov['files'][module_file]['missing_lines']
 
 
-@pytest.mark.xfail(PYTHON_VERSION >= (3,11), reason="FIXME -- pytest interposition broken", run=False)
 def test_pytest_interpose(tmp_path):
     # FIXME include in coverage info
     from pathlib import Path
@@ -871,7 +869,6 @@ def test_pytest_interpose(tmp_path):
     assert [] == cov['missing_lines']
 
 
-@pytest.mark.xfail(PYTHON_VERSION >= (3,11), reason="FIXME -- pytest interposition broken", run=False)
 def test_pytest_plugins_visible(tmp_path):
     import subprocess
 
