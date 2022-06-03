@@ -204,7 +204,7 @@ def test_filematcher_omit_pattern():
     site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
     assert not fm.matches(site_packages / 'foo.py')
 
-# FIXME what about patterns starting with '?'
+# TODO what about patterns starting with '?'
 
 
 def test_filematcher_omit_nonpattern():
@@ -423,7 +423,7 @@ def test_instrument_threads():
     assert [] == cov['missing_lines']
 
 
-@pytest.mark.xfail(PYTHON_VERSION >= (3,11), reason="FIXME -- is this still applicable to Python 3.10+?", run=False)
+@pytest.mark.skipif(PYTHON_VERSION >= (3,11), reason="N/A, I think -- how to replicate?", run=False)
 @pytest.mark.parametrize("N", [260])#, 65600])
 def test_instrument_doesnt_interrupt_ext_sequence(N):
     EXT = bc.op_EXTENDED_ARG
@@ -790,7 +790,7 @@ def test_print_coverage(stats, capsys):
 
     import re
 
-    # FIXME test more cases (multiple files, etc.)
+    # TODO test more cases (multiple files, etc.)
     output = capsys.readouterr()[0].splitlines()
     print(output)
     assert re.match(f'^tests[/\\\\]slipcover_test\\.py + {total} + {missd} +{int(100*execd/total)} +' + str(base_line+3), output[3])
@@ -828,7 +828,7 @@ def test_find_functions():
 
 
 def test_interpose_on_module_load(tmp_path):
-    # FIXME include in coverage info
+    # TODO include in coverage info
     from pathlib import Path
     import subprocess
     import json
@@ -848,7 +848,7 @@ def test_interpose_on_module_load(tmp_path):
 
 
 def test_pytest_interpose(tmp_path):
-    # FIXME include in coverage info
+    # TODO include in coverage info
     from pathlib import Path
     import subprocess
     import json
