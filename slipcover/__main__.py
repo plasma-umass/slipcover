@@ -100,9 +100,6 @@ if args.omit:
 sci = sc.Slipcover(collect_stats=args.stats, d_threshold=args.threshold)
 
 def wrap_pytest():
-    if sys.version_info[0:2] >= (3,11):
-        raise RuntimeError('pytest wrapping not yet supported') #FIXME
-
     import dis
 
     def exec_wrapper(obj, g):
@@ -159,7 +156,8 @@ def wrap_pytest():
                 )
 
 if not args.dont_wrap_pytest:
-    wrap_pytest()
+    if sys.version_info[0:2] < (3,11):
+        wrap_pytest()
 
 sys.meta_path.insert(0, SlipcoverMetaPathFinder(args, sci, file_matcher, sys.meta_path.copy()))
 
