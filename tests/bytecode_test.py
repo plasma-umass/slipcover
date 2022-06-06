@@ -546,3 +546,55 @@ def test_make_exceptions_and_compare():
     assert list(code.co_exceptiontable) == list(bc.ExceptionTableEntry.make_exceptiontable(table))
 
 
+def gen_long_jump_code(N):
+    return "x = 0\n" + \
+           "try:\n" + \
+           "  for _ in range(1):\n" + \
+           "    " + ("x += 1;" * N) + "pass\n" + \
+           "  raise RuntimeError('')\n" + \
+           "except RuntimeError:\n" + \
+           "  x += 10\n"
+
+def gen_test_sequence():
+    code = compile(gen_long_jump_code(64*1024), "foo", "exec")
+    branches = bc.Branch.from_code(code)
+
+    b = next(b for b in branches if b.opcode == dis.opmap["FOR_ITER"])
+
+    # we want to generate Ns so that Slipcover's instrumentation forces
+    # the "if" branch to grow in length (with an additional extended_arg)
+    return [(64*1024*arg)//b.arg() for arg in [0xFF, 0xFFFF]]#, 0xFFFFFF]]
+
+
+@pytest.mark.parametrize("N", gen_test_sequence())
+def test_adjust_long_jump(N):
+    # each 'if' adds a branch
+    src = gen_long_jump_code(N)
+
+    orig_code = compile(src, "foo", "exec")
+#    dis.dis(orig_code)
+
+    orig_branches = bc.Branch.from_code(orig_code)
+    assert len(orig_branches) >= 2
+
+    def foo():
+        global x
+        x += 42
+
+    ed = bc.Editor(orig_code)
+    foo_index = ed.add_const(foo)
+    # instrument the line inside the "for" loop, making the loop grow
+    ed.insert_function_call(ed.lines[3].start, foo_index, ())
+    code = ed.finish()
+#    dis.dis(code)
+
+    exec(orig_code, locals(), globals())
+    assert N+10 == x
+
+    exec(code, locals(), globals())
+    assert N+10+42 == x
+
+    # we want at least one branch to have grown in length
+    print([b.arg() for b in orig_branches])
+    print([b.arg() for b in bc.Branch.from_code(code)])
+    assert any(b.length > orig_branches[i].length for i, b in enumerate(bc.Branch.from_code(code)))

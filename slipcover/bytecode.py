@@ -434,6 +434,7 @@ class Editor:
         self.patch = bytearray(code.co_code)
         self.max_addtl_stack = 0
 
+
     def add_const(self, value):
         self.consts.append(value)
         return len(self.consts)-1
@@ -545,7 +546,8 @@ class Editor:
                     for l in self.lines:
                         l.adjust(b.offset, change)
 
-                    # FIXME adjust ex_table
+                    for e in self.ex_table:
+                        e.adjust(b.offset, change)
 
                     any_adjusted = True
 
