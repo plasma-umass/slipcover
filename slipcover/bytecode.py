@@ -433,6 +433,7 @@ class Editor:
 
         self.patch = bytearray(code.co_code)
         self.max_addtl_stack = 0
+        self.finished = False
 
 
     def add_const(self, value):
@@ -442,7 +443,6 @@ class Editor:
 
     def insert_function_call(self, offset, function, args):
         assert isinstance(function, int)    # we only support const references so far
-#        print(f"** inserting at {offset}")
 
         insert = bytearray()
 
@@ -527,6 +527,8 @@ class Editor:
 
 
     def finish(self):
+        assert not self.finished
+
         # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
         # Inserting space for those may in turn trigger needing more space for others...
         # FIXME missing test for length adjustment triggering other length adjustments
@@ -564,7 +566,7 @@ class Editor:
             kwargs["co_linetable"] = LineEntry.make_positions(self.orig_code.co_firstlineno, self.lines)
             kwargs["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(self.ex_table)
 
-        # FIXME mark finished
+        self.finished = True
 
         return self.orig_code.replace(
             co_code=bytes(self.patch),
