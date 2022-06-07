@@ -17,12 +17,12 @@ jobs:
     name: create .devN build date coordinated across all matrix jobs
     runs-on: ubuntu-latest
     steps:
-      - run: TZ='America/New_York' date '+%Y%m%d%H%M' > devN.txt
+      - run: TZ='America/New_York' date '+%Y%m%d%H%M' > dev-build.txt
 
       - uses: actions/upload-artifact@v2
         with:
           name: devN
-          path: devN.txt
+          path: dev-build.txt
 
   build-wheel:
     needs: pick-devN
@@ -41,17 +41,10 @@ jobs:
 
     steps:
       - name: get coordinated .devN
+        if: github.event_name != 'release'
         uses: actions/download-artifact@v2
         with:
           name: devN
-
-      - name: make dev build if not a release (non-Windows version)
-        if: github.event_name != 'release' && matrix.os != 'windows-latest'
-        run: echo "DEV_BUILD=$(cat devN.txt)" >> $GITHUB_ENV  # for setup.py
-
-      - name: make dev build if not a release (Windows version)
-        if: github.event_name != 'release' && matrix.os == 'windows-latest'
-        run: ("DEV_BUILD=" + (get-content devN.txt)) >> $env:GITHUB_ENV  # for setup.py
 
       - uses: actions/checkout@v2
 

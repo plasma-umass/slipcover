@@ -2,12 +2,13 @@ import setuptools
 from setuptools.command.build_ext import build_ext
 from os import path, environ
 import sys
+from pathlib import Path
 
 VERSION = "0.1.6"
 REPO_URL = "https://github.com/plasma-umass/slipcover"
 
 def get_description():
-    from pathlib import Path
+#    from pathlib import Path
     import re
     readme_md = Path("README.md")
     text = readme_md.read_text(encoding="utf-8")
@@ -23,7 +24,9 @@ def get_description():
 # so that we can upload new files (as testpypi/pypi don't allow re-uploading files with
 # the same name as previously uploaded).
 # Numbering scheme: https://www.python.org/dev/peps/pep-0440
-dev_build = ('.dev' + environ['DEV_BUILD']) if 'DEV_BUILD' in environ else ''
+#dev_build = ('.dev' + environ['DEV_BUILD']) if 'DEV_BUILD' in environ else ''
+
+dev_build = '.dev' + Path('dev-build.txt').read_text().strip() if Path('dev-build.txt').exists() else ''
 
 def cxx_version(v):
     return [f"-std={v}" if sys.platform != "win32" else f"/std:{v}"]
