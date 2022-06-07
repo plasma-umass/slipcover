@@ -4,7 +4,7 @@ from os import path, environ
 import sys
 from pathlib import Path
 
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 REPO_URL = "https://github.com/plasma-umass/slipcover"
 
 def get_description():
