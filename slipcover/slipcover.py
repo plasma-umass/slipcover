@@ -354,9 +354,14 @@ class Slipcover:
     @staticmethod
     def find_functions(items, visited : set):
         import inspect
+        def is_patchable_function(func):
+            # PyPy has no "builtin functions" like CPython. instead, it uses
+            # regular functions, with a special type of code object.
+            # the second condition is always True on CPython
+            return inspect.isfunction(func) and type(func.__code__) is types.CodeType
 
         def find_funcs(root):
-            if inspect.isfunction(root):
+            if is_patchable_function(root):
                 if root not in visited:
                     visited.add(root)
                     yield root
@@ -380,7 +385,7 @@ class Slipcover:
                                 break
 
             elif (isinstance(root, classmethod) or isinstance(root, staticmethod)) and \
-                 inspect.isfunction(root.__func__):
+                 is_patchable_function(root.__func__):
                 if root.__func__ not in visited:
                     visited.add(root.__func__)
                     yield root.__func__
