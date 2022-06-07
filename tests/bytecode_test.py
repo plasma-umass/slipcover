@@ -420,7 +420,8 @@ def test_make_lnotab():
             0, -30] == unpack_bytes(lnotab)
 
 
-def test_make_linetable():
+@pytest.mark.skipif(PYTHON_VERSION != (3,10), reason="N/A: 3.10 specific")
+def test_make_linetable_310():
     lines = [bc.LineEntry(0, 6, 1),
              bc.LineEntry(6, 50, 2),
              bc.LineEntry(50, 350, 7),
@@ -514,7 +515,7 @@ def test_make_lines_and_compare(code):
         my_linetable = bc.LineEntry.make_linetable(code.co_firstlineno, lines)
         assert list(code.co_linetable) == list(my_linetable)
     else:
-        newcode = code.replace(co_linetable=bc.LineEntry.make_positions(code.co_firstlineno, lines))
+        newcode = code.replace(co_linetable=bc.LineEntry.make_linetable(code.co_firstlineno, lines))
         assert list(dis.findlinestarts(newcode)) == list(dis.findlinestarts(code))
 
         # co_lines() repeats the same lines several times  FIXME -- do we care?

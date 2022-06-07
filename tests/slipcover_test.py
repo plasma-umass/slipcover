@@ -448,7 +448,7 @@ def test_instrument_doesnt_interrupt_ext_sequence(N):
             assert EXT == code.co_code[lines[i].start]
             lines[i].start = lines[i-1].end = lines[i-1].end + 2
 
-    if PYTHON_VERSION >= (3,10):
+    if PYTHON_VERSION == (3,10):
         code = code.replace(co_linetable=bc.LineEntry.make_linetable(1, lines))
     else:
         code = code.replace(co_lnotab=bc.LineEntry.make_lnotab(1, lines))

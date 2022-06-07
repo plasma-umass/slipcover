@@ -209,6 +209,7 @@ def read_varint_be(it):
 
 class ExceptionTableEntry:
     """Represents an entry from Python 3.11+'s exception table."""
+
     def __init__(self, start: int, end: int, target: int, other: int):
         self.start = start
         self.end = end
@@ -219,6 +220,7 @@ class ExceptionTableEntry:
     # FIXME tests missing
     def adjust(self, insert_offset: int, insert_length: int) -> None:
         """Adjusts this exception table entry, handling a code insertion."""
+
         old_start, old_end, old_target = self.start, self.end, self.target
         if insert_offset <= self.start:
             self.start += insert_length
@@ -263,6 +265,8 @@ class ExceptionTableEntry:
 
 
 class LineEntry:
+    """Describes a range of bytecode offsets belonging to a line of Python source code."""
+
     def __init__(self, start : int, end : int, number : int):
         """Initializes a new line entry.
 
@@ -276,6 +280,7 @@ class LineEntry:
     # FIXME tests missing
     def adjust(self, insert_offset : int, insert_length : int) -> None:
         """Adjusts this line after a code insertion."""
+
         if self.start > insert_offset:  # note this may extend/shrink the line
             self.start += insert_length
         if self.end > insert_offset:
@@ -283,6 +288,8 @@ class LineEntry:
 
     @staticmethod
     def from_code(code : types.CodeType) -> List[LineEntry]:
+        """Extracts a list of line entries from byte code"""
+
         def gen_lines():
             last = None
             for line in dis.findlinestarts(code):
@@ -294,8 +301,6 @@ class LineEntry:
 
         return [*gen_lines()]
 
-    def __str__(self):
-        return f"{self.start}-{self.end}: {self.number}"
 
     @staticmethod
     def make_lnotab(firstlineno : int, lines : List[LineEntry]) -> bytes:
@@ -333,96 +338,100 @@ class LineEntry:
         return bytes(lnotab)
 
 
-    @staticmethod
-    def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
-        """Generates the line number table used by Python 3.10 to map offsets to line numbers."""
+    if PYTHON_VERSION == (3,10):
+        @staticmethod
+        def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
+            """Generates the line number table used by Python 3.10 to map offsets to line numbers."""
 
-        linetable = []
+            linetable = []
 
-        prev_end = 0
-        prev_number = firstlineno
+            prev_end = 0
+            prev_number = firstlineno
 
-        for l in lines:
-            gap = l.start - prev_end if l.number is not None else l.end - prev_end
+            for l in lines:
+                gap = l.start - prev_end if l.number is not None else l.end - prev_end
 
-            if gap:
-                while gap > 254:
-                    linetable.extend([254, -128 & 0xFF])
-                    gap -= 254
+                if gap:
+                    while gap > 254:
+                        linetable.extend([254, -128 & 0xFF])
+                        gap -= 254
 
-                linetable.extend([gap, -128 & 0xFF])
-                prev_end += gap
+                    linetable.extend([gap, -128 & 0xFF])
+                    prev_end += gap
+
+                    if l.number is None:
+                        continue
+
+                delta_end = l.end - prev_end
+                delta_number = l.number - prev_number
+
+                while delta_number > 127:
+                    linetable.extend([0, 127])
+                    delta_number -= 127
+
+                while delta_number < -127:
+                    linetable.extend([0, -127 & 0xFF])
+                    delta_number += 127
+
+                while delta_end > 254:
+                    linetable.extend([254, delta_number & 0xFF])
+                    delta_number = 0
+                    delta_end -= 254
+
+                linetable.extend([delta_end, delta_number & 0xFF])
+                prev_number = l.number
+
+                prev_end = l.end
+
+            return bytes(linetable)
+
+
+    if PYTHON_VERSION >= (3,11):
+        @staticmethod
+        def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
+            """Generates the positions table used by Python 3.11+ to map offsets to line numbers."""
+
+            linetable = []
+
+            prev_end = 0
+            prev_number = firstlineno
+
+            for l in lines:
+#                print(f"{l.start} {l.end} {l.number}")
 
                 if l.number is None:
-                    continue
-
-            delta_end = l.end - prev_end
-            delta_number = l.number - prev_number
-
-            while delta_number > 127:
-                linetable.extend([0, 127])
-                delta_number -= 127
-
-            while delta_number < -127:
-                linetable.extend([0, -127 & 0xFF])
-                delta_number += 127
-
-            while delta_end > 254:
-                linetable.extend([254, delta_number & 0xFF])
-                delta_number = 0
-                delta_end -= 254
-
-            linetable.extend([delta_end, delta_number & 0xFF])
-            prev_number = l.number
-
-            prev_end = l.end
-
-        return bytes(linetable)
-
-
-    @staticmethod
-    def make_positions(firstlineno : int, lines : List[LineEntry]) -> bytes:
-        """Generates the positions table used by Python 3.11+ to map offsets to line numbers."""
-
-        linetable = []
-
-        prev_end = 0
-        prev_number = firstlineno
-
-        for l in lines:
-#            print(f"{l.start} {l.end} {l.number}")
-
-            if l.number is None:
-                bytecodes = (l.end - prev_end)//2
-                while bytecodes > 0:
-#                    print(f"->15 {min(bytecodes, 8)-1}")
-                    linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
-                    bytecodes -= 8
-            else:
-                if prev_end < l.start:
-                    bytecodes = (l.start - prev_end)//2
+                    bytecodes = (l.end - prev_end)//2
                     while bytecodes > 0:
 #                        print(f"->15 {min(bytecodes, 8)-1}")
                         linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
                         bytecodes -= 8
+                else:
+                    if prev_end < l.start:
+                        bytecodes = (l.start - prev_end)//2
+                        while bytecodes > 0:
+#                            print(f"->15 {min(bytecodes, 8)-1}")
+                            linetable.extend([0x80|(15<<3)|(min(bytecodes, 8)-1)])
+                            bytecodes -= 8
 
-                line_delta = l.number - prev_number
-                bytecodes = (l.end - l.start)//2
-                while bytecodes > 0:
-#                    print(f"->13 {min(bytecodes, 8)-1} {line_delta}")
-                    linetable.extend([0x80|(13<<3)|(min(bytecodes, 8)-1)])
-                    append_svarint(linetable, line_delta)
-                    line_delta = 0
-                    bytecodes -= 8
+                    line_delta = l.number - prev_number
+                    bytecodes = (l.end - l.start)//2
+                    while bytecodes > 0:
+#                        print(f"->13 {min(bytecodes, 8)-1} {line_delta}")
+                        linetable.extend([0x80|(13<<3)|(min(bytecodes, 8)-1)])
+                        append_svarint(linetable, line_delta)
+                        line_delta = 0
+                        bytecodes -= 8
 
-                prev_number = l.number
+                    prev_number = l.number
 
-            prev_end = l.end
+                prev_end = l.end
 
-        return bytes(linetable)
+            return bytes(linetable)
 
 
 class Editor:
+    """Implements a bytecode editor."""
+
     def __init__(self, code):
         self.orig_code = code
 
@@ -437,11 +446,15 @@ class Editor:
 
 
     def add_const(self, value):
+        """Adds a constant."""
+
         self.consts.append(value)
         return len(self.consts)-1
 
 
     def insert_function_call(self, offset, function, args):
+        """Inserts a function call."""
+
         assert isinstance(function, int)    # we only support const references so far
 
         insert = bytearray()
@@ -488,6 +501,8 @@ class Editor:
 
 
     def replace_global_with_const(self, global_name, const_index):
+        """Replaces a global name lookup by a constat load."""
+
         if global_name in self.orig_code.co_names:
             name_index = self.orig_code.co_names.index(global_name)
 
@@ -527,6 +542,8 @@ class Editor:
 
 
     def finish(self):
+        """Finishes editing bytecode, returning a new code object."""
+
         assert not self.finished
 
         # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
@@ -560,11 +577,11 @@ class Editor:
         kwargs = {}
         if PYTHON_VERSION < (3,10):
             kwargs["co_lnotab"] = LineEntry.make_lnotab(self.orig_code.co_firstlineno, self.lines)
-        elif PYTHON_VERSION == (3,10):
-            kwargs["co_linetable"] = LineEntry.make_linetable(self.orig_code.co_firstlineno, self.lines)
         else:
-            kwargs["co_linetable"] = LineEntry.make_positions(self.orig_code.co_firstlineno, self.lines)
-            kwargs["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(self.ex_table)
+            kwargs["co_linetable"] = LineEntry.make_linetable(self.orig_code.co_firstlineno, self.lines)
+
+            if PYTHON_VERSION >= (3,11):
+                kwargs["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(self.ex_table)
 
         self.finished = True
 
