@@ -135,11 +135,11 @@ class Slipcover:
         ed = bc.Editor(co)
 
         # handle functions-within-functions
-        for i, c in enumerate(ed.consts):   # FIXME clean up attribute access
+        for i, c in enumerate(co.co_consts):
             if isinstance(c, types.CodeType):
-                ed.consts[i] = self.instrument(c, co)
+                ed.set_const(i, self.instrument(c, co))
 
-        ed.add_const(tracker.hit)
+        ed.add_const(tracker.hit)   # used during de-instrumentation
         tracker_signal_index = ed.add_const(tracker.signal)
 
         delta = 0
@@ -181,55 +181,33 @@ class Slipcover:
         assert isinstance(co, types.CodeType)
         # print(f"de-instrumenting {co.co_name}")
 
-        patch = None
-        consts = None
+        ed = bc.Editor(co)
 
-        co_code = co.co_code
         co_consts = co.co_consts
-
-        for i in range(len(co_consts)):
-            if isinstance(co_consts[i], types.CodeType):
-                nc = self.deinstrument(co_consts[i], lines)
-                if nc != co_consts[i]:
-                    if not consts:
-                        consts = list(co_consts)
-                    consts[i] = nc
+        for i, c in enumerate(co_consts):
+            if isinstance(c, types.CodeType):
+                nc = self.deinstrument(c, lines)
+                if nc is not c:
+                    ed.set_const(i, nc)
 
         for (offset, lineno) in dis.findlinestarts(co):
-            if lineno in lines and co_code[offset] == bc.op_NOP:
-                it = iter(bc.unpack_opargs(co.co_code[offset:]))
-                next(it) # NOP
-                op_offset, op_len, op, op_arg = next(it)
-                if op == bc.op_PUSH_NULL:
-                    op_offset, op_len, op, op_arg = next(it)
-                _, _, _, tracker_index = next(it)
-
-                if op == bc.op_LOAD_CONST and co_consts[op_arg] == tracker.signal:
-                    tracker.deinstrument(co_consts[tracker_index])
-
-                    if not patch:
-                        patch = bytearray(co_code)
+            if lineno in lines and (func := ed.get_inserted_function(offset)):
+                func_index = func[0]
+                if co_consts[func_index] == tracker.signal:
+                    tracker.deinstrument(co_consts[func[1]])
 
                     if not self.collect_stats:
-                        patch[offset] = bc.op_JUMP_FORWARD
+                        ed.disable_inserted_function(offset)
                     else:
-                        # If collecting stats, rather than disabling the tracker, we
-                        # switch to calling the 'tracker.hit' function on it, so that
-                        # we have a total execution count with which to compute the
-                        # top lines and the percentages of misses
-                        op_offset += offset # we unpacked from co.co_code[offset:]
-                        patch[op_offset:op_offset+op_len] = \
-                            bc.opcode_arg(op, op_arg-1, bc.arg_ext_needed(op_arg))
+                        # If collecting stats, rather than disabling the tracker, we switch to
+                        # calling the 'tracker.hit' function on it (which we conveniently added
+                        # to the consts before tracker.signal, during instrumentation), so that
+                        # we have the total execution count needed for the reports.
+                        ed.replace_inserted_function(offset, func_index-1)
 
-
-        if not patch and not consts:
+        new_code = ed.finish()
+        if new_code is co:
             return co
-
-        changed = {}
-        if patch: changed["co_code"] = bytes(patch)
-        if consts: changed["co_consts"] = tuple(consts)
-
-        new_code = co.replace(**changed)
 
         with self.lock:
             # Interesting (and useful fact): dict sees code edited this way as being the same

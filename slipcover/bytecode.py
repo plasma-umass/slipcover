@@ -234,6 +234,9 @@ class ExceptionTableEntry:
     @staticmethod
     def from_code(code: types.CodeType) -> List[ExceptionTableEntry]:
         """Returns a list of exception table entries from a code object."""
+
+        if PYTHON_VERSION < (3,11): return []
+
         entries = []
         it = iter(code.co_exceptiontable)
         try:
@@ -435,18 +438,29 @@ class Editor:
     def __init__(self, code):
         self.orig_code = code
 
-        self.consts = list(code.co_consts)
-        self.branches = Branch.from_code(code)
-        self.ex_table = ExceptionTableEntry.from_code(code) if PYTHON_VERSION >= (3,11) else []
-        self.lines = LineEntry.from_code(code)
+        self.consts = None
+        self.patch = None
 
-        self.patch = bytearray(code.co_code)
+        self.branches = None
+        self.ex_table = None
+        self.lines = None
+
         self.max_addtl_stack = 0
         self.finished = False
 
 
+    def set_const(self, index, value):
+        """Sets a constant."""
+        if self.consts is None:
+            self.consts = list(self.orig_code.co_consts)
+
+        self.consts[index] = value
+
+
     def add_const(self, value):
         """Adds a constant."""
+        if self.consts is None:
+            self.consts = list(self.orig_code.co_consts)
 
         self.consts.append(value)
         return len(self.consts)-1
@@ -457,10 +471,18 @@ class Editor:
 
         assert isinstance(function, int)    # we only support const references so far
 
+        if self.patch is None:
+            self.patch = bytearray(self.orig_code.co_code)
+
+        if self.branches is None:
+            self.branches = Branch.from_code(self.orig_code)
+            self.ex_table = ExceptionTableEntry.from_code(self.orig_code)
+            self.lines = LineEntry.from_code(self.orig_code)
+
         insert = bytearray()
 
         if PYTHON_VERSION >= (3,11):
-            insert.extend([op_NOP, 0,    # for deinstrument jump
+            insert.extend([op_NOP, 0,    # for disabling
                            op_PUSH_NULL, 0] +
                           opcode_arg(op_LOAD_CONST, function))
 
@@ -472,7 +494,7 @@ class Editor:
                           opcode_arg(op_CALL, len(args)) +
                           [op_POP_TOP, 0])   # ignore return
         else:
-            insert.extend([op_NOP, 0] +  # for deinstrument jump
+            insert.extend([op_NOP, 0] +  # for disabling
                           opcode_arg(op_LOAD_CONST, function))
 
             for a in args:
@@ -500,8 +522,74 @@ class Editor:
         return len_insert
 
 
+    def get_inserted_function(self, offset):
+        """Returns const indices for an inserted function and for its arguments,
+           or None if an inserted function isn't recognized.
+        """
+        code = self.patch if self.patch is not None else self.orig_code.co_code
+
+        if code[offset] == op_NOP:
+            it = iter(unpack_opargs(code[offset:]))
+            next(it) # NOP
+            op_offset, op_len, op, op_arg = next(it)
+            if op == op_PUSH_NULL:
+                op_offset, op_len, op, op_arg = next(it)
+
+            if op == op_LOAD_CONST:
+                f_args = [op_arg]
+
+                op_offset, op_len, op, op_arg = next(it)
+                while op == op_LOAD_CONST:
+                    f_args.append(op_arg)
+                    op_offset, op_len, op, op_arg = next(it)
+
+                return f_args
+
+
+    def disable_inserted_function(self, offset):
+        """Disables an inserted function at a given offset."""
+
+        if self.patch is None:
+            self.patch = bytearray(self.orig_code.co_code)
+
+        assert self.patch[offset] == op_NOP
+        self.patch[offset] = op_JUMP_FORWARD
+
+
+    def replace_inserted_function(self, offset, new_func_index):
+        """Replaces an inserted function by another function."""
+
+        if self.patch is None:
+            self.patch = bytearray(self.orig_code.co_code)
+
+        assert self.patch[offset] == op_NOP
+
+        it = iter(unpack_opargs(self.patch[offset:]))
+        next(it) # NOP
+        op_offset, op_len, op, op_arg = next(it)
+        if op == op_PUSH_NULL:
+            op_offset, op_len, op, op_arg = next(it)
+
+        assert op == op_LOAD_CONST
+
+        # FIXME use actual argument lenth rather than art_ext_needed
+        replacement = opcode_arg(op, new_func_index, arg_ext_needed(op_arg))
+        assert len(replacement) == op_len
+
+        op_offset += offset # we unpacked from co.co_code[offset:]
+        self.patch[op_offset:op_offset+op_len] = replacement
+
+
     def replace_global_with_const(self, global_name, const_index):
-        """Replaces a global name lookup by a constat load."""
+        """Replaces a global name lookup by a constant load."""
+
+        if self.patch is None:
+            self.patch = bytearray(self.orig_code.co_code)
+
+        if self.branches is None:
+            self.branches = Branch.from_code(self.orig_code)
+            self.ex_table = ExceptionTableEntry.from_code(self.orig_code)
+            self.lines = LineEntry.from_code(self.orig_code)
 
         if global_name in self.orig_code.co_names:
             name_index = self.orig_code.co_names.index(global_name)
@@ -541,53 +629,61 @@ class Editor:
                 delta += change
 
 
+
     def finish(self):
         """Finishes editing bytecode, returning a new code object."""
 
         assert not self.finished
 
-        # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
-        # Inserting space for those may in turn trigger needing more space for others...
-        # FIXME missing test for length adjustment triggering other length adjustments
-        any_adjusted = True
-        while any_adjusted:
-            any_adjusted = False
+        if self.branches is not None:
+            # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
+            # Inserting space for those may in turn trigger needing more space for others...
+            # FIXME missing test for length adjustment triggering other length adjustments
+            any_adjusted = True
+            while any_adjusted:
+                any_adjusted = False
+
+                for b in self.branches:
+                    change = b.adjust_length()
+                    if change:
+    #                    print(f"adjusted branch {b.offset}->{b.target} by {change} to length={b.length}")
+                        self.patch[b.offset:b.offset] = [0] * change
+                        for c in self.branches:
+                            if b != c:
+                                c.adjust(b.offset, change)
+
+                        for l in self.lines:
+                            l.adjust(b.offset, change)
+
+                        for e in self.ex_table:
+                            e.adjust(b.offset, change)
+
+                        any_adjusted = True
 
             for b in self.branches:
-                change = b.adjust_length()
-                if change:
-#                    print(f"adjusted branch {b.offset}->{b.target} by {change} to length={b.length}")
-                    self.patch[b.offset:b.offset] = [0] * change
-                    for c in self.branches:
-                        if b != c:
-                            c.adjust(b.offset, change)
+                assert self.patch[b.offset+b.length-2] == b.opcode
+                self.patch[b.offset:b.offset+b.length] = b.code()
 
-                    for l in self.lines:
-                        l.adjust(b.offset, change)
 
-                    for e in self.ex_table:
-                        e.adjust(b.offset, change)
+        replace = {}
+        if self.consts is not None:
+            replace["co_consts"] = tuple(self.consts)
 
-                    any_adjusted = True
+        if self.max_addtl_stack:
+            replace["co_stacksize"] = self.orig_code.co_stacksize + self.max_addtl_stack
 
-        for b in self.branches:
-            assert self.patch[b.offset+b.length-2] == b.opcode
-            self.patch[b.offset:b.offset+b.length] = b.code()
+        if self.patch is not None:
+            replace["co_code"] = bytes(self.patch)
 
-        kwargs = {}
-        if PYTHON_VERSION < (3,10):
-            kwargs["co_lnotab"] = LineEntry.make_lnotab(self.orig_code.co_firstlineno, self.lines)
-        else:
-            kwargs["co_linetable"] = LineEntry.make_linetable(self.orig_code.co_firstlineno, self.lines)
+        if self.branches is not None:
+            if PYTHON_VERSION < (3,10):
+                replace["co_lnotab"] = LineEntry.make_lnotab(self.orig_code.co_firstlineno, self.lines)
+            else:
+                replace["co_linetable"] = LineEntry.make_linetable(self.orig_code.co_firstlineno, self.lines)
 
-            if PYTHON_VERSION >= (3,11):
-                kwargs["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(self.ex_table)
+                if PYTHON_VERSION >= (3,11):
+                    replace["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(self.ex_table)
 
         self.finished = True
 
-        return self.orig_code.replace(
-            co_code=bytes(self.patch),
-            co_stacksize=self.orig_code.co_stacksize + self.max_addtl_stack,
-            co_consts=tuple(self.consts),
-            **kwargs
-        )
+        return self.orig_code.replace(**replace)

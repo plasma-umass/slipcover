@@ -582,10 +582,12 @@ def test_adjust_long_jump(N):
         global x
         x += 42
 
+    lines = bc.LineEntry.from_code(orig_code)
+
     ed = bc.Editor(orig_code)
     foo_index = ed.add_const(foo)
     # instrument the line inside the "for" loop, making the loop grow
-    ed.insert_function_call(ed.lines[3].start, foo_index, ())
+    ed.insert_function_call(lines[3].start, foo_index, ())
     code = ed.finish()
 #    dis.dis(code)
 
