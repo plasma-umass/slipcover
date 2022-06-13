@@ -633,6 +633,7 @@ class Editor:
         """Finishes editing bytecode, returning a new code object."""
 
         assert not self.finished
+        self.finished = True
 
         if not self.patch and not self.consts:
             return self.orig_code
@@ -685,7 +686,5 @@ class Editor:
 
                 if PYTHON_VERSION >= (3,11):
                     replace["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(self.ex_table)
-
-        self.finished = True
 
         return self.orig_code.replace(**replace)
