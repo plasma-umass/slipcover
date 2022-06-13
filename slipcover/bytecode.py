@@ -634,6 +634,9 @@ class Editor:
 
         assert not self.finished
 
+        if not self.patch and not self.consts:
+            return self.orig_code
+
         if self.branches is not None:
             # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
             # Inserting space for those may in turn trigger needing more space for others...
