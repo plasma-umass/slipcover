@@ -629,7 +629,6 @@ class Editor:
                 delta += change
 
 
-
     def finish(self):
         """Finishes editing bytecode, returning a new code object."""
 
