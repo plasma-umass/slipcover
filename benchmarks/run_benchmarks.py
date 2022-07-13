@@ -245,7 +245,7 @@ def plot_results():
         rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, zorder=2, alpha=(None if showit else 0))
         if not showit: continue
 
-        ax.bar_label(rects, padding=3, labels=[f'{"+" if round((v-1)*100)>=0 else ""}{round((v-1)*100)}%' for v in r], fontsize=8)
+        ax.bar_label(rects, padding=3, labels=[f'{v:.2f}x' for v in r], fontsize=8)
 
 #    ax.set_title('')
     ax.set_ylabel('Normalized execution time')
