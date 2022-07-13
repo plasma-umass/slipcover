@@ -31,13 +31,23 @@ bench_sets = [set(b.keys()) for r in v2r.values() for b in r.values()]
 benchmarks = list(bench_sets[0].intersection(*bench_sets[1:]))
 print("common benchmarks: ", benchmarks)
 
+all_benchmarks = bench_sets[0].union(*bench_sets[1:])
 for v in python_versions:
     for c in cases:
-        for m in v2r[v][c].values():
-            if not isinstance(m, dict): continue    # skip over some old-style entries (e.g., "testme")
+        missing = all_benchmarks - set(v2r[v][c].keys())
+        if len(missing):
+            print(f"  missing from {v} {c}: ", missing)
+
+for v in python_versions:
+    for c in cases:
+        for b in benchmarks:
+            m = v2r[v][c][b]
             m['median'] = median(m['times'])
 
 fig, ax = plt.subplots(3, 1, figsize=(10, 15))
+
+max_v = None
+min_v = None
 
 first = python_versions[0]
 
@@ -47,8 +57,26 @@ for i, c in enumerate(sorted(cases)):
         values = [v2r[v][c][b]['median']/v2r[first]['base'][b]['median'] for v in python_versions]
         ax[i].plot(python_versions, values, label=b)
 
+        if max_v is None or max_v < max(values):
+            max_v = max(values)
+        if min_v is None or min_v > min(values):
+            min_v = min(values)
+
     ax[i].legend()
     ax[i].set_ylabel('Normalized execution time')
 
+for i in range(len(cases)):
+    ax[i].set_ylim([min_v, max_v])
+
 fig.tight_layout()
 fig.savefig("benchmarks/versions.png")
+
+from tabulate import tabulate
+
+def get_comparison():
+    for b in benchmarks:
+        yield [b, round(v2r[python_versions[-2]]['base'][b]['median'], 2),
+               round(v2r[python_versions[-1]]['slipcover'][b]['median'], 2)]
+
+print(tabulate(get_comparison(), headers=["bench", python_versions[-2],
+                                          f"{python_versions[-1]} + slipcover"]))
