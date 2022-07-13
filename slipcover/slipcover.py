@@ -144,6 +144,8 @@ class Slipcover:
 
         delta = 0
         for (offset, lineno) in dis.findlinestarts(co):
+            if lineno == 0: continue    # Python 3.11.0b4 generates a 0th line
+
             # Can't insert between an EXTENDED_ARG and the final opcode
             if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
                 while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
@@ -160,7 +162,8 @@ class Slipcover:
         new_code = ed.finish()
 
         with self.lock:
-            self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co))
+            # Python 3.11.0b4 generates a 0th line
+            self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co) if line[1] != 0)
 
             if not parent:
                 self.instrumented[co.co_filename].add(new_code)
