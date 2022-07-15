@@ -93,9 +93,9 @@ saved_results, results = load_results()
 
 
 benchmarks = []
-if SCIKIT_LEARN.exists():
+if False and SCIKIT_LEARN.exists():
     benchmarks.append(
-        Benchmark('sklearn', "-m pytest sklearn -k 'not test_openmp_parallelism_enabled'", {
+        Benchmark('sklearn', "-m pytest sklearn", {
                     # coveragepy options from .coveragerc
                     'slipcover_opts': '--source=sklearn ' + \
                                       '--omit=*/sklearn/externals/*,*/sklearn/_build_utils/*,*/benchmarks/*,**/setup.py'
