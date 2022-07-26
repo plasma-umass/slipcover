@@ -14,6 +14,14 @@ class SlipcoverLoader(Loader):
         self.sci = sci
         self.orig_loader = orig_loader
 
+        # loadlib checks for this attribute to see if we support it... keep in sync with orig_loader
+        if not getattr(self.orig_loader, "get_resource_reader", None):
+            delattr(self, "get_resource_reader")
+
+    # for compability with loaders supporting resources, used e.g. by sklearn
+    def get_resource_reader(self, fullname):
+        return self.orig_loader.get_resource_reader(fullname)
+
     def create_module(self, spec):
         return self.orig_loader.create_module(spec)
 
@@ -39,7 +47,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target) if hasattr(f, 'find_spec') else None
             if found:
-                if found.origin and file_matcher.matches(found.origin):
+                if found.origin and (file_matcher.matches(found.origin) or 'images' in fullname):
                     if self.args.debug:
                         print(f"adding {fullname} from {found.origin}")
                     found.loader = SlipcoverLoader(self.sci, found.loader)

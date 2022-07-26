@@ -870,7 +870,7 @@ def test_pytest_interpose(tmp_path):
     assert [] == cov['missing_lines']
 
 
-def test_pytest_plugins_visible(tmp_path):
+def test_pytest_plugins_visible():
     import subprocess
 
     def pytest_plugins():
@@ -885,3 +885,19 @@ def test_pytest_plugins_visible(tmp_path):
                              capture_output=True)
 
     assert plain.stdout == with_sc.stdout
+
+
+def test_loader_supports_resources(tmp_path):
+    import subprocess
+
+    cmdfile = tmp_path / "t.py"
+    cmdfile.write_text("""
+import importlib.resources as r
+import tests.imported
+
+def test_resources():
+    assert len(r.contents('tests.imported')) > 1
+""")
+
+    p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-qq", cmdfile])
+    assert p.returncode == 0
