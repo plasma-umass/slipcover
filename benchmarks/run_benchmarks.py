@@ -10,7 +10,7 @@ import sys
 
 BENCHMARK_JSON = 'benchmarks/benchmarks.json'
 TRIES = 5
-# someplace with scikit-learn 1.0.2 sources, built and ready to test
+# someplace with scikit-learn 1.1.1 sources, built and ready to test
 SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
 FLASK = Path.home() / "tmp" / "flask"
 ASTROPY = Path.home() / "tmp" / "astropy"
@@ -93,9 +93,10 @@ saved_results, results = load_results()
 
 
 benchmarks = []
-if False and SCIKIT_LEARN.exists():
+if SCIKIT_LEARN.exists():
     benchmarks.append(
-        Benchmark('sklearn', "-m pytest sklearn", {
+        # ndcg_score fails with scikit-learn 1.1.1
+        Benchmark('sklearn', "-m pytest sklearn -k 'not sklearn.metrics._ranking.ndcg_score'", {
                     # coveragepy options from .coveragerc
                     'slipcover_opts': '--source=sklearn ' + \
                                       '--omit=*/sklearn/externals/*,*/sklearn/_build_utils/*,*/benchmarks/*,**/setup.py'
