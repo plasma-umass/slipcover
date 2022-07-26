@@ -896,7 +896,7 @@ import importlib.resources as r
 import tests.imported
 
 def test_resources():
-    assert len(r.contents('tests.imported')) > 1
+    assert list(r.contents('tests.imported')) != []
 """)
 
     p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-qq", cmdfile])
