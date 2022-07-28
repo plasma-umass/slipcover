@@ -82,7 +82,8 @@ from tabulate import tabulate
 def get_comparison():
     for b in benchmarks:
         yield [b, round(v2r[python_versions[-2]]['base'][b]['median'], 2),
+               round(v2r[python_versions[-1]]['base'][b]['median'], 2),
                round(v2r[python_versions[-1]]['slipcover'][b]['median'], 2)]
 
-print(tabulate(get_comparison(), headers=["bench", python_versions[-2],
+print(tabulate(get_comparison(), headers=["bench", python_versions[-2], python_versions[-1],
                                           f"{python_versions[-1]} + slipcover"]))
