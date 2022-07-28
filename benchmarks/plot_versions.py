@@ -11,9 +11,15 @@ with open(BENCHMARK_JSON, 'r') as f:
 
 entries = [e for e in entries if e['system']['os'][0] == 'Linux']
 
+os_versions = set(e['system']['os'][1] for e in entries)
+if len(os_versions) > 1:
+    print("OS versions: ", os_versions)
+    latest = max(os_versions)
+    entries = [e for e in entries if e['system']['os'][1] == latest]
+
 systems = set([(' '.join(e['system']['os']), e['system']['cpu']) for e in entries])
+print("systems: ", systems)
 assert len(systems) == 1    # don't mix results across different systems
-print("system: ", systems)
 
 v2r = {e['system']['python']: e['results'] for e in entries}
 
