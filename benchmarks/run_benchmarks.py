@@ -170,6 +170,10 @@ for case in cases:
             'times': times
         }
 
+        if case.name == 'coveragepy':
+            import coverage
+            results[case.name][bench.name]['coveragepy_version'] = coverage.__version__
+
         m = median(times)
         b_m = median(results[base.name][bench.name]['times'])
         print(f"median: {m:.1f}" + (f" +{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
