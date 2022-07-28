@@ -2,7 +2,7 @@ all:
 	python3 -m pip install -e .
 
 # obtained with e.g. "brew install python@3.10"
-HOMEBREW_PYTHON=/usr/local/opt/python@
+HOMEBREW_PYTHON=/opt/homebrew/opt/python@
 test:
 	- rm -f .coverage
 	@ for V in 3.8 3.9 3.10 3.11; do \
