@@ -1152,3 +1152,94 @@ def test_pytest_plugins_visible(tmp_path):
                              capture_output=True)
 
     assert plain.stdout == with_sc.stdout
+
+
+def test_insertion_points():
+    op_JUMP_ABSOLUTE = dis.opmap["JUMP_ABSOLUTE"]
+    op_JUMP_FORWARD = dis.opmap["JUMP_FORWARD"]
+
+    first_line = current_line()+1
+    def foo(n):
+        x = 0
+        if n == 42:
+            x = 10
+        for i in range(n):
+            while x < 10:
+                x += 1
+        return x
+
+    print(f"first_line={first_line}")
+
+    def get_insertion_points(co):
+        import bisect
+        branches = [b for b in sc.Branch.from_code(co) \
+                    if b.opcode != op_JUMP_ABSOLUTE and \
+                       b.opcode != op_JUMP_FORWARD]
+
+        line_offsets = []
+        lineno = dict()
+        for off, no in dis.findlinestarts(co):
+            line_offsets.append(off)
+            lineno[off] = no - first_line
+
+        print("branches", [b.offset for b in branches])
+        print("lines", line_offsets)
+
+        def lineat(off):
+            l = lineno.get(off, None)
+            if l is None:
+                l = lineno[line_offsets[bisect.bisect_left(line_offsets, off)-1]]
+            return l
+
+        jump_opcodes = {*dis.hasjrel, *dis.hasjabs}
+        uncond_jump_opcodes = {op_JUMP_ABSOLUTE, op_JUMP_FORWARD}
+
+        def find_next_line(cond_line, dest_offset):
+            line = lineat(dest_offset)
+            if line != cond_line:
+                return line
+
+            # let's make sure we're really going to the same line.
+            # skip over anything that's not flow control, but follow any unconditional flow control.
+            # XXX it might be better to only skip over non-computing opcodes, such those that
+            # set up after a for loop (e.g., STORE_FAST, UNPACK_SEQUENCE)
+
+            off = dest_offset
+            nextline_off = line_offsets[bisect.bisect_left(line_offsets, off)]
+            it = iter(sc.unpack_opargs(co.co_code[off:]))
+            while off < nextline_off:
+                print(f"off={off}, nextline_off={nextline_off}")
+                _, op_len, op, _ = next(it)
+                if op in uncond_jump_opcodes:
+                    off = next(iter(b.target for b in sc.Branch.from_code(co) if b.offset == off))
+                    if lineat(off) != cond_line:
+                        return lineat(off)
+
+                    it = iter(sc.unpack_opargs(co.co_code[off:]))
+                    nextline_off = line_offsets[bisect.bisect_left(line_offsets, off)]
+                elif op in jump_opcodes:
+                    break
+
+                off += op_len
+
+            if off == nextline_off:
+                return lineno[off]
+
+            return cond_line
+
+        print("")
+        for b in branches:
+            cond_line = lineat(b.offset)
+            no_jump_line = find_next_line(cond_line, b.offset+b.length)
+            jump_line = find_next_line(cond_line, b.target)
+
+            print(b.offset, f"{cond_line} -> {no_jump_line} (no jump)")
+            # for this one, check if preceded by an unconditional jump; if not, add it
+            print(b.offset, f"{cond_line} -> {jump_line} (jump)")
+
+    get_insertion_points(foo.__code__)
+    dis.dis(foo)
+#    if 'co_lines' in dir(foo.__code__):
+#        print(list(foo.__code__.co_lines()))
+#    else:
+#        print(list(foo.__code__.co_lnotab))
