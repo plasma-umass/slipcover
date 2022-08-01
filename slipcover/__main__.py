@@ -7,7 +7,6 @@ import atexit
 
 
 from importlib.abc import MetaPathFinder, Loader
-from importlib.util import spec_from_loader
 
 class SlipcoverLoader(Loader):
     def __init__(self, sci, orig_loader):

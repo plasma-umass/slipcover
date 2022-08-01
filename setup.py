@@ -1,6 +1,5 @@
 import setuptools
 from setuptools.command.build_ext import build_ext
-from os import path, environ
 import sys
 from pathlib import Path
 
@@ -24,7 +23,6 @@ def get_description():
 # so that we can upload new files (as testpypi/pypi don't allow re-uploading files with
 # the same name as previously uploaded).
 # Numbering scheme: https://www.python.org/dev/peps/pep-0440
-#dev_build = ('.dev' + environ['DEV_BUILD']) if 'DEV_BUILD' in environ else ''
 
 dev_build = '.dev' + Path('dev-build.txt').read_text().strip() if Path('dev-build.txt').exists() else ''
 
