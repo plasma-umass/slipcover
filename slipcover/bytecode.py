@@ -466,8 +466,13 @@ class Editor:
         return len(self.consts)-1
 
 
-    def insert_function_call(self, offset, function, args):
-        """Inserts a function call."""
+    def insert_function_call(self, offset, function, args, repl_length=0):
+        """Inserts a function call.
+
+        *repl_length*, if passed, indicates the number of bytes to replace at
+        that offset.  The inserted bytecode must currently be at least as
+        large as *repl_length*.
+        """
 
         assert isinstance(function, int)    # we only support const references so far
 
@@ -504,22 +509,42 @@ class Editor:
                            op_POP_TOP, 0])   # ignore return
 
         len_insert = len(insert)
+        assert len_insert >= repl_length
 
         insert[1] = offset2branch(len_insert-2)    # fails if > 255
         self.max_addtl_stack = max(self.max_addtl_stack, calc_max_stack(insert))
 
-        self.patch[offset:offset] = insert
+        self.patch[offset:offset+repl_length] = insert
+
+        change = len_insert - repl_length
 
         for l in self.lines:
-            l.adjust(offset, len_insert)
+            l.adjust(offset, change)
 
         for b in self.branches:
-            b.adjust(offset, len_insert)
+            b.adjust(offset, change)
 
         for e in self.ex_table:
-            e.adjust(offset, len_insert)
+            e.adjust(offset, change)
 
-        return len_insert
+        return change
+
+
+    def find_const_assignments(self, var_prefix, start=0, end=None):
+        """Finds STORE_NAME assignments to variables with the given prefix,
+           coming from an immediately preceding LOAD_CONST.
+        """
+        load_off = None
+        for (op_off, op_len, op, arg) in unpack_opargs(self.orig_code.co_code[start:end]):
+            if op == op_LOAD_CONST:
+                load_off = op_off+start
+                const_arg = arg
+
+            elif load_off is not None:
+                if op == dis.opmap['STORE_NAME'] and self.orig_code.co_names[arg].startswith(var_prefix):
+                    yield (load_off, op_off+start+op_len, const_arg)
+
+                load_off = None
 
 
     def get_inserted_function(self, offset):
@@ -572,7 +597,7 @@ class Editor:
 
         assert op == op_LOAD_CONST
 
-        # FIXME use actual argument lenth rather than art_ext_needed
+        # FIXME use actual argument length rather than arg_ext_needed
         replacement = opcode_arg(op, new_func_index, arg_ext_needed(op_arg))
         assert len(replacement) == op_len
 
@@ -605,7 +630,7 @@ class Editor:
                                 yield (op_off, op_len, op, op_arg)
 
             delta = 0
-            # read from pre-computed list so we can modify on the fly
+            # read from pre-computed list() below so we can modify on the fly
             for op_off, op_len, op, op_arg in list(find_load_globals()):
                 repl = bytearray()
                 if sys.version_info[0:2] >= (3,11) and op_arg&1:
