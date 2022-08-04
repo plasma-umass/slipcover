@@ -1,11 +1,52 @@
 import pytest
 import ast
-import slipcover.branch
+import slipcover.branch as br
 
 
 def ast_parse(s):
     import inspect
     return ast.parse(inspect.cleandoc(s))
+
+
+def get_branches_from_ast(tree: ast.AST) -> list:   # TODO this is unused, remove me
+    """Returns the set of tuples (from_line, to_line) with branches inserted by *br.preinstrument*."""
+
+    class BranchFinder(ast.NodeVisitor):
+        def __init__(self):
+            self._branches = set()
+
+        def get_branches(self):
+            return self._branches
+
+        def visit_Assign(self, node: ast.Assign):
+            if len(node.targets) == 1 and \
+               isinstance(node.targets[0], ast.Name) and\
+               node.targets[0].id.startswith(br.BRANCH_PREFIX):
+                assert isinstance(node.value, ast.Tuple)
+                assert 2 == len(node.value.elts)
+                self._branches.add((node.value.elts[0].value, node.value.elts[1].value))
+
+    bf = BranchFinder()
+    bf.visit(tree)
+    return sorted(list(bf.get_branches()))
+
+
+def get_branches(code):
+    import slipcover.bytecode as bc
+    import types
+
+    branches = []
+
+    # handle functions-within-functions
+    for c in code.co_consts:
+        if isinstance(c, types.CodeType):
+            branches.extend(get_branches(c))
+
+    ed = bc.Editor(code)
+    for _, _, br_index in ed.find_const_assignments(br.BRANCH_PREFIX):
+        branches.append(code.co_consts[br_index])
+
+    return sorted(branches)
 
 
 def test_if():
@@ -16,11 +57,9 @@ def test_if():
         x += 3
     """)
 
-    t, branches = slipcover.branch.preinstrument(t)
-
-    assert [(1,2), (1,4)] == sorted(list(branches))
-
+    t = br.preinstrument(t)
     code = compile(t, "foo", "exec")
+    assert [(1,2), (1,4)] == get_branches(code)
 
     g = {'x': 0}
     exec(code, g, g)
@@ -45,11 +84,9 @@ def test_if_else():
         x += 3
     """)
 
-    t, branches = slipcover.branch.preinstrument(t)
-
-    assert [(1,2), (1,6)] == sorted(list(branches))
-
+    t = br.preinstrument(t)
     code = compile(t, "foo", "exec")
+    assert [(1,2), (1,6)] == get_branches(code)
 
     g = {'x': 0}
     exec(code, g, g)
@@ -69,11 +106,9 @@ def test_if_nothing_after_it():
 
     """)
 
-    t, branches = slipcover.branch.preinstrument(t)
-
-    assert [(1, 0), (1, 2)] == sorted(list(branches))
-
+    t = br.preinstrument(t)
     code = compile(t, "foo", "exec")
+    assert [(1,0), (1,2)] == get_branches(code)
 
     g = {'x': 0}
     exec(code, g, g)
@@ -101,11 +136,9 @@ def test_if_nested():
         z = 0
     """)
 
-    t, branches = slipcover.branch.preinstrument(t)
-
-    assert [(1,2), (1,7), (3,4), (3,11), (4,5), (4,11), (8,9), (8,10)] == sorted(list(branches))
-
+    t = br.preinstrument(t)
     code = compile(t, "foo", "exec")
+    assert [(1,2), (1,7), (3,4), (3,11), (4,5), (4,11), (8,9), (8,10)] == get_branches(code)
 
     g = {'x': 0}
     exec(code, g, g)
@@ -141,13 +174,9 @@ def test_if_in_function():
         foo(-1)
     """)
 
-    t, branches = slipcover.branch.preinstrument(t)
-
-    assert [(2,0), (2,3), (6,0), (6,7), (11,0), (11,12)] == sorted(list(branches))
-
+    t = br.preinstrument(t)
     code = compile(t, "foo", "exec")
-    import dis
-    dis.dis(code)
+    assert [(2,0), (2,3), (6,0), (6,7), (11,0), (11,12)] == get_branches(code)
 
     g = dict()
     exec(code, g, g)

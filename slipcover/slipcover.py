@@ -7,6 +7,7 @@ from collections import defaultdict, Counter
 import threading
 from . import tracker
 from . import bytecode as bc
+from . import branch as br
 from pathlib import Path
 
 # FIXME provide __all__
@@ -81,9 +82,10 @@ class FileMatcher:
 
 
 class Slipcover:
-    def __init__(self, collect_stats : bool = False, d_threshold = 50):
+    def __init__(self, collect_stats: bool = False, d_threshold: int = 50, branch: bool = False):
         self.collect_stats = collect_stats
         self.d_threshold = d_threshold
+        self.branch = branch
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -94,9 +96,10 @@ class Slipcover:
 
         # notes which code lines have been instrumented
         self.code_lines: Dict[str, set] = defaultdict(set)
+        self.code_branches: Dict[str, set] = defaultdict(set)
 
         # notes which lines have been seen.
-        self.lines_seen: Dict[str, Set[int]] = defaultdict(set)
+        self.lines_seen: Dict[str, Set[int]] = defaultdict(set) # FIXME rename, maybe to trackers_seen?
 
         # notes lines seen since last de-instrumentation
         self._get_new_lines()
@@ -142,21 +145,44 @@ class Slipcover:
         ed.add_const(tracker.hit)   # used during de-instrumentation
         tracker_signal_index = ed.add_const(tracker.signal)
 
+        off_list = list(dis.findlinestarts(co))
+        if self.branch:
+            off_list.extend(list(ed.find_const_assignments(br.BRANCH_PREFIX)))
+            off_list.sort()
+
+        branch_set = set()
+
         delta = 0
-        for (offset, lineno) in dis.findlinestarts(co):
-            if lineno == 0: continue    # Python 3.11.0b4 generates a 0th line
+        for off_item in off_list:
+            if len(off_item) == 2: # from findlinestarts
+                offset, lineno = off_item
+                if lineno == 0: continue    # Python 3.11.0b4 generates a 0th line
 
-            # Can't insert between an EXTENDED_ARG and the final opcode
-            if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
-                while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
-                    offset += 2 # TODO will we overtake the next offset from findlinestarts?
+                # Can't insert between an EXTENDED_ARG and the final opcode
+                if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                    while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                        offset += 2 # TODO will we overtake the next offset from findlinestarts?
 
-            tr = tracker.register(self, co.co_filename, lineno, self.d_threshold)
-            tr_index = ed.add_const(tr)
-            if self.collect_stats:
-                self.all_trackers.append(tr)
+                tr = tracker.register(self, co.co_filename, lineno, self.d_threshold)
+                tr_index = ed.add_const(tr)
+                if self.collect_stats:
+                    self.all_trackers.append(tr)
 
-            delta += ed.insert_function_call(offset+delta, tracker_signal_index, (tr_index,))
+                delta += ed.insert_function_call(offset+delta, tracker_signal_index, (tr_index,))
+
+            else: # from find_const_assignments
+                begin_off, end_off, branch_index = off_item
+                branch = co.co_consts[branch_index]
+
+                branch_set.add(branch)
+
+                tr = tracker.register(self, co.co_filename, branch, self.d_threshold)
+                ed.set_const(branch_index, tr)
+                if self.collect_stats:
+                    self.all_trackers.append(tr)
+
+                delta += ed.insert_function_call(begin_off+delta, tracker_signal_index, (branch_index,),
+                                                 repl_length = end_off-begin_off)
 
         ed.add_const('__slipcover__')  # mark instrumented
         new_code = ed.finish()
@@ -164,6 +190,7 @@ class Slipcover:
         with self.lock:
             # Python 3.11.0b4 generates a 0th line
             self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co) if line[1] != 0)
+            self.code_branches[co.co_filename].update(branch_set)
 
             if not parent:
                 self.instrumented[co.co_filename].add(new_code)
@@ -247,11 +274,17 @@ class Slipcover:
 
             files = dict()
             for f, f_code_lines in self.code_lines.items():
-                seen = self.lines_seen[f] if f in self.lines_seen else set()
+                if f in self.lines_seen:
+                    branches_seen = {x for x in self.lines_seen[f] if isinstance(x, tuple)}
+                    lines_seen = self.lines_seen[f] - branches_seen
+                else:
+                    lines_seen = branches_seen = set()
 
                 f_files = {
-                    'executed_lines': sorted(seen),
-                    'missing_lines': sorted(f_code_lines - seen)
+                    'executed_lines': sorted(lines_seen),
+                    'missing_lines': sorted(f_code_lines - lines_seen),
+                    'executed_branches': sorted(branches_seen),
+                    'missing_branches': sorted(self.code_branches[f] - branches_seen)
                 }
 
                 if self.collect_stats:
@@ -275,7 +308,7 @@ class Slipcover:
 
 
     @staticmethod
-    def format_missing(missing_lines : List[int], executed_lines : List[int]) -> List[str]:
+    def format_missing(missing_lines: List[int], executed_lines: List[int], missing_branches: List[tuple]) -> List[str]:
         """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall between missed ones"""
         def find_ranges():
             executed = set(executed_lines)
@@ -295,7 +328,16 @@ class Slipcover:
 
                 a = n
 
-        return ", ".join(find_ranges())
+        def format_branches():
+            missing_set = set(missing_lines)
+            for b in missing_branches:
+                b_from, b_to = b
+                if b_from not in missing_set and b_to not in missing_set:
+                    yield f"{b_from}->exit" if b_to == 0 else f"{b_from}->{b_to}"
+
+        from itertools import chain
+
+        return ", ".join(sorted(list(chain(find_ranges(), format_branches()))))
 
 
     def print_coverage(self, outfile=sys.stdout) -> None:
@@ -309,8 +351,10 @@ class Slipcover:
                 miss = len(f_info['missing_lines'])
                 total = seen+miss
                 yield [f, total, miss, int(100*seen/total),
-                       Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'])]
+                       Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'],
+                                                f_info['missing_branches'])]
 
+        # FIXME adjust with add branch information, if doing branches
         print("", file=outfile)
         print(tabulate(table(cov['files']),
               headers=["File", "#lines", "#miss", "Cover%", "Lines missing"]), file=outfile)

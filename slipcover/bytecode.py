@@ -43,6 +43,8 @@ else:
 op_POP_TOP = dis.opmap["POP_TOP"]
 op_JUMP_FORWARD = dis.opmap["JUMP_FORWARD"]
 op_NOP = dis.opmap["NOP"]
+op_STORE_NAME = dis.opmap["STORE_NAME"]
+op_STORE_GLOBAL = dis.opmap["STORE_GLOBAL"]
 
 
 def arg_ext_needed(arg: int) -> int:
@@ -541,7 +543,8 @@ class Editor:
                 const_arg = arg
 
             elif load_off is not None:
-                if op == dis.opmap['STORE_NAME'] and self.orig_code.co_names[arg].startswith(var_prefix):
+                if op in [op_STORE_NAME, op_STORE_GLOBAL] \
+                   and self.orig_code.co_names[arg].startswith(var_prefix):
                     yield (load_off, op_off+start+op_len, const_arg)
 
                 load_off = None

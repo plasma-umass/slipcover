@@ -3,11 +3,14 @@ from pathlib import Path
 from typing import Any, Dict
 from slipcover import slipcover as sc
 from slipcover import bytecode as bc
+from slipcover import branch as br
+import ast
 import atexit
 
 
 from importlib.abc import MetaPathFinder, Loader
 from importlib.util import spec_from_loader
+#import importlib.machinery
 
 class SlipcoverLoader(Loader):
     def __init__(self, sci, orig_loader):
@@ -29,6 +32,10 @@ class SlipcoverLoader(Loader):
         return self.orig_loader.get_code(name)
 
     def exec_module(self, module):
+#        if isinstance(self.orig_loader, importlib.machinery.SourceFileLoader):
+#            t = br.preinstrument(ast.parse(Path(self.origin).read_text()))
+#            code = compile(t, self.origin, "exec")
+#        else:
         code = self.orig_loader.get_code(module.__name__)
         sci.register_module(module)
         code = sci.instrument(code)
@@ -65,6 +72,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 #
 import argparse
 ap = argparse.ArgumentParser(prog='slipcover')
+ap.add_argument('--branch', action='store_true', help="additionally measure branch coverage")
 ap.add_argument('--json', action='store_true', help="select JSON output")
 ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
 ap.add_argument('--out', type=Path, help="specify output file name")
@@ -105,7 +113,7 @@ if args.omit:
     for o in args.omit.split(','):
         file_matcher.addOmit(o)
 
-sci = sc.Slipcover(collect_stats=args.stats, d_threshold=args.threshold)
+sci = sc.Slipcover(collect_stats=args.stats, d_threshold=args.threshold, branch=args.branch)
 
 def wrap_pytest():
     def exec_wrapper(obj, g):
@@ -164,7 +172,10 @@ if args.script:
     sys.path.insert(0, str(base_path))
 
     with open(args.script, "r") as f:
-        code = compile(f.read(), str(Path(args.script).resolve()), "exec")
+        t = ast.parse(f.read())
+        if args.branch:
+            t = br.preinstrument(t)
+        code = compile(t, str(Path(args.script).resolve()), "exec")
 
     code = sci.instrument(code)
     exec(code, script_globals)

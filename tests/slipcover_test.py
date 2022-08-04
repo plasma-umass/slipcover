@@ -1,6 +1,7 @@
 import pytest
 from slipcover import slipcover as sc
 from slipcover import bytecode as bc
+from slipcover import branch as br
 import types
 import dis
 import sys
@@ -19,6 +20,11 @@ def current_file():
 def simple_current_file():
     simp = sc.PathSimplifier()
     return simp.simplify(current_file())
+
+def ast_parse(s):
+    import ast
+    import inspect
+    return ast.parse(inspect.cleandoc(s))
 
 
 @pytest.mark.parametrize("stats", [False, True])
@@ -470,6 +476,41 @@ def test_instrument_doesnt_interrupt_ext_sequence(N):
     assert [] == cov['missing_lines']
 
 
+def test_instrument_branches():
+    t = ast_parse("""
+        def foo(x):
+            if x >= 0:
+                if x > 1:
+                    if x > 2:
+                        return 2
+                    return 1
+
+            else:
+                return 0
+
+        foo(2)
+    """)
+    t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=True)
+    code = compile(t, 'foo', 'exec')
+    code = sci.instrument(code)
+#    dis.dis(code)
+
+    g = dict()
+    exec(code, g, g)
+
+    cov = sci.get_coverage()
+    assert {'foo'} == cov['files'].keys()
+
+    cov = cov['files']['foo']
+    assert [1,2,3,4,6,11] == cov['executed_lines']
+    assert [5,9] == cov['missing_lines']
+
+    assert [(2,3),(3,4),(4,6)] == cov['executed_branches']
+    assert [(2,9),(3,0),(4,5)] == cov['missing_branches']
+
+
 def test_get_coverage_detects_lines():
     sci = sc.Slipcover()
     base_line = current_line()
@@ -755,16 +796,25 @@ def test_no_deinstrument_seen_negative_threshold():
 def test_format_missing():
     fm = sc.Slipcover.format_missing
 
-    assert "" == fm([],[])
-    assert "" == fm([], [1,2,3])
-    assert "2, 4" == fm([2,4], [1,3,5])
-    assert "2-4, 6, 9" == fm([2,3,4, 6, 9], [1, 5, 7,8])
+    assert "" == fm([],[],[])
+    assert "" == fm([], [1,2,3], [])
+    assert "2, 4" == fm([2,4], [1,3,5], [])
+    assert "2-4, 6, 9" == fm([2,3,4, 6, 9], [1, 5, 7,8], [])
 
-    assert "2-6, 9-11" == fm([2,4,6, 9,11], [1, 7,8])
+    assert "2-6, 9-11" == fm([2,4,6, 9,11], [1, 7,8], [])
 
-    assert "2-11" == fm([2,4,6, 9,11], [])
+    assert "2-11" == fm([2,4,6, 9,11], [], [])
 
-    assert "2-6, 9-11" == fm([2,4,6, 9,11], [8])
+    assert "2-6, 9-11" == fm([2,4,6, 9,11], [8], [])
+
+
+    assert "1->3" == fm([], [1,2,3], [(1,3)])
+    assert "2->exit" == fm([], [1,2,3], [(2,0)])
+
+    assert "2->exit, 4" == fm([4], [1,2,3], [(2,0)])
+
+    # omit missing branches involving lines that are missing
+    assert "2, 4" == fm([2,4], [1,3,5], [(2,3), (3,4)])
 
 
 @pytest.mark.parametrize("stats", [False, True])
@@ -792,8 +842,9 @@ def test_print_coverage(stats, capsys):
     import re
 
     # TODO test more cases (multiple files, etc.)
-    output = capsys.readouterr()[0].splitlines()
+    output = capsys.readouterr()[0]
     print(output)
+    output = output.splitlines()
     assert re.match(f'^tests[/\\\\]slipcover_test\\.py + {total} + {missd} +{int(100*execd/total)} +' + str(base_line+3), output[3])
 
     if stats:
