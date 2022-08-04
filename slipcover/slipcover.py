@@ -337,6 +337,7 @@ class Slipcover:
 
         from itertools import chain
 
+        # FIXME sorted() here is acting on list of strings, order may be incorrect
         return ", ".join(sorted(list(chain(find_ranges(), format_branches()))))
 
 
