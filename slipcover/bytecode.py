@@ -49,7 +49,7 @@ op_STORE_GLOBAL = dis.opmap["STORE_GLOBAL"]
 
 def arg_ext_needed(arg: int) -> int:
     """Returns the number of EXTENDED_ARGs needed for an argument."""
-    return (arg.bit_length() - 1) // 8
+    return -((arg>>8).bit_length() // -8)   # ceiling by way of -(a // -b) 
 
 
 def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:

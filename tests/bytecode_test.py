@@ -20,6 +20,22 @@ def simple_current_file():
     simp = sc.PathSimplifier()
     return simp.simplify(current_file())
 
+def test_arg_ext_needed():
+    assert 0 == bc.arg_ext_needed(0)
+    assert 0 == bc.arg_ext_needed(1)
+    assert 0 == bc.arg_ext_needed(0xFF)
+    assert 1 == bc.arg_ext_needed(0x0100)
+    assert 1 == bc.arg_ext_needed(0x0101)
+    assert 1 == bc.arg_ext_needed(0x01FF)
+    assert 1 == bc.arg_ext_needed(0xFFFF)
+    assert 2 == bc.arg_ext_needed(0x010000)
+    assert 2 == bc.arg_ext_needed(0x010001)
+    assert 2 == bc.arg_ext_needed(0xFFFFFF)
+    assert 3 == bc.arg_ext_needed(0x01000000)
+    assert 3 == bc.arg_ext_needed(0x01000001)
+    assert 3 == bc.arg_ext_needed(0xFFFFFFFF)
+
+
 def test_opcode_arg():
     JUMP = bc.op_JUMP_FORWARD
     EXT = bc.op_EXTENDED_ARG
