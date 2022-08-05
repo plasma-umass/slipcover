@@ -350,17 +350,28 @@ class Slipcover:
 
         def table(files):
             for f, f_info in sorted(files.items()):
-                seen = len(f_info['executed_lines'])
-                miss = len(f_info['missing_lines'])
-                total = seen+miss
-                yield [f, total, miss, int(100*seen/total),
+                exec_l = len(f_info['executed_lines'])
+                miss_l = len(f_info['missing_lines'])
+
+                if self.branch:
+                    exec_b = len(f_info['executed_branches'])
+                    miss_b = len(f_info['missing_branches'])
+
+                    pct = 100*(exec_l+exec_b)/(exec_l+miss_l+exec_b+miss_b)
+                else:
+                    pct = 100*exec_l/(exec_l+miss_l)
+
+                yield [f, exec_l+miss_l, miss_l,
+                       *([exec_b+miss_b, miss_b] if self.branch else []),
+                       round(pct),
                        Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'],
                                                 f_info['missing_branches'])]
 
-        # FIXME adjust with add branch information, if doing branches
         print("", file=outfile)
         print(tabulate(table(cov['files']),
-              headers=["File", "#lines", "#miss", "Cover%", "Lines missing"]), file=outfile)
+              headers=["File", "#lines", "#l.miss",
+                       *(["#br.", "#br.miss"] if self.branch else []),
+                       "Cover%", "Missing"]), file=outfile)
 
         def stats_table(files):
             for f, f_info in sorted(files.items()):

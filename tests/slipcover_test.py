@@ -847,17 +847,58 @@ def test_print_coverage(stats, capsys):
     output = capsys.readouterr()[0]
     print(output)
     output = output.splitlines()
-    assert re.match(f'^tests[/\\\\]slipcover_test\\.py + {total} + {missd} +{int(100*execd/total)} +' + str(base_line+3), output[3])
+    assert re.match(f'^tests[/\\\\]slipcover_test\\.py + {total} + {missd} +{round(100*execd/total)} +' + str(base_line+3), output[3])
 
     if stats:
         assert re.match('^tests[/\\\\]slipcover_test\\.py +[\\d.]+ +0', output[8])
 
 
-def func_names(funcs):
-    return sorted(map(lambda f: f.__name__, funcs))
+def test_print_coverage_branch(capsys):
+    t = ast_parse("""
+        def foo(x):
+            if x >= 0:
+                if x > 1:
+                    if x > 2:
+                        return 2
+                    return 1
+
+            else:
+                return 0
+
+        foo(2)
+    """)
+    t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=True)
+    code = compile(t, 'foo.py', 'exec')
+    code = sci.instrument(code)
+
+    sci.print_coverage(sys.stdout)
+
+    cov = sci.get_coverage()['files']['foo.py']
+    exec_l = len(cov['executed_lines'])
+    miss_l = len(cov['missing_lines'])
+    total_l = exec_l + miss_l
+    exec_b = len(cov['executed_branches'])
+    miss_b = len(cov['missing_branches'])
+    total_b = exec_b + miss_b
+
+    pct = round(100*(exec_l+exec_b)/(total_l+total_b))
+
+    import re
+
+    # TODO test more cases (multiple files, etc.)
+    output = capsys.readouterr()[0]
+    print(output)
+    output = output.splitlines()
+    assert re.match(f'^foo\\.py +{total_l} +{miss_l} +{total_b} +{miss_b} +{pct}', output[3])
+
 
 def test_find_functions():
     import class_test as t
+
+    def func_names(funcs):
+        return sorted(map(lambda f: f.__name__, funcs))
 
     assert ["b", "b_classm", "b_static", "f1", "f2", "f3", "f4", "f5", "f7",
             "f_classm", "f_static"] == \
