@@ -475,6 +475,9 @@ def test_instrument_doesnt_interrupt_ext_sequence(N):
     assert [*range(1, N+2)] == cov['executed_lines']
     assert [] == cov['missing_lines']
 
+    assert 'executed_branches' not in cov
+    assert 'missing_branches' not in cov
+
 
 def test_instrument_branches():
     t = ast_parse("""
@@ -938,7 +941,7 @@ def test_interpose_on_module_load(tmp_path):
     module_file = str(Path('tests') / 'imported' / '__init__.py')
 
     assert module_file in cov['files']
-    assert list(range(1,5+1)) == cov['files'][module_file]['executed_lines']
+    assert list(range(1,6+1)) == cov['files'][module_file]['executed_lines']
     assert [] == cov['files'][module_file]['missing_lines']
 
 

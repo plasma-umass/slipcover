@@ -283,9 +283,11 @@ class Slipcover:
                 f_files = {
                     'executed_lines': sorted(lines_seen),
                     'missing_lines': sorted(f_code_lines - lines_seen),
-                    'executed_branches': sorted(branches_seen),
-                    'missing_branches': sorted(self.code_branches[f] - branches_seen)
                 }
+
+                if self.branch:
+                    f_files['executed_branches'] = sorted(branches_seen)
+                    f_files['missing_branches'] = sorted(self.code_branches[f] - branches_seen)
 
                 if self.collect_stats:
                     # Once a line reports in, it's available for deinstrumentation.
@@ -308,14 +310,16 @@ class Slipcover:
 
 
     @staticmethod
-    def format_missing(missing_lines: List[int], executed_lines: List[int], missing_branches: List[tuple]) -> List[str]:
+    def format_missing(missing_lines: List[int], executed_lines: List[int],
+                       missing_branches: List[tuple]) -> List[str]:
         missing_set = set(missing_lines)
         missing_branches = [(a,b) for a,b in missing_branches if a not in missing_set and b not in missing_set]
 
         def format_branch(br):
             return f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
 
-        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall between missed ones"""
+        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
+           between missed ones"""
         def find_ranges():
             executed = set(executed_lines)
             it = iter(missing_lines)    # assumed sorted
@@ -365,7 +369,7 @@ class Slipcover:
                        *([exec_b+miss_b, miss_b] if self.branch else []),
                        round(pct),
                        Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'],
-                                                f_info['missing_branches'])]
+                                                f_info['missing_branches'] if 'missing_branches' in f_info else [])]
 
         print("", file=outfile)
         print(tabulate(table(cov['files']),
