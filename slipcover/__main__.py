@@ -7,15 +7,13 @@ from slipcover import branch as br
 import ast
 import atexit
 
-
 from importlib.abc import MetaPathFinder, Loader
-from importlib.util import spec_from_loader
-#import importlib.machinery
 
 class SlipcoverLoader(Loader):
-    def __init__(self, sci, orig_loader):
+    def __init__(self, sci, orig_loader, origin):
         self.sci = sci
         self.orig_loader = orig_loader
+        self.origin = Path(origin)
 
         # loadlib checks for this attribute to see if we support it... keep in sync with orig_loader
         if not getattr(self.orig_loader, "get_resource_reader", None):
@@ -32,14 +30,18 @@ class SlipcoverLoader(Loader):
         return self.orig_loader.get_code(name)
 
     def exec_module(self, module):
-#        if isinstance(self.orig_loader, importlib.machinery.SourceFileLoader):
-#            t = br.preinstrument(ast.parse(Path(self.origin).read_text()))
-#            code = compile(t, self.origin, "exec")
-#        else:
-        code = self.orig_loader.get_code(module.__name__)
+        import importlib.machinery
+        if sci.branch and isinstance(self.orig_loader, importlib.machinery.SourceFileLoader) and self.origin.exists():
+            # FIXME this assumes no modifications are made, such as those done by pytest
+            t = br.preinstrument(ast.parse(self.origin.read_text()))
+            code = compile(t, str(self.origin), "exec")
+        else:
+            code = self.orig_loader.get_code(module.__name__)
+
         sci.register_module(module)
         code = sci.instrument(code)
         exec(code, module.__dict__)
+
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
     def __init__(self, args, sci, file_matcher, meta_path):
@@ -57,7 +59,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
                 if found.origin and (file_matcher.matches(found.origin) or 'images' in fullname):
                     if self.args.debug:
                         print(f"adding {fullname} from {found.origin}")
-                    found.loader = SlipcoverLoader(self.sci, found.loader)
+                    found.loader = SlipcoverLoader(self.sci, found.loader, found.origin)
                 return found
 
         return None

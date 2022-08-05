@@ -943,6 +943,30 @@ def test_interpose_on_module_load(tmp_path):
     assert module_file in cov['files']
     assert list(range(1,6+1)) == cov['files'][module_file]['executed_lines']
     assert [] == cov['files'][module_file]['missing_lines']
+    assert 'executed_branches' not in cov['files'][module_file]
+    assert 'missing_branches' not in cov['files'][module_file]
+
+
+def test_interpose_on_module_load_branch(tmp_path):
+    # TODO include in coverage info
+    from pathlib import Path
+    import subprocess
+    import json
+
+    out_file = tmp_path / "out.json"
+
+    subprocess.run(f"{sys.executable} -m slipcover --branch --json --out {out_file} tests/importer.py".split(),
+                   check=True)
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    module_file = str(Path('tests') / 'imported' / '__init__.py')
+
+    assert module_file in cov['files']
+    assert list(range(1,6+1)) == cov['files'][module_file]['executed_lines']
+    assert [] == cov['files'][module_file]['missing_lines']
+    assert [[3,4]] == cov['files'][module_file]['executed_branches']
+    assert [[3,6]] == cov['files'][module_file]['missing_branches']
 
 
 def test_pytest_interpose(tmp_path):
