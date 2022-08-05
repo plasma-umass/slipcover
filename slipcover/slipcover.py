@@ -98,28 +98,28 @@ class Slipcover:
         self.code_lines: Dict[str, set] = defaultdict(set)
         self.code_branches: Dict[str, set] = defaultdict(set)
 
-        # notes which lines have been seen.
-        self.lines_seen: Dict[str, Set[int]] = defaultdict(set) # FIXME rename, maybe to trackers_seen?
+        # notes which lines and branches have been seen.
+        self.all_seen: Dict[str, set] = defaultdict(set)
 
-        # notes lines seen since last de-instrumentation
-        self._get_new_lines()
+        # notes lines/branches seen since last de-instrumentation
+        self._get_newly_seen()
 
         self.modules = []
         self.all_trackers = []
 
-    def _get_new_lines(self):
+    def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
 
-        # We trust that assigning to self.new_lines_seen is atomic, as it is triggered
+        # We trust that assigning to self.newly_seen is atomic, as it is triggered
         # by a STORE_NAME or similar opcode and Python synchronizes those.  We rely on
-        # C extensions' atomicity for updates within self.new_lines_seen.  The lock here
+        # C extensions' atomicity for updates within self.newly_seen.  The lock here
         # is just to protect callers of this method (so that the exchange is atomic).
 
         with self.lock:
-            new_lines = self.new_lines_seen if hasattr(self, "new_lines_seen") else None
-            self.new_lines_seen: Dict[str, Set[int]] = defaultdict(set)
+            newly_seen = self.newly_seen if hasattr(self, "newly_seen") else None
+            self.newly_seen: Dict[str, set] = defaultdict(set)
 
-        return new_lines
+        return newly_seen
 
 
     def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
@@ -254,11 +254,11 @@ class Slipcover:
         """Returns coverage information collected."""
 
         with self.lock:
-            # FIXME calling _get_new_lines will prevent de-instrumentation if still running!
-            new_lines = self._get_new_lines()
+            # FIXME calling _get_newly_seen will prevent de-instrumentation if still running!
+            newly_seen = self._get_newly_seen()
 
-            for file, lines in new_lines.items():
-                self.lines_seen[file].update(lines)
+            for file, lines in newly_seen.items():
+                self.all_seen[file].update(lines)
 
             simp = PathSimplifier()
 
@@ -274,9 +274,9 @@ class Slipcover:
 
             files = dict()
             for f, f_code_lines in self.code_lines.items():
-                if f in self.lines_seen:
-                    branches_seen = {x for x in self.lines_seen[f] if isinstance(x, tuple)}
-                    lines_seen = self.lines_seen[f] - branches_seen
+                if f in self.all_seen:
+                    branches_seen = {x for x in self.all_seen[f] if isinstance(x, tuple)}
+                    lines_seen = self.all_seen[f] - branches_seen
                 else:
                     lines_seen = branches_seen = set()
 
@@ -428,15 +428,15 @@ class Slipcover:
 
     def deinstrument_seen(self) -> None:
         with self.lock:
-            new_lines = self._get_new_lines()
+            newly_seen = self._get_newly_seen()
 
-            for file, new_set in new_lines.items():
+            for file, new_set in newly_seen.items():
                 if self.collect_stats: new_set = set(new_set)    # Counter -> set
 
                 for co in self.instrumented[file]:
                     self.deinstrument(co, new_set)
 
-                self.lines_seen[file].update(new_set)
+                self.all_seen[file].update(new_set)
 
             # Replace references to code
             if self.replace_map:

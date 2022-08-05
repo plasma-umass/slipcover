@@ -46,7 +46,7 @@ def test_tracker_signal(stats):
     # line never executed
     t_666 = tracker.register(sci, "/foo/beast.py", 666, -1)
 
-    d = sci.new_lines_seen
+    d = sci.newly_seen
     assert ["/foo/bar.py", "/foo2/baz.py"] == sorted(d.keys())
     assert [123] == sorted(list(d["/foo/bar.py"]))
     assert [42, 314] == sorted(list(d["/foo2/baz.py"]))
@@ -66,7 +66,7 @@ def test_tracker_deinstrument(stats):
     t = tracker.register(sci, "/foo/bar.py", 123, 3)
     tracker.signal(t)
 
-    assert ["/foo/bar.py"] == sorted(sci.new_lines_seen.keys())
+    assert ["/foo/bar.py"] == sorted(sci.newly_seen.keys())
 
     tracker.signal(t)
     tracker.signal(t)
@@ -77,8 +77,8 @@ def test_tracker_deinstrument(stats):
 
     tracker.hit(t)
 
-    assert [] == sorted(sci.new_lines_seen.keys())
-    assert ["/foo/bar.py"] == sorted(sci.lines_seen.keys())
+    assert [] == sorted(sci.newly_seen.keys())
+    assert ["/foo/bar.py"] == sorted(sci.all_seen.keys())
 
     assert ("/foo/bar.py", 123, 3, 1, 6) == tracker.get_stats(t)
 
