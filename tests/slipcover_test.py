@@ -813,6 +813,8 @@ def test_format_missing():
 
     assert "2->exit, 4" == fm([4], [1,2,3], [(2,0)])
 
+    assert "2->exit, 4, 22" == fm([4, 22], [1,2,3,21], [(2,0)])
+
     # omit missing branches involving lines that are missing
     assert "2, 4" == fm([2,4], [1,3,5], [(2,3), (3,4)])
 

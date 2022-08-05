@@ -309,12 +309,21 @@ class Slipcover:
 
     @staticmethod
     def format_missing(missing_lines: List[int], executed_lines: List[int], missing_branches: List[tuple]) -> List[str]:
+        missing_set = set(missing_lines)
+        missing_branches = [(a,b) for a,b in missing_branches if a not in missing_set and b not in missing_set]
+
+        def format_branch(br):
+            return f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
+
         """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall between missed ones"""
         def find_ranges():
             executed = set(executed_lines)
             it = iter(missing_lines)    # assumed sorted
             a = next(it, None)
             while a is not None:
+                while missing_branches and missing_branches[0][0] < a:
+                    yield format_branch(missing_branches.pop(0))
+
                 b = a
                 n = next(it, None)
                 while n is not None:
@@ -328,17 +337,10 @@ class Slipcover:
 
                 a = n
 
-        def format_branches():
-            missing_set = set(missing_lines)
-            for b in missing_branches:
-                b_from, b_to = b
-                if b_from not in missing_set and b_to not in missing_set:
-                    yield f"{b_from}->exit" if b_to == 0 else f"{b_from}->{b_to}"
+            while missing_branches:
+                yield format_branch(missing_branches.pop(0))
 
-        from itertools import chain
-
-        # FIXME sorted() here is acting on list of strings, order may be incorrect
-        return ", ".join(sorted(list(chain(find_ranges(), format_branches()))))
+        return ", ".join(find_ranges())
 
 
     def print_coverage(self, outfile=sys.stdout) -> None:
