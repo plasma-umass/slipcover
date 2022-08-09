@@ -965,7 +965,7 @@ def test_interpose_on_module_load_branch(tmp_path):
     assert module_file in cov['files']
     assert list(range(1,6+1)) == cov['files'][module_file]['executed_lines']
     assert [] == cov['files'][module_file]['missing_lines']
-    assert [[3,4]] == cov['files'][module_file]['executed_branches']
+    assert [[3,4], [4,5], [4,6]] == cov['files'][module_file]['executed_branches']
     assert [[3,6]] == cov['files'][module_file]['missing_branches']
 
 
@@ -1019,7 +1019,7 @@ def test_pytest_interpose_branch(tmp_path):
     cov = cov['files'][test_file]
     assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
     assert [] == cov['missing_lines']
-    assert [[3,4]] == cov['executed_branches']
+    assert [[3,4], [4,5], [4,6]] == cov['executed_branches']
     assert [[3,6]] == cov['missing_branches']
 
     # check that we're not letting pytest cache our pre-instrumented version

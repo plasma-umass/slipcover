@@ -28,7 +28,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
         def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
             return self.visit_FunctionDef(node)
 
-        def visit_If(self, node: ast.If) -> ast.If:
+        def _mark_branches(self, node: ast.AST) -> ast.AST:
             node.body = self._mark_branch(node.lineno, node.body[0].lineno) + node.body
 
             if node.orelse:
@@ -40,8 +40,14 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             super().generic_visit(node)
             return node
 
-        # TODO handle For, While
-        # TODO handle IfExp?
+        def visit_If(self, node: ast.If) -> ast.If:
+            return self._mark_branches(node)
+
+        def visit_For(self, node: ast.For) -> ast.For:
+            return self._mark_branches(node)
+
+        def visit_While(self, node: ast.While) -> ast.While:
+            return self._mark_branches(node)
 
     # Compute the "next" statement in case a branch flows control out of a node.
     tree.next_node = None
@@ -63,7 +69,10 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                             prev.next_node = item
                         prev = item
                 if prev:
-                    prev.next_node = node.next_node
+                    if isinstance(node, ast.For) or isinstance(node, ast.While):
+                        prev.next_node = node
+                    else:
+                        prev.next_node = node.next_node
 
     tree = SlipcoverTransformer().visit(tree)
     ast.fix_missing_locations(tree)

@@ -9,6 +9,7 @@ def ast_parse(s):
 
 
 def get_branches(code):
+    """Extracts a list of all branches marked up in bytecode."""
     import slipcover.bytecode as bc
     import types
 
@@ -26,7 +27,8 @@ def get_branches(code):
     return sorted(branches)
 
 
-def assign2append(tree):
+def assign2append(tree: ast.AST):
+    """Converts our assign-based markup to appends, so that tests can check for branches detected."""
     class a2av(ast.NodeTransformer):
         def __init__(self):
             pass
@@ -193,4 +195,98 @@ def test_if_in_function():
     exec(code, g, g)
     assert [(2,0)] == g[br.BRANCH_NAME]
 
-# TODO add For, While
+
+def test_for():
+    t = ast_parse("""
+        for v in [1, 2]:
+            if v > 0:
+                x += v
+
+        x += 3
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(1,2), (1,5), (2,1), (2,3)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 6 == g['x']
+    assert [(1,2), (2,3), (1,2), (2,3), (1,5)] == g[br.BRANCH_NAME]
+
+
+def test_for_else():
+    t = ast_parse("""
+        for v in [1, 2]:
+            if v > 0:
+                x += v
+        else:
+            x += 3
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(1,2), (1,5), (2,1), (2,3)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 6 == g['x']
+    assert [(1,2), (2,3), (1,2), (2,3), (1,5)] == g[br.BRANCH_NAME]
+
+
+def test_while():
+    t = ast_parse("""
+        v = 2
+        while v > 0:
+            v -= 1
+            if v > 0:
+                x += v
+
+        x += 3
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,3), (2,7), (4,2), (4,5)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 4 == g['x']
+    assert [(2,3), (4,5), (2,3), (4,2), (2,7)] == g[br.BRANCH_NAME]
+
+
+def test_while_else():
+    t = ast_parse("""
+        v = 2
+        while v > 0:
+            v -= 1
+            if v > 0:
+                x += v
+        else:
+            x += 3
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,3), (2,7), (4,2), (4,5)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 4 == g['x']
+    assert [(2,3), (4,5), (2,3), (4,2), (2,7)] == g[br.BRANCH_NAME]
