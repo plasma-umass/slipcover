@@ -987,8 +987,44 @@ def test_pytest_interpose(tmp_path):
     assert test_file in cov['files']
     assert {test_file} == set(cov['files'].keys())  # any unrelated files included?
     cov = cov['files'][test_file]
-    assert [1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13] == cov['executed_lines']
+    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
     assert [] == cov['missing_lines']
+
+
+def test_pytest_interpose_branch(tmp_path):
+    # TODO include in coverage info
+    from pathlib import Path
+    import subprocess
+    import json
+
+    test_file = str(Path('tests') / 'pyt.py')
+    def cache_files():
+        return list(Path("tests/__pycache__").glob(f"pyt*{sys.implementation.cache_tag}-pytest*.pyc"))
+
+    # remove and create a clean pytest cache, to make sure it's not interfering
+    for p in cache_files(): p.unlink()
+    subprocess.run(f"{sys.executable} -m pytest {test_file}".split(), check=True)
+    pytest_cache_files = cache_files()
+    assert len(pytest_cache_files) == 1
+    pytest_cache_content = pytest_cache_files[0].read_bytes()
+
+    out_file = tmp_path / "out.json"
+    subprocess.run(f"{sys.executable} -m slipcover --branch --json --out {out_file} -m pytest {test_file}".split(),
+                   check=True)
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    assert test_file in cov['files']
+    assert {test_file} == set(cov['files'].keys())  # any unrelated files included?
+    cov = cov['files'][test_file]
+    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
+    assert [] == cov['missing_lines']
+    assert [[3,4]] == cov['executed_branches']
+    assert [[3,6]] == cov['missing_branches']
+
+    # check that we're not letting pytest cache our pre-instrumented version
+    assert pytest_cache_files == cache_files()
+    assert (pytest_cache_content == pytest_cache_files[0].read_bytes())
 
 
 def test_pytest_plugins_visible():

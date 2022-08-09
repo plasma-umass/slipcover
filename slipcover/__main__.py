@@ -128,12 +128,32 @@ def wrap_pytest():
     except ModuleNotFoundError:
         return
 
+    def rewrite_asserts_wrapper(*args):
+        args = (br.preinstrument(args[0]), *args[1:])
+        return _pytest.assertion.rewrite.rewrite_asserts(*args)
+
+    def read_or_write_pyc(*args, **kwargs):
+        return None
+
     for f in sc.Slipcover.find_functions(_pytest.assertion.rewrite.__dict__.values(), set()):
         if 'exec' in f.__code__.co_names:
             ed = bc.Editor(f.__code__)
             wrapper_index = ed.add_const(exec_wrapper)
             ed.replace_global_with_const('exec', wrapper_index)
             f.__code__ = ed.finish()
+
+        if sci.branch and 'rewrite_asserts' in f.__code__.co_names:
+            ed = bc.Editor(f.__code__)
+            wrapper_index = ed.add_const(rewrite_asserts_wrapper)
+            ed.replace_global_with_const('rewrite_asserts', wrapper_index)
+            f.__code__ = ed.finish()
+
+    # disable cached test reading/writing
+    if sci.branch:
+        assert hasattr(_pytest.assertion.rewrite, "_read_pyc")
+        assert hasattr(_pytest.assertion.rewrite, "_write_pyc")
+        _pytest.assertion.rewrite._read_pyc = read_or_write_pyc
+        _pytest.assertion.rewrite._write_pyc = read_or_write_pyc
 
 if not args.dont_wrap_pytest:
     wrap_pytest()

@@ -1,7 +1,8 @@
 def foo(n):
     r = 0
-    for i in range(1, n+1):
-        r += i
+    if n >= 0:
+        for i in range(1, n+1):
+            r += i
     return r
 
 def test_some():
