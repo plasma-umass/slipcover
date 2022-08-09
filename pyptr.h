@@ -10,8 +10,12 @@
 template <class O = PyObject>
 class PyPtr {
 public:
-    // assumes a new reference
+    // assumes a new reference; use "borrowed" otherwise
     PyPtr(O* o) : _obj(o) {}
+
+    PyPtr(const PyPtr& ptr) : _obj(ptr._obj) {
+        Py_IncRef((PyObject*)_obj);
+    }
 
     static PyPtr borrowed(O* o) {
         Py_IncRef((PyObject*)o);
@@ -22,23 +26,16 @@ public:
 
     operator O*() { return _obj; }
 
-    PyPtr& operator=(O* o) {
-        Py_DecRef((PyObject*)_obj);
-        _obj = o;
-        return *this;
-    }
-
-    // XXX is rvalue operator= worthwhile?
-
-    PyPtr& operator=(PyPtr& ptr) {
+    PyPtr& operator=(const PyPtr& ptr) {
+        // increment first in case self-assigning
         Py_IncRef((PyObject*)ptr._obj);
-        *this = ptr._obj;
+        Py_DecRef((PyObject*)_obj);
+        _obj = ptr._obj;
         return *this;
     }
 
     ~PyPtr() {
         Py_DecRef((PyObject*)_obj);
-        _obj = 0;
     }
 
 private:
