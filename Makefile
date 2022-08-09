@@ -15,7 +15,11 @@ test:
 	done
 	- python3 -m coverage report -m
 
-pyptr_test: tests/pyptr_test.cxx pyptr.h
+JustUnit/JustUnit.cxx:
+	git submodule init
+	git submodule update
+
+pyptr_test: tests/pyptr_test.cxx pyptr.h JustUnit/JustUnit.cxx
 	clang++ --std=c++17 -I. -IJustUnit $(shell python3-config --cflags) \
 		$(shell python3-config --ldflags --embed) -o $@ $< JustUnit/JustUnit.cxx
 	./pyptr_test
