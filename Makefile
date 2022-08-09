@@ -18,6 +18,7 @@ test:
 pyptr_test: tests/pyptr_test.cxx pyptr.h
 	clang++ --std=c++17 -I. -IJustUnit $(shell python3-config --cflags) \
 		$(shell python3-config --ldflags --embed) -o $@ $< JustUnit/JustUnit.cxx
+	./pyptr_test
 
 bench:
 	python3 -m pip install -e .
