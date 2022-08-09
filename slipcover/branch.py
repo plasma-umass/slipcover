@@ -1,6 +1,6 @@
 import ast
 
-BRANCH_PREFIX = "slipcover_branch_"
+BRANCH_NAME = "_slipcover_branches"
 
 def preinstrument(tree: ast.AST) -> ast.AST:
     """Prepares an AST for Slipcover instrumentation, inserting assignments indicating where branches happen."""
@@ -10,18 +10,23 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             pass
 
         def _mark_branch(self, from_line: int, to_line: int) -> ast.AST:
-            name = BRANCH_PREFIX + str(from_line) + "_" + str(to_line)
-            # Mark the "variables" indicating the branches as global, so that our assignments
-            # always yield STORE_NAME / STORE_GLOBAL, making them easier to find.
-            br = [ast.Global([name]),
-                  ast.Assign([ast.Name(name, ast.Store())],
-                             ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))]
+            mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
+                               ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
 
-            for item in br:
-                for node in ast.walk(item):
-                    node.lineno = 0 # we ignore line 0, so this avoids generating line trackers
+            for node in ast.walk(mark):
+                node.lineno = 0 # we ignore line 0, so this avoids generating line trackers
 
-            return br
+            return [mark]
+
+        def visit_FunctionDef(self, node: ast.AST) -> ast.AST:
+            # Mark BRANCH_NAME global, so that our assignment are easier to find (only STORE_NAME/STORE_GLOBAL,
+            # but not STORE_FAST, etc.)
+            node.body.insert(0, ast.Global([BRANCH_NAME]))
+            super().generic_visit(node)
+            return node
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
+            return self.visit_FunctionDef(node)
 
         def visit_If(self, node: ast.If) -> ast.If:
             node.body = self._mark_branch(node.lineno, node.body[0].lineno) + node.body
@@ -42,12 +47,15 @@ def preinstrument(tree: ast.AST) -> ast.AST:
     tree.next_node = None
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+            # no next node, yields (..., 0), i.e., "->exit" branch
             node.next_node = None
 
         for name, field in ast.iter_fields(node):
             if isinstance(field, ast.AST):
+                # if a field is just a node, any execution continues after our node
                 field.next_node = node.next_node
             elif isinstance(field, list):
+                # if a field is a list, each item but the last one continues with the next item
                 prev = None
                 for item in field:
                     if isinstance(item, ast.AST):

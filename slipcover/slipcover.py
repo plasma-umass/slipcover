@@ -147,7 +147,7 @@ class Slipcover:
 
         off_list = list(dis.findlinestarts(co))
         if self.branch:
-            off_list.extend(list(ed.find_const_assignments(br.BRANCH_PREFIX)))
+            off_list.extend(list(ed.find_const_assignments(br.BRANCH_NAME)))
             off_list.sort()
 
         branch_set = set()

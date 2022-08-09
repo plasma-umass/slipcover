@@ -20,10 +20,31 @@ def get_branches(code):
             branches.extend(get_branches(c))
 
     ed = bc.Editor(code)
-    for _, _, br_index in ed.find_const_assignments(br.BRANCH_PREFIX):
+    for _, _, br_index in ed.find_const_assignments(br.BRANCH_NAME):
         branches.append(code.co_consts[br_index])
 
     return sorted(branches)
+
+
+def assign2append(tree):
+    class a2av(ast.NodeTransformer):
+        def __init__(self):
+            pass
+
+        def visit_Assign(self, node: ast.Assign) -> ast.Assign:
+            if node.targets and isinstance(node.targets[0], ast.Name) \
+               and node.targets[0].id == br.BRANCH_NAME:
+                return ast.AugAssign(
+                        target=node.targets[0],
+                        op=ast.Add(),
+                        value=ast.List(elts=[node.value], ctx=ast.Load()),
+                        ctx=ast.Load())
+
+            return node
+
+    tree = a2av().visit(tree)
+    ast.fix_missing_locations(tree)
+    return tree
 
 
 def test_if():
@@ -38,15 +59,18 @@ def test_if():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,4)] == get_branches(code)
 
-    g = {'x': 0}
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
     exec(code, g, g)
     assert 5 == g['x']
-    assert 'slipcover_branch_1_2' in g
+    assert [(1,2)] == g[br.BRANCH_NAME]
 
-    g = {'x': 1}
+    g = {'x': 1, br.BRANCH_NAME: []}
     exec(code, g, g)
     assert 4 == g['x']
-    assert 'slipcover_branch_1_4' in g
+    assert [(1,4)] == g[br.BRANCH_NAME]
 
 
 def test_if_else():
@@ -65,15 +89,19 @@ def test_if_else():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,6)] == get_branches(code)
 
-    g = {'x': 0}
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
     exec(code, g, g)
     assert 4 == g['x']
-    assert 'slipcover_branch_1_2' in g
+    assert [(1,2)] == g[br.BRANCH_NAME]
 
-    g = {'x': 1}
+    g = {'x': 1, br.BRANCH_NAME: []}
     exec(code, g, g)
     assert 6 == g['x']
-    assert 'slipcover_branch_1_6' in g
+    assert [(1,6)] == g[br.BRANCH_NAME]
 
 
 def test_if_nothing_after_it():
@@ -87,15 +115,18 @@ def test_if_nothing_after_it():
     code = compile(t, "foo", "exec")
     assert [(1,0), (1,2)] == get_branches(code)
 
-    g = {'x': 0}
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
     exec(code, g, g)
     assert 1 == g['x']
-    assert 'slipcover_branch_1_2' in g
+    assert [(1,2)] == g[br.BRANCH_NAME]
 
-    g = {'x': 3}
+    g = {'x': 3, br.BRANCH_NAME: []}
     exec(code, g, g)
     assert 3 == g['x']
-    assert 'slipcover_branch_1_0' in g
+    assert [(1,0)] == g[br.BRANCH_NAME]
 
 
 def test_if_nested():
@@ -117,20 +148,20 @@ def test_if_nested():
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,7), (3,4), (3,11), (4,5), (4,11), (8,9), (8,10)] == get_branches(code)
 
-    g = {'x': 0}
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
     exec(code, g, g)
     assert 1 == g['y']
     assert 0 == g['z']
-    assert 'slipcover_branch_1_2' in g
-    assert 'slipcover_branch_3_11' in g
+    assert [(1,2), (3,11)] == g[br.BRANCH_NAME]
 
-    g = {'x': 3}
+    g = {'x': 3, br.BRANCH_NAME: []}
     exec(code, g, g)
     assert 2 == g['y']
     assert 0 == g['z']
-    assert 'slipcover_branch_1_2' in g
-    assert 'slipcover_branch_3_4' in g
-    assert 'slipcover_branch_4_5' in g
+    assert [(1,2), (3,4), (4,5)] == g[br.BRANCH_NAME]
 
 
 def test_if_in_function():
@@ -155,8 +186,11 @@ def test_if_in_function():
     code = compile(t, "foo", "exec")
     assert [(2,0), (2,3), (6,0), (6,7), (11,0), (11,12)] == get_branches(code)
 
-    g = dict()
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {br.BRANCH_NAME: []}
     exec(code, g, g)
-    assert 'slipcover_branch_2_0' in g
+    assert [(2,0)] == g[br.BRANCH_NAME]
 
 # TODO add For, While
