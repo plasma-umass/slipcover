@@ -26,6 +26,7 @@ public:
 
     operator O*() { return _obj; }
 
+
     PyPtr& operator=(const PyPtr& ptr) {
         // increment first in case self-assigning
         Py_IncRef((PyObject*)ptr._obj);
