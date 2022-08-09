@@ -8,29 +8,6 @@ def ast_parse(s):
     return ast.parse(inspect.cleandoc(s))
 
 
-def get_branches_from_ast(tree: ast.AST) -> list:   # TODO this is unused, remove me
-    """Returns the set of tuples (from_line, to_line) with branches inserted by *br.preinstrument*."""
-
-    class BranchFinder(ast.NodeVisitor):
-        def __init__(self):
-            self._branches = set()
-
-        def get_branches(self):
-            return self._branches
-
-        def visit_Assign(self, node: ast.Assign):
-            if len(node.targets) == 1 and \
-               isinstance(node.targets[0], ast.Name) and\
-               node.targets[0].id.startswith(br.BRANCH_PREFIX):
-                assert isinstance(node.value, ast.Tuple)
-                assert 2 == len(node.value.elts)
-                self._branches.add((node.value.elts[0].value, node.value.elts[1].value))
-
-    bf = BranchFinder()
-    bf.visit(tree)
-    return sorted(list(bf.get_branches()))
-
-
 def get_branches(code):
     import slipcover.bytecode as bc
     import types
