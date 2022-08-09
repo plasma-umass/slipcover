@@ -15,6 +15,10 @@ test:
 	done
 	- python3 -m coverage report -m
 
+pyptr_test: tests/pyptr_test.cxx pyptr.h
+	clang++ --std=c++17 -I. -IJustUnit $(shell python3-config --cflags) \
+		$(shell python3-config --ldflags --embed) -o $@ $< JustUnit/JustUnit.cxx
+
 bench:
 	python3 -m pip install -e .
 	- find . -iname \*__pycache__\* | xargs rm -rf
@@ -26,3 +30,4 @@ clean:
 	- rm -rf build dist
 	- find . -iname __pycache__ -exec rm -r '{}' \+
 	- rm -rf .pytest_cache
+	- rm -rf pyptr_test *.dSYM
