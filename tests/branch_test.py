@@ -106,6 +106,32 @@ def test_if_else():
     assert [(1,6)] == g[br.BRANCH_NAME]
 
 
+def test_if_elif_else():
+    t = ast_parse("""
+        if x == 0:
+            x += 1
+        elif x == 1:
+            x += 2
+        else:
+            x += 3
+
+        x += 3
+    """)
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(1,2), (1,3), (3,4), (3,6)] == get_branches(code)
+
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 1, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 6 == g['x']
+    assert [(1,3), (3,4)] == g[br.BRANCH_NAME]
+
+
 def test_if_nothing_after_it():
     t = ast_parse("""
         if x == 0:
@@ -242,6 +268,30 @@ def test_for_else():
     assert [(1,2), (2,3), (1,2), (2,3), (1,5)] == g[br.BRANCH_NAME]
 
 
+def test_for_break_else():
+    t = ast_parse("""
+        for v in [1, 2]:
+            if v > 0:
+                x += v
+            break
+        else:
+            x += 3
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(1,2), (1,6), (2,3), (2,4)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 1 == g['x']
+    assert [(1,2), (2,3)] == g[br.BRANCH_NAME]
+
+
 def test_while():
     t = ast_parse("""
         v = 2
@@ -290,3 +340,29 @@ def test_while_else():
     exec(code, g, g)
     assert 4 == g['x']
     assert [(2,3), (4,5), (2,3), (4,2), (2,7)] == g[br.BRANCH_NAME]
+
+
+def test_while_break_else():
+    t = ast_parse("""
+        v = 2
+        while v > 0:
+            v -= 1
+            if v > 0:
+                x += v
+            break
+        else:
+            x += 3
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,3), (2,8), (4,5), (4,6)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 1 == g['x']
+    assert [(2,3), (4,5)] == g[br.BRANCH_NAME]
