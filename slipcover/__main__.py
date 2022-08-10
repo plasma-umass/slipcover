@@ -129,6 +129,10 @@ def wrap_pytest():
         return
 
     def rewrite_asserts_wrapper(*args):
+        # FIXME we should normally subject pre-instrumentation to file_matcher matching...
+        # but the filename isn't clearly available. So here we instead always pre-instrument
+        # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
+        # *should* be innocuous if not followed by sci.instrument.
         args = (br.preinstrument(args[0]), *args[1:])
         return _pytest.assertion.rewrite.rewrite_asserts(*args)
 
