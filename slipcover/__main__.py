@@ -32,7 +32,7 @@ class SlipcoverLoader(Loader):
     def exec_module(self, module):
         import importlib.machinery
         if sci.branch and isinstance(self.orig_loader, importlib.machinery.SourceFileLoader) and self.origin.exists():
-            # FIXME this assumes no modifications are made, such as those done by pytest
+            # Go back to the sources to pre-instrument
             t = br.preinstrument(ast.parse(self.origin.read_text()))
             code = compile(t, str(self.origin), "exec")
         else:
