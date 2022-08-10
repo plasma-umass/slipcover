@@ -446,8 +446,6 @@ class Slipcover:
             newly_seen = self._get_newly_seen()
 
             for file, new_set in newly_seen.items():
-                if self.collect_stats: new_set = set(new_set)    # Counter -> set
-
                 for co in self.instrumented[file]:
                     self.deinstrument(co, new_set)
 
