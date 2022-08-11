@@ -82,9 +82,9 @@ class FileMatcher:
 
 
 class Slipcover:
-    def __init__(self, collect_stats: bool = False, d_threshold: int = 50, branch: bool = False):
+    def __init__(self, collect_stats: bool = False, d_miss_threshold: int = 50, branch: bool = False):
         self.collect_stats = collect_stats
-        self.d_threshold = d_threshold
+        self.d_miss_threshold = d_miss_threshold
         self.branch = branch
 
         # mutex protecting this state
@@ -168,7 +168,7 @@ class Slipcover:
                         offset += 2 # TODO will we overtake the next offset from findlinestarts?
 
                 insert_labels.append(lineno)
-                tr = tracker.register(self, co.co_filename, lineno, self.d_threshold)
+                tr = tracker.register(self, co.co_filename, lineno, self.d_miss_threshold)
                 tr_index = ed.add_const(tr)
                 if self.collect_stats:
                     self.all_trackers.append(tr)
@@ -182,7 +182,7 @@ class Slipcover:
                 branch_set.add(branch)
                 insert_labels.append(branch)
 
-                tr = tracker.register(self, co.co_filename, branch, self.d_threshold)
+                tr = tracker.register(self, co.co_filename, branch, self.d_miss_threshold)
                 ed.set_const(branch_index, tr)
                 if self.collect_stats:
                     self.all_trackers.append(tr)

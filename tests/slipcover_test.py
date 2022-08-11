@@ -677,7 +677,7 @@ def test_deinstrument_some(stats):
 
 
 @pytest.mark.parametrize("do_branch", [False, True])
-def test_deinstrument_seen_d_threshold(do_branch):
+def test_deinstrument_seen_upon_d_miss_threshold(do_branch):
     from slipcover import tracker as tr
 
     t = ast_parse("""
@@ -722,7 +722,7 @@ def test_deinstrument_seen_d_threshold(do_branch):
     foo(1)
 
 
-def test_deinstrument_seen_d_threshold_doesnt_count_while_deinstrumenting():
+def test_deinstrument_seen_upon_d_miss_threshold_doesnt_count_while_deinstrumenting():
     sci = sc.Slipcover()
 
     base_line = current_line()
@@ -792,7 +792,7 @@ def test_deinstrument_seen_descriptor_not_invoked():
 
 
 def test_no_deinstrument_seen_negative_threshold():
-    sci = sc.Slipcover(d_threshold=-1)
+    sci = sc.Slipcover(d_miss_threshold=-1)
 
     first_line = current_line()+2
     def foo(n):

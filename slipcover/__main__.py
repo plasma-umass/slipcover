@@ -8,19 +8,20 @@ import ast
 import atexit
 
 from importlib.abc import MetaPathFinder, Loader
+from importlib.machinery import SourceFileLoader
 
 class SlipcoverLoader(Loader):
-    def __init__(self, sci, orig_loader, origin):
-        self.sci = sci
-        self.orig_loader = orig_loader
-        self.origin = Path(origin)
+    def __init__(self, sci: sc.Slipcover, orig_loader: Loader, origin: str):
+        self.sci = sci                  # Slipcover object measuring coverage
+        self.orig_loader = orig_loader  # original loader we're wrapping
+        self.origin = Path(origin)      # module origin (source file for a source loader)
 
         # loadlib checks for this attribute to see if we support it... keep in sync with orig_loader
         if not getattr(self.orig_loader, "get_resource_reader", None):
             delattr(self, "get_resource_reader")
 
     # for compability with loaders supporting resources, used e.g. by sklearn
-    def get_resource_reader(self, fullname):
+    def get_resource_reader(self, fullname: str):
         return self.orig_loader.get_resource_reader(fullname)
 
     def create_module(self, spec):
@@ -30,9 +31,8 @@ class SlipcoverLoader(Loader):
         return self.orig_loader.get_code(name)
 
     def exec_module(self, module):
-        import importlib.machinery
-        if sci.branch and isinstance(self.orig_loader, importlib.machinery.SourceFileLoader) and self.origin.exists():
-            # Go back to the sources to pre-instrument
+        # branch coverage requires pre-instrumentation from source
+        if sci.branch and isinstance(self.orig_loader, SourceFileLoader) and self.origin.exists():
             t = br.preinstrument(ast.parse(self.origin.read_text()))
             code = compile(t, str(self.origin), "exec")
         else:
@@ -115,7 +115,7 @@ if args.omit:
     for o in args.omit.split(','):
         file_matcher.addOmit(o)
 
-sci = sc.Slipcover(collect_stats=args.stats, d_threshold=args.threshold, branch=args.branch)
+sci = sc.Slipcover(collect_stats=args.stats, d_miss_threshold=args.threshold, branch=args.branch)
 
 def wrap_pytest():
     def exec_wrapper(obj, g):

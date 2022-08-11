@@ -16,15 +16,15 @@ class Tracker {
     int _d_miss_count;
     int _u_miss_count;
     int _hit_count;
-    int _d_threshold;
+    int _d_miss_threshold;
 
 public:
-    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno_or_branch, PyObject* d_threshold):
+    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno_or_branch, PyObject* d_miss_threshold):
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
         _lineno_or_branch(PyPtr<>::borrowed(lineno_or_branch)),
         _signalled(false), _instrumented(true),
         _d_miss_count(-1), _u_miss_count(0), _hit_count(0),
-        _d_threshold(PyLong_AsLong(d_threshold)) {}
+        _d_miss_threshold(PyLong_AsLong(d_miss_threshold)) {}
 
 
     static PyObject*
@@ -62,7 +62,7 @@ public:
             // Limit D misses by deinstrumenting once we see several for a line
             // Any other lines getting D misses get deinstrumented at the same time,
             // so this needn't be a large threshold.
-            if (++_d_miss_count == _d_threshold) {
+            if (++_d_miss_count == _d_miss_threshold) {
                 PyPtr<> deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
                 PyPtr<> result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
             }
