@@ -233,7 +233,7 @@ class Slipcover:
 
         index = self.code2index[co]
 
-        for offset in [index[line_or_br] for line_or_br in lines if line_or_br in index]:
+        for offset in (index[line_or_br] for line_or_br in lines if line_or_br in index):
             if (func := ed.get_inserted_function(offset)):
                 func_index = func[0]
                 if co_consts[func_index] == tracker.signal:
