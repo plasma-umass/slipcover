@@ -676,17 +676,24 @@ def test_deinstrument_some(stats):
     assert [3, 4] == [l-base_line for l in cov['missing_lines']]
 
 
-def test_deinstrument_seen_d_threshold():
-    sci = sc.Slipcover()
+@pytest.mark.parametrize("do_branch", [False, True])
+def test_deinstrument_seen_d_threshold(do_branch):
+    from slipcover import tracker as tr
 
-    first_line = current_line()+1
-    def foo(n):
-        x = 0;
-        for _ in range(100):
-            x += n
-        return x
-    last_line = current_line()
+    t = ast_parse("""
+        def foo(n):
+            x = 0;
+            for _ in range(100):
+                x += n
+            return x    # line 5
+    """)
+    if do_branch:
+        t = br.preinstrument(t)
+    g = dict()
+    exec(compile(t, "foo", "exec"), g, g)
+    foo = g['foo']
 
+    sci = sc.Slipcover(branch=do_branch)
     assert not sci.get_coverage()['files']
 
     sci.instrument(foo)
@@ -696,14 +703,23 @@ def test_deinstrument_seen_d_threshold():
 
     assert old_code != foo.__code__, "Code never de-instrumented"
 
-    foo(1)
+    # skip trackers with d_miss == 0, as these may not have been de-instrumented
+    trackers = [t for t in old_code.co_consts if type(t).__name__ == 'PyCapsule' and tr.get_stats(t)[2] > 0]
+    assert len(trackers) > 0
+    for t in trackers:
+        assert not tr.is_instrumented(t), f"tracker still instrumented: {tr.get_stats(t)}"
 
-    cov = sci.get_coverage()['files'][simple_current_file()]
+    cov = sci.get_coverage()['files']['foo']
     if PYTHON_VERSION >= (3,11):
-        assert [*range(first_line, last_line)] == cov['executed_lines']
+        assert [1,2,3,4,5] == cov['executed_lines']
     else:
-        assert [*range(first_line+1, last_line)] == cov['executed_lines']
+        assert [2,3,4,5] == cov['executed_lines']
     assert [] == cov['missing_lines']
+    if do_branch:
+        assert [(3,4),(3,5)] == cov['executed_branches']
+        assert [] == cov['missing_branches']
+
+    foo(1)
 
 
 def test_deinstrument_seen_d_threshold_doesnt_count_while_deinstrumenting():

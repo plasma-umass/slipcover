@@ -98,6 +98,9 @@ class Slipcover:
         self.code_lines: Dict[str, set] = defaultdict(set)
         self.code_branches: Dict[str, set] = defaultdict(set)
 
+        # provides an index (line_or_branch -> offset) for each code object
+        self.code2index: Dict[types.CodeType, dict] = dict()
+
         # notes which lines and branches have been seen.
         self.all_seen: Dict[str, set] = defaultdict(set)
 
@@ -151,6 +154,7 @@ class Slipcover:
             off_list.sort()
 
         branch_set = set()
+        insert_labels = []
 
         delta = 0
         for off_item in off_list:
@@ -163,6 +167,7 @@ class Slipcover:
                     while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
                         offset += 2 # TODO will we overtake the next offset from findlinestarts?
 
+                insert_labels.append(lineno)
                 tr = tracker.register(self, co.co_filename, lineno, self.d_threshold)
                 tr_index = ed.add_const(tr)
                 if self.collect_stats:
@@ -175,6 +180,7 @@ class Slipcover:
                 branch = co.co_consts[branch_index]
 
                 branch_set.add(branch)
+                insert_labels.append(branch)
 
                 tr = tracker.register(self, co.co_filename, branch, self.d_threshold)
                 ed.set_const(branch_index, tr)
@@ -187,6 +193,10 @@ class Slipcover:
         ed.add_const('__slipcover__')  # mark instrumented
         new_code = ed.finish()
 
+        index = dict()
+        for offset, label in zip(ed.get_inserts(), insert_labels):
+            index[label] = offset
+
         with self.lock:
             # Python 3.11.0b4 generates a 0th line
             self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co) if line[1] != 0)
@@ -195,6 +205,7 @@ class Slipcover:
             if not parent:
                 self.instrumented[co.co_filename].add(new_code)
 
+            self.code2index[new_code] = index
         return new_code
 
 
@@ -220,8 +231,10 @@ class Slipcover:
                 if nc is not c:
                     ed.set_const(i, nc)
 
-        for (offset, lineno) in dis.findlinestarts(co):
-            if lineno in lines and (func := ed.get_inserted_function(offset)):
+        index = self.code2index[co]
+
+        for offset in [index[line_or_br] for line_or_br in lines if line_or_br in index]:
+            if (func := ed.get_inserted_function(offset)):
                 func_index = func[0]
                 if co_consts[func_index] == tracker.signal:
                     tracker.deinstrument(co_consts[func[1]])
@@ -239,8 +252,10 @@ class Slipcover:
         if new_code is co:
             return co
 
+        # no offsets changed, so the old code's index is still usable
+        self.code2index[new_code] = index
+
         with self.lock:
-            # Interesting (and useful fact): dict sees code edited this way as being the same
             self.replace_map[co] = new_code
 
             if co in self.instrumented[co.co_filename]:

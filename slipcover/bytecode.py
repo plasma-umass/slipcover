@@ -446,6 +446,7 @@ class Editor:
         self.branches = None
         self.ex_table = None
         self.lines = None
+        self.inserts = []
 
         self.max_addtl_stack = 0
         self.finished = False
@@ -476,6 +477,7 @@ class Editor:
         large as *repl_length*.
         """
 
+        assert not self.finished
         assert isinstance(function, int)    # we only support const references so far
 
         if self.patch is None:
@@ -529,6 +531,8 @@ class Editor:
         for e in self.ex_table:
             e.adjust(offset, change)
 
+        self.inserts.append(offset)
+
         return change
 
 
@@ -576,6 +580,7 @@ class Editor:
 
     def disable_inserted_function(self, offset):
         """Disables an inserted function at a given offset."""
+        assert not self.finished
 
         if self.patch is None:
             self.patch = bytearray(self.orig_code.co_code)
@@ -586,6 +591,8 @@ class Editor:
 
     def replace_inserted_function(self, offset, new_func_index):
         """Replaces an inserted function by another function."""
+
+        assert not self.finished
 
         if self.patch is None:
             self.patch = bytearray(self.orig_code.co_code)
@@ -610,6 +617,7 @@ class Editor:
 
     def replace_global_with_const(self, global_name, const_index):
         """Replaces a global name lookup by a constant load."""
+        assert not self.finished
 
         if self.patch is None:
             self.patch = bytearray(self.orig_code.co_code)
@@ -657,44 +665,56 @@ class Editor:
                 delta += change
 
 
+    def _finish(self):
+        if not self.finished:
+            self.finished = True
+
+            if self.branches is not None:
+                # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
+                # Inserting space for those may in turn trigger needing more space for others...
+                # FIXME missing test for length adjustment triggering other length adjustments
+                any_adjusted = True
+                while any_adjusted:
+                    any_adjusted = False
+
+                    for b in self.branches:
+                        change = b.adjust_length()
+                        if change:
+#                            print(f"adjusted branch {b.offset}->{b.target} by {change} to length={b.length}")
+                            self.patch[b.offset:b.offset] = [0] * change
+                            for c in self.branches:
+                                if b != c:
+                                    c.adjust(b.offset, change)
+
+                            for l in self.lines:
+                                l.adjust(b.offset, change)
+
+                            for e in self.ex_table:
+                                e.adjust(b.offset, change)
+
+                            for i in range(len(self.inserts)):
+                                if b.offset <= self.inserts[i]:
+                                    self.inserts[i] += change
+
+                            any_adjusted = True
+
+                for b in self.branches:
+                    assert self.patch[b.offset+b.length-2] == b.opcode
+                    self.patch[b.offset:b.offset+b.length] = b.code()
+
+
+    def get_inserts(self) -> List[int]:
+        self._finish()
+        return list(self.inserts)   # return copy so not to leak internal list
+
+
     def finish(self):
         """Finishes editing bytecode, returning a new code object."""
 
-        assert not self.finished
-        self.finished = True
+        self._finish()
 
         if not self.patch and not self.consts:
             return self.orig_code
-
-        if self.branches is not None:
-            # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
-            # Inserting space for those may in turn trigger needing more space for others...
-            # FIXME missing test for length adjustment triggering other length adjustments
-            any_adjusted = True
-            while any_adjusted:
-                any_adjusted = False
-
-                for b in self.branches:
-                    change = b.adjust_length()
-                    if change:
-    #                    print(f"adjusted branch {b.offset}->{b.target} by {change} to length={b.length}")
-                        self.patch[b.offset:b.offset] = [0] * change
-                        for c in self.branches:
-                            if b != c:
-                                c.adjust(b.offset, change)
-
-                        for l in self.lines:
-                            l.adjust(b.offset, change)
-
-                        for e in self.ex_table:
-                            e.adjust(b.offset, change)
-
-                        any_adjusted = True
-
-            for b in self.branches:
-                assert self.patch[b.offset+b.length-2] == b.opcode
-                self.patch[b.offset:b.offset+b.length] = b.code()
-
 
         replace = {}
         if self.consts is not None:

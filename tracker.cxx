@@ -95,6 +95,13 @@ public:
                             (PyObject*)d_miss_count, (PyObject*)u_miss_count,
                             (PyObject*)total_count);
     }
+
+    PyObject* is_instrumented() {
+        if (_instrumented) {
+            Py_RETURN_TRUE;
+        }
+        Py_RETURN_FALSE;
+    }
 };
 
 
@@ -123,6 +130,7 @@ METHOD_WRAPPER(signal);
 METHOD_WRAPPER(hit);
 METHOD_WRAPPER(deinstrument);
 METHOD_WRAPPER(get_stats);
+METHOD_WRAPPER(is_instrumented);
 
 
 static PyMethodDef methods[] = {
@@ -131,6 +139,7 @@ static PyMethodDef methods[] = {
     {"hit",          (PyCFunction)tracker_hit, METH_FASTCALL, "signals the line was reached after full deinstrumentation"},
     {"deinstrument", (PyCFunction)tracker_deinstrument, METH_FASTCALL, "marks a tracker deinstrumented"},
     {"get_stats",    (PyCFunction)tracker_get_stats, METH_FASTCALL, "returns tracker stats"},
+    {"is_instrumented", (PyCFunction)tracker_is_instrumented, METH_FASTCALL, "returns whether tracker is instrumented"},
     {NULL, NULL, 0, NULL}
 };
 

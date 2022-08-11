@@ -605,8 +605,13 @@ def test_adjust_long_jump(N):
     foo_index = ed.add_const(foo)
     # instrument the line inside the "for" loop, making the loop grow
     ed.insert_function_call(lines[3].start, foo_index, ())
+    inserts = ed.get_inserts()
     code = ed.finish()
 #    dis.dis(code)
+
+    assert len(inserts) > 0
+    for offset in inserts:
+        assert code.co_code[offset] == bc.op_NOP
 
     exec(orig_code, locals(), globals())
     assert N+10 == x
@@ -624,13 +629,13 @@ def test_find_const_assignments():
     code = compile(inspect.cleandoc("""
             if x == 0:
                 foo = True
-                slipcover_branch_42_666 = (42, 666)
+                _slipcover_branch = (42, 666)
                 ...
             bar = 1.234
         """), "foo", "exec")
 
     ed = bc.Editor(code)
-    it = iter(ed.find_const_assignments('slipcover_branch_'))
+    it = iter(ed.find_const_assignments('_slipcover_branch'))
     found = next(it)
     assert code.co_consts[found[2]] == (42, 666)
 
@@ -642,7 +647,7 @@ def test_find_const_assignment_not_found():
     code = compile(inspect.cleandoc("""
             if x == 0:
                 foo = True
-                slipcover_branch_42_666 = (42, 666)
+                _slipcover_branch = (42, 666)
                 ...
             bar = 1.234
         """), "foo", "exec")
@@ -655,12 +660,12 @@ def test_find_const_assignment_not_found():
 def test_replace_const_assignments_with_function_call():
     code = compile(inspect.cleandoc("""
             if x == 0:
-                slipcover_branch_1_2 = (1, 2)
+                _slipcover_branch = (1, 2)
                 x += 1
                 ...
 
             else:
-                slipcover_branch_1_6 = (1, 7)
+                _slipcover_branch = (1, 7)
 
             x += 2
         """), "foo", "exec")
@@ -676,12 +681,17 @@ def test_replace_const_assignments_with_function_call():
     fn = ed.add_const(record_branch)
 
     delta = 0
-    for found in ed.find_const_assignments('slipcover_branch_'):
+    for found in ed.find_const_assignments('_slipcover_branch'):
         begin, end, arg = found
         delta += ed.insert_function_call(begin+delta, fn, [arg], repl_length=end-begin)
 
+    inserts = ed.get_inserts()
     code = ed.finish()
 #    dis.dis(code)
+
+    assert len(inserts) > 0
+    for offset in inserts:
+        assert code.co_code[offset] == bc.op_NOP
 
     g = {'x':0}
     exec(code, g, g)
