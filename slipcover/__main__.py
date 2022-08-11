@@ -74,7 +74,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 #
 import argparse
 ap = argparse.ArgumentParser(prog='slipcover')
-ap.add_argument('--branch', action='store_true', help="additionally measure branch coverage")
+ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
 ap.add_argument('--json', action='store_true', help="select JSON output")
 ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
 ap.add_argument('--out', type=Path, help="specify output file name")
