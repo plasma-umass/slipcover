@@ -28,10 +28,11 @@ public:
 
 
     PyPtr& operator=(const PyPtr& ptr) {
-        // increment first in case self-assigning
-        Py_IncRef((PyObject*)ptr._obj);
-        Py_DecRef((PyObject*)_obj);
-        _obj = ptr._obj;
+        if (this != &ptr) { // self-assignment is a no-op
+            Py_IncRef((PyObject*)ptr._obj);
+            Py_DecRef((PyObject*)_obj);
+            _obj = ptr._obj;
+        }
         return *this;
     }
 
