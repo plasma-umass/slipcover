@@ -43,11 +43,13 @@ else:
 op_POP_TOP = dis.opmap["POP_TOP"]
 op_JUMP_FORWARD = dis.opmap["JUMP_FORWARD"]
 op_NOP = dis.opmap["NOP"]
+op_STORE_NAME = dis.opmap["STORE_NAME"]
+op_STORE_GLOBAL = dis.opmap["STORE_GLOBAL"]
 
 
 def arg_ext_needed(arg: int) -> int:
     """Returns the number of EXTENDED_ARGs needed for an argument."""
-    return (arg.bit_length() - 1) // 8
+    return -((arg>>8).bit_length() // -8)   # ceiling by way of -(a // -b) 
 
 
 def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
@@ -444,6 +446,7 @@ class Editor:
         self.branches = None
         self.ex_table = None
         self.lines = None
+        self.inserts = []
 
         self.max_addtl_stack = 0
         self.finished = False
@@ -466,9 +469,13 @@ class Editor:
         return len(self.consts)-1
 
 
-    def insert_function_call(self, offset, function, args):
-        """Inserts a function call."""
+    def insert_function_call(self, offset, function, args, repl_length=0):
+        """Inserts a function call.
 
+        *repl_length*, if passed, indicates the number of bytes to replace at that offset.
+        """
+
+        assert not self.finished
         assert isinstance(function, int)    # we only support const references so far
 
         if self.patch is None:
@@ -504,22 +511,46 @@ class Editor:
                            op_POP_TOP, 0])   # ignore return
 
         len_insert = len(insert)
+        if len_insert < repl_length:
+            raise RuntimeError(f"shrinking insertions not (yet?) supported.")
 
         insert[1] = offset2branch(len_insert-2)    # fails if > 255
         self.max_addtl_stack = max(self.max_addtl_stack, calc_max_stack(insert))
 
-        self.patch[offset:offset] = insert
+        self.patch[offset:offset+repl_length] = insert
+
+        bytes_added = len_insert - repl_length
 
         for l in self.lines:
-            l.adjust(offset, len_insert)
+            l.adjust(offset, bytes_added)
 
         for b in self.branches:
-            b.adjust(offset, len_insert)
+            b.adjust(offset, bytes_added)
 
         for e in self.ex_table:
-            e.adjust(offset, len_insert)
+            e.adjust(offset, bytes_added)
 
-        return len_insert
+        self.inserts.append(offset)
+
+        return bytes_added
+
+
+    def find_const_assignments(self, var_prefix, start=0, end=None):
+        """Finds STORE_NAME assignments to variables with the given prefix,
+           coming from an immediately preceding LOAD_CONST.
+        """
+        load_off = None
+        for (op_off, op_len, op, arg) in unpack_opargs(self.orig_code.co_code[start:end]):
+            if op == op_LOAD_CONST:
+                load_off = op_off+start
+                const_arg = arg
+
+            elif load_off is not None:
+                if op in [op_STORE_NAME, op_STORE_GLOBAL] \
+                   and self.orig_code.co_names[arg].startswith(var_prefix):
+                    yield (load_off, op_off+start+op_len, const_arg)
+
+                load_off = None
 
 
     def get_inserted_function(self, offset):
@@ -548,6 +579,7 @@ class Editor:
 
     def disable_inserted_function(self, offset):
         """Disables an inserted function at a given offset."""
+        assert not self.finished
 
         if self.patch is None:
             self.patch = bytearray(self.orig_code.co_code)
@@ -558,6 +590,8 @@ class Editor:
 
     def replace_inserted_function(self, offset, new_func_index):
         """Replaces an inserted function by another function."""
+
+        assert not self.finished
 
         if self.patch is None:
             self.patch = bytearray(self.orig_code.co_code)
@@ -572,7 +606,10 @@ class Editor:
 
         assert op == op_LOAD_CONST
 
-        # FIXME use actual argument lenth rather than art_ext_needed
+        # FIXME to create a same-length replacement, we need to use the same number
+        # of EXTENDED_ARG opcodes used to encode op_arg; but arg_ext_needed gives us
+        # how many are needed at a minimum, not how many were actually used.
+        # Usually these are the same, but it's possible that unnecessary ones were used.
         replacement = opcode_arg(op, new_func_index, arg_ext_needed(op_arg))
         assert len(replacement) == op_len
 
@@ -582,6 +619,7 @@ class Editor:
 
     def replace_global_with_const(self, global_name, const_index):
         """Replaces a global name lookup by a constant load."""
+        assert not self.finished
 
         if self.patch is None:
             self.patch = bytearray(self.orig_code.co_code)
@@ -605,7 +643,7 @@ class Editor:
                                 yield (op_off, op_len, op, op_arg)
 
             delta = 0
-            # read from pre-computed list so we can modify on the fly
+            # read from pre-computed list() below so we can modify on the fly
             for op_off, op_len, op, op_arg in list(find_load_globals()):
                 repl = bytearray()
                 if sys.version_info[0:2] >= (3,11) and op_arg&1:
@@ -629,44 +667,56 @@ class Editor:
                 delta += change
 
 
+    def _finish(self):
+        if not self.finished:
+            self.finished = True
+
+            if self.branches is not None:
+                # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
+                # Inserting space for those may in turn trigger needing more space for others...
+                # FIXME missing test for length adjustment triggering other length adjustments
+                any_adjusted = True
+                while any_adjusted:
+                    any_adjusted = False
+
+                    for b in self.branches:
+                        change = b.adjust_length()
+                        if change:
+#                            print(f"adjusted branch {b.offset}->{b.target} by {change} to length={b.length}")
+                            self.patch[b.offset:b.offset] = [0] * change
+                            for c in self.branches:
+                                if b != c:
+                                    c.adjust(b.offset, change)
+
+                            for l in self.lines:
+                                l.adjust(b.offset, change)
+
+                            for e in self.ex_table:
+                                e.adjust(b.offset, change)
+
+                            for i in range(len(self.inserts)):
+                                if b.offset <= self.inserts[i]:
+                                    self.inserts[i] += change
+
+                            any_adjusted = True
+
+                for b in self.branches:
+                    assert self.patch[b.offset+b.length-2] == b.opcode
+                    self.patch[b.offset:b.offset+b.length] = b.code()
+
+
+    def get_inserts(self) -> List[int]:
+        self._finish()
+        return list(self.inserts)   # return copy so not to leak internal list
+
+
     def finish(self):
         """Finishes editing bytecode, returning a new code object."""
 
-        assert not self.finished
-        self.finished = True
+        self._finish()
 
         if not self.patch and not self.consts:
             return self.orig_code
-
-        if self.branches is not None:
-            # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
-            # Inserting space for those may in turn trigger needing more space for others...
-            # FIXME missing test for length adjustment triggering other length adjustments
-            any_adjusted = True
-            while any_adjusted:
-                any_adjusted = False
-
-                for b in self.branches:
-                    change = b.adjust_length()
-                    if change:
-    #                    print(f"adjusted branch {b.offset}->{b.target} by {change} to length={b.length}")
-                        self.patch[b.offset:b.offset] = [0] * change
-                        for c in self.branches:
-                            if b != c:
-                                c.adjust(b.offset, change)
-
-                        for l in self.lines:
-                            l.adjust(b.offset, change)
-
-                        for e in self.ex_table:
-                            e.adjust(b.offset, change)
-
-                        any_adjusted = True
-
-            for b in self.branches:
-                assert self.patch[b.offset+b.length-2] == b.opcode
-                self.patch[b.offset:b.offset+b.length] = b.code()
-
 
         replace = {}
         if self.consts is not None:

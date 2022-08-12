@@ -1,6 +1,7 @@
 import pytest
 from slipcover import slipcover as sc
 from slipcover import bytecode as bc
+from slipcover import branch as br
 import types
 import dis
 import sys
@@ -19,6 +20,11 @@ def current_file():
 def simple_current_file():
     simp = sc.PathSimplifier()
     return simp.simplify(current_file())
+
+def ast_parse(s):
+    import ast
+    import inspect
+    return ast.parse(inspect.cleandoc(s))
 
 
 @pytest.mark.parametrize("stats", [False, True])
@@ -40,7 +46,7 @@ def test_tracker_signal(stats):
     # line never executed
     t_666 = tracker.register(sci, "/foo/beast.py", 666, -1)
 
-    d = sci.new_lines_seen
+    d = sci.newly_seen
     assert ["/foo/bar.py", "/foo2/baz.py"] == sorted(d.keys())
     assert [123] == sorted(list(d["/foo/bar.py"]))
     assert [42, 314] == sorted(list(d["/foo2/baz.py"]))
@@ -60,7 +66,7 @@ def test_tracker_deinstrument(stats):
     t = tracker.register(sci, "/foo/bar.py", 123, 3)
     tracker.signal(t)
 
-    assert ["/foo/bar.py"] == sorted(sci.new_lines_seen.keys())
+    assert ["/foo/bar.py"] == sorted(sci.newly_seen.keys())
 
     tracker.signal(t)
     tracker.signal(t)
@@ -71,8 +77,8 @@ def test_tracker_deinstrument(stats):
 
     tracker.hit(t)
 
-    assert [] == sorted(sci.new_lines_seen.keys())
-    assert ["/foo/bar.py"] == sorted(sci.lines_seen.keys())
+    assert [] == sorted(sci.newly_seen.keys())
+    assert ["/foo/bar.py"] == sorted(sci.all_seen.keys())
 
     assert ("/foo/bar.py", 123, 3, 1, 6) == tracker.get_stats(t)
 
@@ -469,6 +475,44 @@ def test_instrument_doesnt_interrupt_ext_sequence(N):
     assert [*range(1, N+2)] == cov['executed_lines']
     assert [] == cov['missing_lines']
 
+    assert 'executed_branches' not in cov
+    assert 'missing_branches' not in cov
+
+
+def test_instrument_branches():
+    t = ast_parse("""
+        def foo(x):
+            if x >= 0:
+                if x > 1:
+                    if x > 2:
+                        return 2
+                    return 1
+
+            else:
+                return 0
+
+        foo(2)
+    """)
+    t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=True)
+    code = compile(t, 'foo', 'exec')
+    code = sci.instrument(code)
+#    dis.dis(code)
+
+    g = dict()
+    exec(code, g, g)
+
+    cov = sci.get_coverage()
+    assert {'foo'} == cov['files'].keys()
+
+    cov = cov['files']['foo']
+    assert [1,2,3,4,6,11] == cov['executed_lines']
+    assert [5,9] == cov['missing_lines']
+
+    assert [(2,3),(3,4),(4,6)] == cov['executed_branches']
+    assert [(2,9),(3,0),(4,5)] == cov['missing_branches']
+
 
 def test_get_coverage_detects_lines():
     sci = sc.Slipcover()
@@ -632,17 +676,24 @@ def test_deinstrument_some(stats):
     assert [3, 4] == [l-base_line for l in cov['missing_lines']]
 
 
-def test_deinstrument_seen_d_threshold():
-    sci = sc.Slipcover()
+@pytest.mark.parametrize("do_branch", [False, True])
+def test_deinstrument_seen_upon_d_miss_threshold(do_branch):
+    from slipcover import tracker as tr
 
-    first_line = current_line()+1
-    def foo(n):
-        x = 0;
-        for _ in range(100):
-            x += n
-        return x
-    last_line = current_line()
+    t = ast_parse("""
+        def foo(n):
+            x = 0;
+            for _ in range(100):
+                x += n
+            return x    # line 5
+    """)
+    if do_branch:
+        t = br.preinstrument(t)
+    g = dict()
+    exec(compile(t, "foo", "exec"), g, g)
+    foo = g['foo']
 
+    sci = sc.Slipcover(branch=do_branch)
     assert not sci.get_coverage()['files']
 
     sci.instrument(foo)
@@ -652,17 +703,26 @@ def test_deinstrument_seen_d_threshold():
 
     assert old_code != foo.__code__, "Code never de-instrumented"
 
+    # skip trackers with d_miss == 0, as these may not have been de-instrumented
+    trackers = [t for t in old_code.co_consts if type(t).__name__ == 'PyCapsule' and tr.get_stats(t)[2] > 0]
+    assert len(trackers) > 0
+    for t in trackers:
+        assert not tr.is_instrumented(t), f"tracker still instrumented: {tr.get_stats(t)}"
+
+    cov = sci.get_coverage()['files']['foo']
+    if PYTHON_VERSION >= (3,11):
+        assert [1,2,3,4,5] == cov['executed_lines']
+    else:
+        assert [2,3,4,5] == cov['executed_lines']
+    assert [] == cov['missing_lines']
+    if do_branch:
+        assert [(3,4),(3,5)] == cov['executed_branches']
+        assert [] == cov['missing_branches']
+
     foo(1)
 
-    cov = sci.get_coverage()['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [*range(first_line, last_line)] == cov['executed_lines']
-    else:
-        assert [*range(first_line+1, last_line)] == cov['executed_lines']
-    assert [] == cov['missing_lines']
 
-
-def test_deinstrument_seen_d_threshold_doesnt_count_while_deinstrumenting():
+def test_deinstrument_seen_upon_d_miss_threshold_doesnt_count_while_deinstrumenting():
     sci = sc.Slipcover()
 
     base_line = current_line()
@@ -732,7 +792,7 @@ def test_deinstrument_seen_descriptor_not_invoked():
 
 
 def test_no_deinstrument_seen_negative_threshold():
-    sci = sc.Slipcover(d_threshold=-1)
+    sci = sc.Slipcover(d_miss_threshold=-1)
 
     first_line = current_line()+2
     def foo(n):
@@ -755,16 +815,27 @@ def test_no_deinstrument_seen_negative_threshold():
 def test_format_missing():
     fm = sc.Slipcover.format_missing
 
-    assert "" == fm([],[])
-    assert "" == fm([], [1,2,3])
-    assert "2, 4" == fm([2,4], [1,3,5])
-    assert "2-4, 6, 9" == fm([2,3,4, 6, 9], [1, 5, 7,8])
+    assert "" == fm([],[],[])
+    assert "" == fm([], [1,2,3], [])
+    assert "2, 4" == fm([2,4], [1,3,5], [])
+    assert "2-4, 6, 9" == fm([2,3,4, 6, 9], [1, 5, 7,8], [])
 
-    assert "2-6, 9-11" == fm([2,4,6, 9,11], [1, 7,8])
+    assert "2-6, 9-11" == fm([2,4,6, 9,11], [1, 7,8], [])
 
-    assert "2-11" == fm([2,4,6, 9,11], [])
+    assert "2-11" == fm([2,4,6, 9,11], [], [])
 
-    assert "2-6, 9-11" == fm([2,4,6, 9,11], [8])
+    assert "2-6, 9-11" == fm([2,4,6, 9,11], [8], [])
+
+
+    assert "1->3" == fm([], [1,2,3], [(1,3)])
+    assert "2->exit" == fm([], [1,2,3], [(2,0)])
+
+    assert "2->exit, 4" == fm([4], [1,2,3], [(2,0)])
+
+    assert "2->exit, 4, 22" == fm([4, 22], [1,2,3,21], [(2,0)])
+
+    # omit missing branches involving lines that are missing
+    assert "2, 4" == fm([2,4], [1,3,5], [(2,3), (3,4)])
 
 
 @pytest.mark.parametrize("stats", [False, True])
@@ -792,19 +863,61 @@ def test_print_coverage(stats, capsys):
     import re
 
     # TODO test more cases (multiple files, etc.)
-    output = capsys.readouterr()[0].splitlines()
+    output = capsys.readouterr()[0]
     print(output)
-    assert re.match(f'^tests[/\\\\]slipcover_test\\.py + {total} + {missd} +{int(100*execd/total)} +' + str(base_line+3), output[3])
+    output = output.splitlines()
+    assert re.match(f'^tests[/\\\\]slipcover_test\\.py + {total} + {missd} +{round(100*execd/total)} +' + str(base_line+3), output[3])
 
     if stats:
         assert re.match('^tests[/\\\\]slipcover_test\\.py +[\\d.]+ +0', output[8])
 
 
-def func_names(funcs):
-    return sorted(map(lambda f: f.__name__, funcs))
+def test_print_coverage_branch(capsys):
+    t = ast_parse("""
+        def foo(x):
+            if x >= 0:
+                if x > 1:
+                    if x > 2:
+                        return 2
+                    return 1
+
+            else:
+                return 0
+
+        foo(2)
+    """)
+    t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=True)
+    code = compile(t, 'foo.py', 'exec')
+    code = sci.instrument(code)
+
+    sci.print_coverage(sys.stdout)
+
+    cov = sci.get_coverage()['files']['foo.py']
+    exec_l = len(cov['executed_lines'])
+    miss_l = len(cov['missing_lines'])
+    total_l = exec_l + miss_l
+    exec_b = len(cov['executed_branches'])
+    miss_b = len(cov['missing_branches'])
+    total_b = exec_b + miss_b
+
+    pct = round(100*(exec_l+exec_b)/(total_l+total_b))
+
+    import re
+
+    # TODO test more cases (multiple files, etc.)
+    output = capsys.readouterr()[0]
+    print(output)
+    output = output.splitlines()
+    assert re.match(f'^foo\\.py +{total_l} +{miss_l} +{total_b} +{miss_b} +{pct}', output[3])
+
 
 def test_find_functions():
     import class_test as t
+
+    def func_names(funcs):
+        return sorted(map(lambda f: f.__name__, funcs))
 
     assert ["b", "b_classm", "b_static", "f1", "f2", "f3", "f4", "f5", "f7",
             "f_classm", "f_static"] == \
@@ -844,8 +957,32 @@ def test_interpose_on_module_load(tmp_path):
     module_file = str(Path('tests') / 'imported' / '__init__.py')
 
     assert module_file in cov['files']
-    assert list(range(1,5+1)) == cov['files'][module_file]['executed_lines']
+    assert list(range(1,6+1)) == cov['files'][module_file]['executed_lines']
     assert [] == cov['files'][module_file]['missing_lines']
+    assert 'executed_branches' not in cov['files'][module_file]
+    assert 'missing_branches' not in cov['files'][module_file]
+
+
+def test_interpose_on_module_load_branch(tmp_path):
+    # TODO include in coverage info
+    from pathlib import Path
+    import subprocess
+    import json
+
+    out_file = tmp_path / "out.json"
+
+    subprocess.run(f"{sys.executable} -m slipcover --branch --json --out {out_file} tests/importer.py".split(),
+                   check=True)
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    module_file = str(Path('tests') / 'imported' / '__init__.py')
+
+    assert module_file in cov['files']
+    assert list(range(1,6+1)) == cov['files'][module_file]['executed_lines']
+    assert [] == cov['files'][module_file]['missing_lines']
+    assert [[3,4], [4,5], [4,6]] == cov['files'][module_file]['executed_branches']
+    assert [[3,6]] == cov['files'][module_file]['missing_branches']
 
 
 def test_pytest_interpose(tmp_path):
@@ -866,8 +1003,44 @@ def test_pytest_interpose(tmp_path):
     assert test_file in cov['files']
     assert {test_file} == set(cov['files'].keys())  # any unrelated files included?
     cov = cov['files'][test_file]
-    assert [1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13] == cov['executed_lines']
+    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
     assert [] == cov['missing_lines']
+
+
+def test_pytest_interpose_branch(tmp_path):
+    # TODO include in coverage info
+    from pathlib import Path
+    import subprocess
+    import json
+
+    test_file = str(Path('tests') / 'pyt.py')
+    def cache_files():
+        return list(Path("tests/__pycache__").glob(f"pyt*{sys.implementation.cache_tag}-pytest*.pyc"))
+
+    # remove and create a clean pytest cache, to make sure it's not interfering
+    for p in cache_files(): p.unlink()
+    subprocess.run(f"{sys.executable} -m pytest {test_file}".split(), check=True)
+    pytest_cache_files = cache_files()
+    assert len(pytest_cache_files) == 1
+    pytest_cache_content = pytest_cache_files[0].read_bytes()
+
+    out_file = tmp_path / "out.json"
+    subprocess.run(f"{sys.executable} -m slipcover --branch --json --out {out_file} -m pytest {test_file}".split(),
+                   check=True)
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    assert test_file in cov['files']
+    assert {test_file} == set(cov['files'].keys())  # any unrelated files included?
+    cov = cov['files'][test_file]
+    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
+    assert [] == cov['missing_lines']
+    assert [[3,4], [4,5], [4,6]] == cov['executed_branches']
+    assert [[3,6]] == cov['missing_branches']
+
+    # check that we're not letting pytest cache our pre-instrumented version
+    assert pytest_cache_files == cache_files()
+    assert (pytest_cache_content == pytest_cache_files[0].read_bytes())
 
 
 def test_pytest_plugins_visible():

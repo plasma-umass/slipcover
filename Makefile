@@ -9,6 +9,7 @@ test:
 	    P=$$(command -v ${HOMEBREW_PYTHON}$$V/bin/python3 || command -v python$$V); \
 	    if ! [ -z $$P ]; then \
 	      $$P --version; \
+	      $$P -O -m pip uninstall -y slipcover; \
 	      $$P -m pip -q install -e .; \
 	      $$P -m coverage run -a --branch --include 'slipcover/*' -m pytest --no-header --tb=no || break; \
 	    fi; \

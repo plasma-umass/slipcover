@@ -3,22 +3,25 @@ from pathlib import Path
 from typing import Any, Dict
 from slipcover import slipcover as sc
 from slipcover import bytecode as bc
+from slipcover import branch as br
+import ast
 import atexit
 
-
 from importlib.abc import MetaPathFinder, Loader
+from importlib.machinery import SourceFileLoader
 
 class SlipcoverLoader(Loader):
-    def __init__(self, sci, orig_loader):
-        self.sci = sci
-        self.orig_loader = orig_loader
+    def __init__(self, sci: sc.Slipcover, orig_loader: Loader, origin: str):
+        self.sci = sci                  # Slipcover object measuring coverage
+        self.orig_loader = orig_loader  # original loader we're wrapping
+        self.origin = Path(origin)      # module origin (source file for a source loader)
 
         # loadlib checks for this attribute to see if we support it... keep in sync with orig_loader
         if not getattr(self.orig_loader, "get_resource_reader", None):
             delattr(self, "get_resource_reader")
 
     # for compability with loaders supporting resources, used e.g. by sklearn
-    def get_resource_reader(self, fullname):
+    def get_resource_reader(self, fullname: str):
         return self.orig_loader.get_resource_reader(fullname)
 
     def create_module(self, spec):
@@ -28,10 +31,17 @@ class SlipcoverLoader(Loader):
         return self.orig_loader.get_code(name)
 
     def exec_module(self, module):
-        code = self.orig_loader.get_code(module.__name__)
+        # branch coverage requires pre-instrumentation from source
+        if sci.branch and isinstance(self.orig_loader, SourceFileLoader) and self.origin.exists():
+            t = br.preinstrument(ast.parse(self.origin.read_text()))
+            code = compile(t, str(self.origin), "exec")
+        else:
+            code = self.orig_loader.get_code(module.__name__)
+
         sci.register_module(module)
         code = sci.instrument(code)
         exec(code, module.__dict__)
+
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
     def __init__(self, args, sci, file_matcher, meta_path):
@@ -49,7 +59,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
                 if found.origin and (file_matcher.matches(found.origin) or 'images' in fullname):
                     if self.args.debug:
                         print(f"adding {fullname} from {found.origin}")
-                    found.loader = SlipcoverLoader(self.sci, found.loader)
+                    found.loader = SlipcoverLoader(self.sci, found.loader, found.origin)
                 return found
 
         return None
@@ -64,6 +74,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 #
 import argparse
 ap = argparse.ArgumentParser(prog='slipcover')
+ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
 ap.add_argument('--json', action='store_true', help="select JSON output")
 ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
 ap.add_argument('--out', type=Path, help="specify output file name")
@@ -104,7 +115,7 @@ if args.omit:
     for o in args.omit.split(','):
         file_matcher.addOmit(o)
 
-sci = sc.Slipcover(collect_stats=args.stats, d_threshold=args.threshold)
+sci = sc.Slipcover(collect_stats=args.stats, d_miss_threshold=args.threshold, branch=args.branch)
 
 def wrap_pytest():
     def exec_wrapper(obj, g):
@@ -117,12 +128,36 @@ def wrap_pytest():
     except ModuleNotFoundError:
         return
 
+    def rewrite_asserts_wrapper(*args):
+        # FIXME we should normally subject pre-instrumentation to file_matcher matching...
+        # but the filename isn't clearly available. So here we instead always pre-instrument
+        # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
+        # *should* be innocuous if not followed by sci.instrument.
+        args = (br.preinstrument(args[0]), *args[1:])
+        return _pytest.assertion.rewrite.rewrite_asserts(*args)
+
+    def read_or_write_pyc(*args, **kwargs):
+        return None
+
     for f in sc.Slipcover.find_functions(_pytest.assertion.rewrite.__dict__.values(), set()):
         if 'exec' in f.__code__.co_names:
             ed = bc.Editor(f.__code__)
             wrapper_index = ed.add_const(exec_wrapper)
             ed.replace_global_with_const('exec', wrapper_index)
             f.__code__ = ed.finish()
+
+        if sci.branch and 'rewrite_asserts' in f.__code__.co_names:
+            ed = bc.Editor(f.__code__)
+            wrapper_index = ed.add_const(rewrite_asserts_wrapper)
+            ed.replace_global_with_const('rewrite_asserts', wrapper_index)
+            f.__code__ = ed.finish()
+
+    # disable cached test reading/writing
+    if sci.branch:
+        assert hasattr(_pytest.assertion.rewrite, "_read_pyc")
+        assert hasattr(_pytest.assertion.rewrite, "_write_pyc")
+        _pytest.assertion.rewrite._read_pyc = read_or_write_pyc
+        _pytest.assertion.rewrite._write_pyc = read_or_write_pyc
 
 if not args.dont_wrap_pytest:
     wrap_pytest()
@@ -163,7 +198,10 @@ if args.script:
     sys.path.insert(0, str(base_path))
 
     with open(args.script, "r") as f:
-        code = compile(f.read(), str(Path(args.script).resolve()), "exec")
+        t = ast.parse(f.read())
+        if args.branch:
+            t = br.preinstrument(t)
+        code = compile(t, str(Path(args.script).resolve()), "exec")
 
     code = sci.instrument(code)
     exec(code, script_globals)

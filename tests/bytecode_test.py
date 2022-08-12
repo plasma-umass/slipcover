@@ -3,6 +3,7 @@ from slipcover import bytecode as bc
 import types
 import dis
 import sys
+import inspect
 
 
 PYTHON_VERSION = sys.version_info[0:2]
@@ -18,6 +19,21 @@ def current_file():
 def simple_current_file():
     simp = sc.PathSimplifier()
     return simp.simplify(current_file())
+
+def test_arg_ext_needed():
+    assert 0 == bc.arg_ext_needed(0)
+    assert 0 == bc.arg_ext_needed(1)
+    assert 0 == bc.arg_ext_needed(0xFF)
+    assert 1 == bc.arg_ext_needed(0x0100)
+    assert 1 == bc.arg_ext_needed(0x0101)
+    assert 1 == bc.arg_ext_needed(0x01FF)
+    assert 1 == bc.arg_ext_needed(0xFFFF)
+    assert 2 == bc.arg_ext_needed(0x010000)
+    assert 2 == bc.arg_ext_needed(0x010001)
+    assert 2 == bc.arg_ext_needed(0xFFFFFF)
+    assert 3 == bc.arg_ext_needed(0x01000000)
+    assert 3 == bc.arg_ext_needed(0x01000001)
+    assert 3 == bc.arg_ext_needed(0xFFFFFFFF)
 
 
 def test_opcode_arg():
@@ -589,8 +605,13 @@ def test_adjust_long_jump(N):
     foo_index = ed.add_const(foo)
     # instrument the line inside the "for" loop, making the loop grow
     ed.insert_function_call(lines[3].start, foo_index, ())
+    inserts = ed.get_inserts()
     code = ed.finish()
 #    dis.dis(code)
+
+    assert len(inserts) > 0
+    for offset in inserts:
+        assert code.co_code[offset] == bc.op_NOP
 
     exec(orig_code, locals(), globals())
     assert N+10 == x
@@ -602,3 +623,81 @@ def test_adjust_long_jump(N):
     print([b.arg() for b in orig_branches])
     print([b.arg() for b in bc.Branch.from_code(code)])
     assert any(b.length > orig_branches[i].length for i, b in enumerate(bc.Branch.from_code(code)))
+
+
+def test_find_const_assignments():
+    code = compile(inspect.cleandoc("""
+            if x == 0:
+                foo = True
+                _slipcover_branch = (42, 666)
+                ...
+            bar = 1.234
+        """), "foo", "exec")
+
+    ed = bc.Editor(code)
+    it = iter(ed.find_const_assignments('_slipcover_branch'))
+    found = next(it)
+    assert code.co_consts[found[2]] == (42, 666)
+
+    with pytest.raises(StopIteration):
+        next(it)
+
+
+def test_find_const_assignment_not_found():
+    code = compile(inspect.cleandoc("""
+            if x == 0:
+                foo = True
+                _slipcover_branch = (42, 666)
+                ...
+            bar = 1.234
+        """), "foo", "exec")
+
+    ed = bc.Editor(code)
+    with pytest.raises(StopIteration):
+        next(ed.find_const_assignments('foobar'))
+
+
+def test_replace_const_assignments_with_function_call():
+    code = compile(inspect.cleandoc("""
+            if x == 0:
+                _slipcover_branch = (1, 2)
+                x += 1
+                ...
+
+            else:
+                _slipcover_branch = (1, 7)
+
+            x += 2
+        """), "foo", "exec")
+
+#    dis.dis(code)
+#    print("----")
+
+    branches = set()
+    def record_branch(b):
+        branches.add(b)
+
+    ed = bc.Editor(code)
+    fn = ed.add_const(record_branch)
+
+    delta = 0
+    for found in ed.find_const_assignments('_slipcover_branch'):
+        begin, end, arg = found
+        delta += ed.insert_function_call(begin+delta, fn, [arg], repl_length=end-begin)
+
+    inserts = ed.get_inserts()
+    code = ed.finish()
+#    dis.dis(code)
+
+    assert len(inserts) > 0
+    for offset in inserts:
+        assert code.co_code[offset] == bc.op_NOP
+
+    g = {'x':0}
+    exec(code, g, g)
+    assert {(1,2)} == branches
+
+    branches = set()
+    g = {'x':1}
+    exec(code, g, g)
+    assert {(1,7)} == branches

@@ -7,6 +7,7 @@ from collections import defaultdict, Counter
 import threading
 from . import tracker
 from . import bytecode as bc
+from . import branch as br
 from pathlib import Path
 
 # FIXME provide __all__
@@ -80,9 +81,10 @@ class FileMatcher:
 
 
 class Slipcover:
-    def __init__(self, collect_stats : bool = False, d_threshold = 50):
+    def __init__(self, collect_stats: bool = False, d_miss_threshold: int = 50, branch: bool = False):
         self.collect_stats = collect_stats
-        self.d_threshold = d_threshold
+        self.d_miss_threshold = d_miss_threshold
+        self.branch = branch
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -93,29 +95,33 @@ class Slipcover:
 
         # notes which code lines have been instrumented
         self.code_lines: Dict[str, set] = defaultdict(set)
+        self.code_branches: Dict[str, set] = defaultdict(set)
 
-        # notes which lines have been seen.
-        self.lines_seen: Dict[str, Set[int]] = defaultdict(set)
+        # provides an index (line_or_branch -> offset) for each code object
+        self.code2index: Dict[types.CodeType, dict] = dict()
 
-        # notes lines seen since last de-instrumentation
-        self._get_new_lines()
+        # notes which lines and branches have been seen.
+        self.all_seen: Dict[str, set] = defaultdict(set)
+
+        # notes lines/branches seen since last de-instrumentation
+        self._get_newly_seen()
 
         self.modules = []
         self.all_trackers = []
 
-    def _get_new_lines(self):
+    def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
 
-        # We trust that assigning to self.new_lines_seen is atomic, as it is triggered
+        # We trust that assigning to self.newly_seen is atomic, as it is triggered
         # by a STORE_NAME or similar opcode and Python synchronizes those.  We rely on
-        # C extensions' atomicity for updates within self.new_lines_seen.  The lock here
+        # C extensions' atomicity for updates within self.newly_seen.  The lock here
         # is just to protect callers of this method (so that the exchange is atomic).
 
         with self.lock:
-            new_lines = self.new_lines_seen if hasattr(self, "new_lines_seen") else None
-            self.new_lines_seen: Dict[str, Set[int]] = defaultdict(set)
+            newly_seen = self.newly_seen if hasattr(self, "newly_seen") else None
+            self.newly_seen: Dict[str, set] = defaultdict(set)
 
-        return new_lines
+        return newly_seen
 
 
     def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
@@ -141,32 +147,64 @@ class Slipcover:
         ed.add_const(tracker.hit)   # used during de-instrumentation
         tracker_signal_index = ed.add_const(tracker.signal)
 
+        off_list = list(dis.findlinestarts(co))
+        if self.branch:
+            off_list.extend(list(ed.find_const_assignments(br.BRANCH_NAME)))
+            off_list.sort()
+
+        branch_set = set()
+        insert_labels = []
+
         delta = 0
-        for (offset, lineno) in dis.findlinestarts(co):
-            if lineno == 0: continue    # Python 3.11.0b4 generates a 0th line
+        for off_item in off_list:
+            if len(off_item) == 2: # from findlinestarts
+                offset, lineno = off_item
+                if lineno == 0: continue    # Python 3.11.0b4 generates a 0th line
 
-            # Can't insert between an EXTENDED_ARG and the final opcode
-            if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
-                while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
-                    offset += 2 # TODO will we overtake the next offset from findlinestarts?
+                # Can't insert between an EXTENDED_ARG and the final opcode
+                if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                    while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                        offset += 2 # TODO will we overtake the next offset from findlinestarts?
 
-            tr = tracker.register(self, co.co_filename, lineno, self.d_threshold)
-            tr_index = ed.add_const(tr)
-            if self.collect_stats:
-                self.all_trackers.append(tr)
+                insert_labels.append(lineno)
+                tr = tracker.register(self, co.co_filename, lineno, self.d_miss_threshold)
+                tr_index = ed.add_const(tr)
+                if self.collect_stats:
+                    self.all_trackers.append(tr)
 
-            delta += ed.insert_function_call(offset+delta, tracker_signal_index, (tr_index,))
+                delta += ed.insert_function_call(offset+delta, tracker_signal_index, (tr_index,))
+
+            else: # from find_const_assignments
+                begin_off, end_off, branch_index = off_item
+                branch = co.co_consts[branch_index]
+
+                branch_set.add(branch)
+                insert_labels.append(branch)
+
+                tr = tracker.register(self, co.co_filename, branch, self.d_miss_threshold)
+                ed.set_const(branch_index, tr)
+                if self.collect_stats:
+                    self.all_trackers.append(tr)
+
+                delta += ed.insert_function_call(begin_off+delta, tracker_signal_index, (branch_index,),
+                                                 repl_length = end_off-begin_off)
 
         ed.add_const('__slipcover__')  # mark instrumented
         new_code = ed.finish()
 
+        index = dict()
+        for offset, label in zip(ed.get_inserts(), insert_labels):
+            index[label] = offset
+
         with self.lock:
             # Python 3.11.0b4 generates a 0th line
             self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co) if line[1] != 0)
+            self.code_branches[co.co_filename].update(branch_set)
 
             if not parent:
                 self.instrumented[co.co_filename].add(new_code)
 
+            self.code2index[new_code] = index
         return new_code
 
 
@@ -192,8 +230,10 @@ class Slipcover:
                 if nc is not c:
                     ed.set_const(i, nc)
 
-        for (offset, lineno) in dis.findlinestarts(co):
-            if lineno in lines and (func := ed.get_inserted_function(offset)):
+        index = self.code2index[co]
+
+        for offset in (index[line_or_br] for line_or_br in lines if line_or_br in index):
+            if (func := ed.get_inserted_function(offset)):
                 func_index = func[0]
                 if co_consts[func_index] == tracker.signal:
                     tracker.deinstrument(co_consts[func[1]])
@@ -211,8 +251,10 @@ class Slipcover:
         if new_code is co:
             return co
 
+        # no offsets changed, so the old code's index is still usable
+        self.code2index[new_code] = index
+
         with self.lock:
-            # Interesting (and useful fact): dict sees code edited this way as being the same
             self.replace_map[co] = new_code
 
             if co in self.instrumented[co.co_filename]:
@@ -226,11 +268,11 @@ class Slipcover:
         """Returns coverage information collected."""
 
         with self.lock:
-            # FIXME calling _get_new_lines will prevent de-instrumentation if still running!
-            new_lines = self._get_new_lines()
+            # FIXME calling _get_newly_seen will prevent de-instrumentation if still running!
+            newly_seen = self._get_newly_seen()
 
-            for file, lines in new_lines.items():
-                self.lines_seen[file].update(lines)
+            for file, lines in newly_seen.items():
+                self.all_seen[file].update(lines)
 
             simp = PathSimplifier()
 
@@ -246,12 +288,20 @@ class Slipcover:
 
             files = dict()
             for f, f_code_lines in self.code_lines.items():
-                seen = self.lines_seen[f] if f in self.lines_seen else set()
+                if f in self.all_seen:
+                    branches_seen = {x for x in self.all_seen[f] if isinstance(x, tuple)}
+                    lines_seen = self.all_seen[f] - branches_seen
+                else:
+                    lines_seen = branches_seen = set()
 
                 f_files = {
-                    'executed_lines': sorted(seen),
-                    'missing_lines': sorted(f_code_lines - seen)
+                    'executed_lines': sorted(lines_seen),
+                    'missing_lines': sorted(f_code_lines - lines_seen),
                 }
+
+                if self.branch:
+                    f_files['executed_branches'] = sorted(branches_seen)
+                    f_files['missing_branches'] = sorted(self.code_branches[f] - branches_seen)
 
                 if self.collect_stats:
                     # Once a line reports in, it's available for deinstrumentation.
@@ -274,13 +324,24 @@ class Slipcover:
 
 
     @staticmethod
-    def format_missing(missing_lines : List[int], executed_lines : List[int]) -> List[str]:
-        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall between missed ones"""
+    def format_missing(missing_lines: List[int], executed_lines: List[int],
+                       missing_branches: List[tuple]) -> List[str]:
+        missing_set = set(missing_lines)
+        missing_branches = [(a,b) for a,b in missing_branches if a not in missing_set and b not in missing_set]
+
+        def format_branch(br):
+            return f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
+
+        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
+           between missed ones"""
         def find_ranges():
             executed = set(executed_lines)
             it = iter(missing_lines)    # assumed sorted
             a = next(it, None)
             while a is not None:
+                while missing_branches and missing_branches[0][0] < a:
+                    yield format_branch(missing_branches.pop(0))
+
                 b = a
                 n = next(it, None)
                 while n is not None:
@@ -294,6 +355,9 @@ class Slipcover:
 
                 a = n
 
+            while missing_branches:
+                yield format_branch(missing_branches.pop(0))
+
         return ", ".join(find_ranges())
 
 
@@ -304,15 +368,28 @@ class Slipcover:
 
         def table(files):
             for f, f_info in sorted(files.items()):
-                seen = len(f_info['executed_lines'])
-                miss = len(f_info['missing_lines'])
-                total = seen+miss
-                yield [f, total, miss, int(100*seen/total),
-                       Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'])]
+                exec_l = len(f_info['executed_lines'])
+                miss_l = len(f_info['missing_lines'])
+
+                if self.branch:
+                    exec_b = len(f_info['executed_branches'])
+                    miss_b = len(f_info['missing_branches'])
+
+                    pct = 100*(exec_l+exec_b)/(exec_l+miss_l+exec_b+miss_b)
+                else:
+                    pct = 100*exec_l/(exec_l+miss_l)
+
+                yield [f, exec_l+miss_l, miss_l,
+                       *([exec_b+miss_b, miss_b] if self.branch else []),
+                       round(pct),
+                       Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'],
+                                                f_info['missing_branches'] if 'missing_branches' in f_info else [])]
 
         print("", file=outfile)
         print(tabulate(table(cov['files']),
-              headers=["File", "#lines", "#miss", "Cover%", "Lines missing"]), file=outfile)
+              headers=["File", "#lines", "#l.miss",
+                       *(["#br.", "#br.miss"] if self.branch else []),
+                       "Cover%", "Missing"]), file=outfile)
 
         def stats_table(files):
             for f, f_info in sorted(files.items()):
@@ -380,15 +457,13 @@ class Slipcover:
 
     def deinstrument_seen(self) -> None:
         with self.lock:
-            new_lines = self._get_new_lines()
+            newly_seen = self._get_newly_seen()
 
-            for file, new_set in new_lines.items():
-                if self.collect_stats: new_set = set(new_set)    # Counter -> set
-
+            for file, new_set in newly_seen.items():
                 for co in self.instrumented[file]:
                     self.deinstrument(co, new_set)
 
-                self.lines_seen[file].update(new_set)
+                self.all_seen[file].update(new_set)
 
             # Replace references to code
             if self.replace_map:
