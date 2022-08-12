@@ -236,14 +236,14 @@ class Slipcover:
                 if co_consts[func_index] == tracker.signal:
                     tracker.deinstrument(co_consts[func[1]])
 
-                    if not self.collect_stats:
-                        ed.disable_inserted_function(offset)
-                    else:
+                    if self.collect_stats:
                         # If collecting stats, rather than disabling the tracker, we switch to
                         # calling the 'tracker.hit' function on it (which we conveniently added
                         # to the consts before tracker.signal, during instrumentation), so that
                         # we have the total execution count needed for the reports.
                         ed.replace_inserted_function(offset, func_index-1)
+                    else:
+                        ed.disable_inserted_function(offset)
 
         new_code = ed.finish()
         if new_code is co:
