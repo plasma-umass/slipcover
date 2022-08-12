@@ -98,7 +98,7 @@ class Slipcover:
         self.code_branches: Dict[str, set] = defaultdict(set)
 
         # provides an index (line_or_branch -> offset) for each code object
-        self.code2index: Dict[types.CodeType, dict] = dict()
+        self.code2index: Dict[types.CodeType, list] = dict()
 
         # notes which lines and branches have been seen.
         self.all_seen: Dict[str, set] = defaultdict(set)
@@ -192,9 +192,7 @@ class Slipcover:
         ed.add_const('__slipcover__')  # mark instrumented
         new_code = ed.finish()
 
-        index = dict()
-        for offset, label in zip(ed.get_inserts(), insert_labels):
-            index[label] = offset
+        index = list(zip(ed.get_inserts(), insert_labels))
 
         with self.lock:
             # Python 3.11.0b4 generates a 0th line
@@ -232,8 +230,8 @@ class Slipcover:
 
         index = self.code2index[co]
 
-        for offset in (index[line_or_br] for line_or_br in lines if line_or_br in index):
-            if (func := ed.get_inserted_function(offset)):
+        for (offset, lineno) in index:
+            if lineno in lines and (func := ed.get_inserted_function(offset)):
                 func_index = func[0]
                 if co_consts[func_index] == tracker.signal:
                     tracker.deinstrument(co_consts[func[1]])
