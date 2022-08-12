@@ -18,11 +18,12 @@ ASTROPY = Path.home() / "tmp" / "astropy"
 git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
                           capture_output=True, text=True).stdout.strip()
 
-Case = namedtuple('Case', ['name', 'label', 'command'])
+Case = namedtuple('Case', ['name', 'label', 'command', 'color'])
 
-cases = [Case('base', "(no coverage)", sys.executable + " {bench_command}"),
-         Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}"),
-         Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}")
+cases = [Case('base', "(no coverage)", sys.executable + " {bench_command}", None),
+         Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
+              'tab:orange'),
+         Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}", 'tab:blue')
 ]
 base = cases[0]
 
@@ -247,12 +248,13 @@ def plot_results():
 
         showit = not hide_slipcover or (case.name != 'slipcover')
 
-        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, zorder=2, alpha=(None if showit else 0))
+        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, zorder=2, alpha=(None if showit else 0),
+                       color=case.color)
         if not showit: continue
 
         ax.bar_label(rects, padding=3, labels=[f'{v:.2f}x' for v in r], fontsize=8)
 
-#    ax.set_title('')
+    ax.set_title('Line Coverage Testing')
     ax.set_ylabel('Normalized execution time')
     ax.set_xticks(x, labels=[b.name for b in benchmarks], fontsize=8)
     ax.axhline(y=1, color='grey', linewidth=1, alpha=.5, zorder=1)
