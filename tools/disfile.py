@@ -22,7 +22,6 @@ def decode_linetable(co):
 
     print("")
 
-    i = 0
     off = 0
     line = co.co_firstlineno
     it = iter(co.co_linetable)

@@ -55,7 +55,6 @@ class FileMatcher:
             omit = self.cwd / omit
 
         self.omit.append(omit)
-        pass
 
     def matches(self, filename : Path):
         if isinstance(filename, str):

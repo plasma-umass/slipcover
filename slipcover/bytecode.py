@@ -223,7 +223,7 @@ class ExceptionTableEntry:
     def adjust(self, insert_offset: int, insert_length: int) -> None:
         """Adjusts this exception table entry, handling a code insertion."""
 
-        old_start, old_end, old_target = self.start, self.end, self.target
+#        old_start, old_end, old_target = self.start, self.end, self.target
         if insert_offset <= self.start:
             self.start += insert_length
         if insert_offset < self.end:
