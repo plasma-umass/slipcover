@@ -248,6 +248,39 @@ def test_for():
     assert [(1,2), (2,3), (1,2), (2,3), (1,5)] == g[br.BRANCH_NAME]
 
 
+def test_async_for():
+    t = ast_parse("""
+        import asyncio
+
+        async def fun():
+            global x
+
+            async def g():
+                yield 1
+                yield 2
+
+            async for v in g(): #10
+                if v > 0:
+                    x += v
+            x += 3
+
+        asyncio.run(fun())
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(10,11), (10,13), (11,12), (11,13)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 6 == g['x']
+    assert [(10,11), (11,12), (10,11), (11,12), (10,13)] == g[br.BRANCH_NAME]
+
+
 def test_for_else():
     t = ast_parse("""
         for v in [1, 2]:
