@@ -1,7 +1,10 @@
 import pytest
 import ast
 import slipcover.branch as br
+import sys
 
+
+PYTHON_VERSION = sys.version_info[0:2]
 
 def ast_parse(s):
     import inspect
@@ -366,3 +369,191 @@ def test_while_break_else():
     exec(code, g, g)
     assert 1 == g['x']
     assert [(2,3), (4,5)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_match():
+    t = ast_parse("""
+        v = 2
+        match v:
+            case 1:
+                x = 1
+            case 2:
+                x = 2
+        x += 2
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,4), (2,6), (2,7)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 4 == g['x']
+    assert [(2,6)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_match_case_with_false_guard():
+    t = ast_parse("""
+        x = 0
+        v = 2
+        match v:
+            case 1 if x > 0:
+                x = 1
+            case 2:
+                x = 2
+        x += 2
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(3,5), (3,7), (3,8)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert [(3,7)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_match_branch_to_exit():
+    t = ast_parse("""
+        v = 5
+        match v:
+            case 1:
+                x = 1
+            case 2:
+                x = 2
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,0), (2,4), (2,6)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert [(2,0)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_match_default():
+    t = ast_parse("""
+        v = 5
+        match v:
+            case 1:
+                x = 1
+            case 2:
+                x = 2
+            case _:
+                x = 3
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,4), (2,6), (2,8)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 3 == g['x']
+    assert [(2,8)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_branch_after_case():
+    t = ast_parse("""
+        v = 1
+        match v:
+            case 1:
+                if x < 0:  #4
+                    x = 1
+            case 2:
+                if x < 0:  #7
+                    x = 1
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,0), (2,4), (2,7), (4,0), (4,5), (7,0), (7,8)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 0 == g['x']
+    assert [(2,4), (4,0)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_branch_after_case_with_default():
+    t = ast_parse("""
+        v = 1
+        match v:
+            case 1:
+                if x < 0:  #4
+                    x = 1
+            case 2:
+                if x < 0:  #7
+                    x = 1
+            case _:
+                if x < 0:  #10
+                    x = 1
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,4), (2,7), (2,10), (4,0), (4,5), (7,0), (7,8), (10,0), (10,11)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 0 == g['x']
+    assert [(2,4), (4,0)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_branch_after_case_with_next():
+    t = ast_parse("""
+        v = 1
+        match v:
+            case 1:
+                if x < 0:  #4
+                    x = 1
+            case 2:
+                if x < 0:  #7
+                    x = 1
+        x += 1
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,4), (2,7), (2,9), (4,5), (4,9), (7,8), (7,9)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {'x': 0, br.BRANCH_NAME: []}
+    exec(code, g, g)
+    assert 1 == g['x']
+    assert [(2,4), (4,9)] == g[br.BRANCH_NAME]

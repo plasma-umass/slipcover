@@ -1,4 +1,5 @@
 import ast
+import sys
 
 BRANCH_NAME = "_slipcover_branches"
 
@@ -49,7 +50,32 @@ def preinstrument(tree: ast.AST) -> ast.AST:
         def visit_While(self, node: ast.While) -> ast.While:
             return self._mark_branches(node)
 
+        if sys.version_info[0:2] >= (3,10): # new in Python 3.10
+            def visit_Match(self, node: ast.Match) -> ast.Match:
+                for case in node.cases:
+                    case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
+
+                has_wildcard = isinstance(node.cases[-1].pattern, ast.MatchAs) and \
+                               node.cases[-1].pattern.pattern == None
+
+                if not has_wildcard:
+                    to_line = node.next_node.lineno if node.next_node else 0 # exit
+                    node.cases.append(ast.match_case(ast.MatchAs(),
+                                                     body=self._mark_branch(node.lineno, to_line)))
+
+                super().generic_visit(node)
+                return node
+
+    if sys.version_info[0:2] >= (3,10):
+        def is_Match(node: ast.AST) -> bool:
+            return isinstance(node, ast.Match)
+    else:
+        def is_Match(node: ast.AST) -> bool:
+            return False
+
     # Compute the "next" statement in case a branch flows control out of a node.
+    # We need a parent node's "next" computed before its siblings, so we compute it here, in BFS;
+    # note that visit() doesn't guarantee any specific order.
     tree.next_node = None
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
@@ -60,6 +86,10 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             if isinstance(field, ast.AST):
                 # if a field is just a node, any execution continues after our node
                 field.next_node = node.next_node
+            elif is_Match(node) and name == 'cases':
+                # each case continues after the 'match'
+                for item in field:
+                    item.next_node = node.next_node
             elif isinstance(field, list):
                 # if a field is a list, each item but the last one continues with the next item
                 prev = None
@@ -70,7 +100,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                         prev = item
                 if prev:
                     if isinstance(node, ast.For) or isinstance(node, ast.While):
-                        prev.next_node = node
+                        prev.next_node = node   # loops back
                     else:
                         prev.next_node = node.next_node
 
