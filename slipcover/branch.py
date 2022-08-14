@@ -50,6 +50,8 @@ def preinstrument(tree: ast.AST) -> ast.AST:
         def visit_While(self, node: ast.While) -> ast.While:
             return self._mark_branches(node)
 
+        # FIXME handle AsyncFor
+
         if sys.version_info[0:2] >= (3,10): # new in Python 3.10
             def visit_Match(self, node: ast.Match) -> ast.Match:
                 for case in node.cases:
