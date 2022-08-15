@@ -299,9 +299,25 @@ class Slipcover:
                     'missing_lines': sorted(f_code_lines - lines_seen),
                 }
 
+                summary = f_files['summary'] = {
+                    'covered_lines': len(f_files['executed_lines']),
+                    'missing_lines': len(f_files['missing_lines']),
+                }
+
+                nom = summary['covered_lines']
+                den = nom + summary['missing_lines']
+
                 if self.branch:
                     f_files['executed_branches'] = sorted(branches_seen)
                     f_files['missing_branches'] = sorted(self.code_branches[f] - branches_seen)
+                    summary['covered_branches'] = len(f_files['executed_branches'])
+                    summary['missing_branches'] = len(f_files['missing_branches'])
+
+                    nom += summary['covered_branches']
+                    den += summary['covered_branches'] + summary['missing_branches']
+
+                # the check for den == 0 is just defensive programming... there's always at least 1 line
+                summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
 
                 if self.collect_stats:
                     # Once a line reports in, it's available for deinstrumentation.
@@ -320,6 +336,23 @@ class Slipcover:
 
                 files[simp.simplify(f)] = f_files
 
+            summary = {
+                'covered_lines': sum(files[fn]['summary']['covered_lines'] for fn in files),
+                'missing_lines': sum(files[fn]['summary']['missing_lines'] for fn in files)
+            }
+
+            nom = summary['covered_lines']
+            den = nom + summary['missing_lines']
+
+            if self.branch:
+                summary['covered_branches'] = sum(files[fn]['summary']['covered_branches'] for fn in files)
+                summary['missing_branches'] = sum(files[fn]['summary']['missing_branches'] for fn in files)
+
+                nom += summary['covered_branches']
+                den += summary['covered_branches'] + summary['missing_branches']
+
+            summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
+
             import datetime
 
             return {'meta': {
@@ -328,7 +361,8 @@ class Slipcover:
                         'timestamp': datetime.datetime.now().isoformat(),
                         'branch_coverage': self.branch,
                     },
-                    'files': files
+                    'files': files,
+                    'summary': summary
             }
 
 

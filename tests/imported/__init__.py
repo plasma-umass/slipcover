@@ -4,3 +4,6 @@ def do_stuff():
         for i in range(10):
             x += i
     return x
+
+def bar():
+    pass

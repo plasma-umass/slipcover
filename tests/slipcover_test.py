@@ -976,7 +976,8 @@ def test_find_functions():
                                                   visited))
 
 
-def test_interpose_on_module_load(tmp_path):
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_interpose_on_module_load(tmp_path, do_branch):
     # TODO include in coverage info
     from pathlib import Path
     import subprocess
@@ -984,7 +985,7 @@ def test_interpose_on_module_load(tmp_path):
 
     out_file = tmp_path / "out.json"
 
-    subprocess.run(f"{sys.executable} -m slipcover --json --out {out_file} tests/importer.py".split(),
+    subprocess.run(f"{sys.executable} -m slipcover {'--branch ' if do_branch else ''}--json --out {out_file} tests/importer.py".split(),
                    check=True)
     with open(out_file, "r") as f:
         cov = json.load(f)
@@ -992,32 +993,14 @@ def test_interpose_on_module_load(tmp_path):
     module_file = str(Path('tests') / 'imported' / '__init__.py')
 
     assert module_file in cov['files']
-    assert list(range(1,6+1)) == cov['files'][module_file]['executed_lines']
-    assert [] == cov['files'][module_file]['missing_lines']
-    assert 'executed_branches' not in cov['files'][module_file]
-    assert 'missing_branches' not in cov['files'][module_file]
-
-
-def test_interpose_on_module_load_branch(tmp_path):
-    # TODO include in coverage info
-    from pathlib import Path
-    import subprocess
-    import json
-
-    out_file = tmp_path / "out.json"
-
-    subprocess.run(f"{sys.executable} -m slipcover --branch --json --out {out_file} tests/importer.py".split(),
-                   check=True)
-    with open(out_file, "r") as f:
-        cov = json.load(f)
-
-    module_file = str(Path('tests') / 'imported' / '__init__.py')
-
-    assert module_file in cov['files']
-    assert list(range(1,6+1)) == cov['files'][module_file]['executed_lines']
-    assert [] == cov['files'][module_file]['missing_lines']
-    assert [[3,4], [4,5], [4,6]] == cov['files'][module_file]['executed_branches']
-    assert [[3,6]] == cov['files'][module_file]['missing_branches']
+    assert [1,2,3,4,5,6,8] == cov['files'][module_file]['executed_lines']
+    assert [9] == cov['files'][module_file]['missing_lines']
+    if do_branch:
+        assert [[3,4], [4,5], [4,6]] == cov['files'][module_file]['executed_branches']
+        assert [[3,6]] == cov['files'][module_file]['missing_branches']
+    else:
+        assert 'executed_branches' not in cov['files'][module_file]
+        assert 'missing_branches' not in cov['files'][module_file]
 
 
 def test_pytest_interpose(tmp_path):
@@ -1109,3 +1092,104 @@ def test_resources():
 
     p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-qq", cmdfile])
     assert p.returncode == 0
+
+
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_summary_in_output(tmp_path, do_branch):
+    # TODO include in coverage info
+    from pathlib import Path
+    import subprocess
+    import json
+
+    out_file = tmp_path / "out.json"
+
+    subprocess.run(f"{sys.executable} -m slipcover {'--branch ' if do_branch else ''}--json --out {out_file} tests/importer.py".split(),
+                   check=True)
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    for fn in cov['files']:
+        assert 'summary' in cov['files'][fn]
+        summ = cov['files'][fn]['summary']
+
+        assert len(cov['files'][fn]['executed_lines']) == summ['covered_lines']
+        assert len(cov['files'][fn]['missing_lines']) == summ['missing_lines']
+
+        nom = summ['covered_lines']
+        den = summ['covered_lines'] + summ['missing_lines']
+
+        if do_branch:
+            assert len(cov['files'][fn]['executed_branches']) == summ['covered_branches']
+            assert len(cov['files'][fn]['missing_branches']) == summ['missing_branches']
+
+            nom += summ['covered_branches']
+            den += summ['covered_branches'] + summ['missing_branches']
+
+        assert pytest.approx(100*nom/den) == summ['percent_covered']
+
+    assert 'summary' in cov
+    summ = cov['summary']
+
+    missing_lines = sum(cov['files'][fn]['summary']['missing_lines'] for fn in cov['files'])
+    executed_lines = sum(cov['files'][fn]['summary']['covered_lines'] for fn in cov['files'])
+
+    nom = executed_lines
+    den = nom + missing_lines
+
+    assert missing_lines == summ['missing_lines']
+    assert executed_lines == summ['covered_lines']
+
+    if do_branch:
+        missing_branches = sum(cov['files'][fn]['summary']['missing_branches'] for fn in cov['files'])
+        executed_branches = sum(cov['files'][fn]['summary']['covered_branches'] for fn in cov['files'])
+
+        nom += executed_branches
+        den += missing_branches + executed_branches
+
+        assert missing_branches == summ['missing_branches']
+        assert executed_branches == summ['covered_branches']
+
+    assert pytest.approx(100*nom/den) == summ['percent_covered']
+
+
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_summary_in_output_zero_lines(do_branch):
+    t = ast_parse("")
+    if do_branch:
+        t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=do_branch)
+    code = compile(t, 'foo', 'exec')
+    code = sci.instrument(code)
+#    dis.dis(code)
+
+    g = dict()
+    exec(code, g, g)
+
+    cov = sci.get_coverage()
+
+    for fn in cov['files']:
+        assert 'summary' in cov['files'][fn]
+        summ = cov['files'][fn]['summary']
+
+        assert 1 == summ['covered_lines']
+        assert 0 == summ['missing_lines']
+
+        if do_branch:
+            assert 0 == summ['covered_branches']
+            assert 0 == summ['missing_branches']
+
+        assert 100.0 == summ['percent_covered']
+
+
+    assert 'summary' in cov
+    summ = cov['summary']
+
+    assert 1 == summ['covered_lines']
+    assert 0 == summ['missing_lines']
+
+    if do_branch:
+        assert 0 == summ['missing_branches']
+        assert 0 == summ['covered_branches']
+
+    assert 100.0 == summ['percent_covered']
