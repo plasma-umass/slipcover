@@ -514,6 +514,41 @@ def test_instrument_branches():
     assert [(2,9),(3,0),(4,5)] == cov['missing_branches']
 
 
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_meta_in_results(do_branch):
+    t = ast_parse("""
+        def foo(x):
+            if x >= 0:
+                if x > 1:
+                    if x > 2:
+                        return 2
+                    return 1
+
+            else:
+                return 0
+
+        foo(2)
+    """)
+    if do_branch:
+        t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=do_branch)
+    code = compile(t, 'foo', 'exec')
+    code = sci.instrument(code)
+
+    g = dict()
+    exec(code, g, g)
+
+    cov = sci.get_coverage()
+
+    assert 'meta' in cov
+    meta = cov['meta']
+    assert 'slipcover' == meta['software']
+    assert sc.VERSION == meta['version']
+    assert 'timestamp' in meta
+    assert do_branch == meta['branch_coverage']
+
+
 def test_get_coverage_detects_lines():
     sci = sc.Slipcover()
     base_line = current_line()

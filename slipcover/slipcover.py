@@ -10,6 +10,8 @@ from . import bytecode as bc
 from . import branch as br
 from pathlib import Path
 
+VERSION = "0.1.8"
+
 # FIXME provide __all__
 
 # Counter.total() is new in 3.10
@@ -318,7 +320,16 @@ class Slipcover:
 
                 files[simp.simplify(f)] = f_files
 
-            return {'files': files}
+            import datetime
+
+            return {'meta': {
+                        'software': 'slipcover',
+                        'version': VERSION,
+                        'timestamp': datetime.datetime.now().isoformat(),
+                        'branch_coverage': self.branch,
+                    },
+                    'files': files
+            }
 
 
     @staticmethod

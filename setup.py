@@ -3,7 +3,12 @@ from setuptools.command.build_ext import build_ext
 import sys
 from pathlib import Path
 
-VERSION = "0.1.8"
+def get_version():
+    import re
+    v = re.findall(r"\nVERSION *= *\"([^\"]+)\"", Path("slipcover/slipcover.py").read_text())[0]
+    return v
+
+VERSION = get_version()
 REPO_URL = "https://github.com/plasma-umass/slipcover"
 
 def get_description():
