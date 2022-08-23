@@ -23,7 +23,7 @@ Case = namedtuple('Case', ['name', 'label', 'command', 'color'])
 cases = [Case('base', "(no coverage)", sys.executable + " {bench_command}", None),
          Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
               'tab:orange'),
-#         Case('nulltracer', "tracing overhead", sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}", 'tab:red'),
+#         Case('nulltracer', "null C tracer", sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}", 'tab:red'),
          Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}", 'tab:blue')
 ]
 base = cases[0]
@@ -227,9 +227,10 @@ def print_results():
         print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - " +
                                         f"{max(rel_times[case.name]):.0f}%")
 
-    diff_times = [cover - slip for cover, slip in zip(rel_times['coveragepy'],
-                                                      rel_times['slipcover'])]
-    print(f"Slipcover savings: {min(diff_times):.0f}% - {max(diff_times):.0f}%")
+    if 'slipcover' in rel_times:
+        diff_times = [cover - slip for cover, slip in zip(rel_times['coveragepy'],
+                                                          rel_times['slipcover'])]
+        print(f"Slipcover savings: {min(diff_times):.0f}% - {max(diff_times):.0f}%")
 
 print_results()
 
@@ -260,6 +261,7 @@ def plot_results():
         ax.bar_label(rects, padding=3, labels=[f'{v:.2f}x' for v in r], fontsize=8)
 
     ax.set_title('Line Coverage Testing')
+#    ax.set_title('Overhead of tracing')
     ax.set_ylabel('Normalized execution time')
     ax.set_xticks(x, labels=[b.name for b in benchmarks], fontsize=8)
     ax.axhline(y=1, color='grey', linewidth=1, alpha=.5, zorder=1)
