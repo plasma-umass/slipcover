@@ -13,7 +13,6 @@ TRIES = 5
 # someplace with scikit-learn 1.1.1 sources, built and ready to test
 SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
 FLASK = Path.home() / "tmp" / "flask"
-ASTROPY = Path.home() / "tmp" / "astropy"
 
 git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
                           capture_output=True, text=True).stdout.strip()
@@ -116,16 +115,6 @@ if FLASK.exists():
                     'nulltracer_opts': '--prefix=src'
                   },
                   cwd=FLASK
-        )
-    )
-
-if False and ASTROPY.exists():
-    benchmarks.append(
-        Benchmark('astropy', "-m pytest", {
-                    # coveragepy options from setup.cfg
-                    'slipcover_opts': '--omit=astropy/__init__*,astropy/conftest.py,astropy/*setup*,astropy/*/tests/*,astropy/tests/test_*,astropy/extern/*,astropy/utils/compat/*,astropy/version*,astropy/wcs/docstrings*,astropy/_erfa/*,*/astropy/__init__*,*/astropy/conftest.py,*/astropy/*setup*,*/astropy/*/tests/*,*/astropy/tests/test_*,*/astropy/extern/*,*/astropy/utils/compat/*,*/astropy/version*,*/astropy/wcs/docstrings*,*/astropy/_erfa/*'
-                  },
-                  cwd=ASTROPY
         )
     )
 
