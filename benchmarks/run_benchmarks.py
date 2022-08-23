@@ -23,6 +23,7 @@ Case = namedtuple('Case', ['name', 'label', 'command', 'color'])
 cases = [Case('base', "(no coverage)", sys.executable + " {bench_command}", None),
          Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
               'tab:orange'),
+#         Case('nulltracer', "tracing overhead", sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}", 'tab:red'),
          Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}", 'tab:blue')
 ]
 base = cases[0]
@@ -31,7 +32,7 @@ class Benchmark:
     def __init__(self, name, command, opts=None, cwd=None, tries=None):
         self.name = name
         self.format = {'bench_command': command}
-        for k in ['slipcover_opts', 'coveragepy_opts']:
+        for k in ['slipcover_opts', 'coveragepy_opts', 'nulltracer_opts']:
             self.format[k] = opts[k] if opts and k in opts else ''
         self.cwd = cwd 
         self.tries = TRIES if tries == None else tries
@@ -94,13 +95,14 @@ saved_results, results = load_results()
 
 
 benchmarks = []
-if SCIKIT_LEARN.exists():
+if SCIKIT_LEARN and SCIKIT_LEARN.exists():
     benchmarks.append(
         # ndcg_score fails with scikit-learn 1.1.1
         Benchmark('sklearn', "-m pytest sklearn -k 'not sklearn.metrics._ranking.ndcg_score'", {
                     # coveragepy options from .coveragerc
                     'slipcover_opts': '--source=sklearn ' + \
-                                      '--omit=*/sklearn/externals/*,*/sklearn/_build_utils/*,*/benchmarks/*,**/setup.py'
+                                      '--omit=*/sklearn/externals/*,*/sklearn/_build_utils/*,*/benchmarks/*,**/setup.py',
+                    'nulltracer_opts': '--prefix=sklearn '
                   },
                   cwd=str(SCIKIT_LEARN)
         )
@@ -110,7 +112,8 @@ if FLASK.exists():
     benchmarks.append(
         Benchmark('flask', "-m pytest --count 5", {
                     # coveragepy options from setup.cfg
-                    'slipcover_opts': '--source=src,*/site-packages'
+                    'slipcover_opts': '--source=src,*/site-packages',
+                    'nulltracer_opts': '--prefix=src'
                   },
                   cwd=FLASK
         )
@@ -131,7 +134,9 @@ def path2bench(p: Path) -> str:
     bench_name = match.group(2) if match else p.name
 
     return Benchmark(bench_name, p, {'coveragepy_opts': f'--include={p}',
-                                     'slipcover_opts': f'--source={p.parent}'})
+                                     'slipcover_opts': f'--source={p.parent}',
+                                     'nulltracer_opts': f'--prefix={p}'
+                                     })
 
 benchmarks.extend([path2bench(p) for p in sorted(Path('benchmarks').glob('bm_*.py'))])
 
