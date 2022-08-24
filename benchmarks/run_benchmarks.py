@@ -20,10 +20,11 @@ git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
 Case = namedtuple('Case', ['name', 'label', 'command', 'color'])
 
 cases = [Case('base', "(no coverage)", sys.executable + " {bench_command}", None),
-         Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
-              'tab:orange'),
+         Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}", 'orange'),
+         Case('coveragepy-branch', "Coverage.py + branch", sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}", 'tab:orange'),
 #         Case('nulltracer', "null C tracer", sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}", 'tab:red'),
-         Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}", 'tab:blue')
+         Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}", 'tab:blue'),
+         Case('slipcover-branch', "Slipcover + branch", sys.executable + " -m slipcover --branch {slipcover_opts} {bench_command}", 'blue')
 ]
 base = cases[0]
 
@@ -249,7 +250,7 @@ def plot_results():
 
         ax.bar_label(rects, padding=3, labels=[f'{v:.2f}x' for v in r], fontsize=8)
 
-    ax.set_title('Line Coverage Testing')
+    ax.set_title('Line / Line+Branch Coverage Benchmarks')
 #    ax.set_title('Overhead of tracing')
     ax.set_ylabel('Normalized execution time')
     ax.set_xticks(x, labels=[b.name for b in benchmarks], fontsize=8)
@@ -257,6 +258,7 @@ def plot_results():
     if not hide_slipcover:
         ax.legend()
 
+    fig.set_size_inches(18.5*.75, 10.5*.75)
     fig.tight_layout()
     fig.savefig("benchmarks/benchmarks.png")
 
