@@ -225,6 +225,43 @@ def test_if_in_function():
     assert [(2,0)] == g[br.BRANCH_NAME]
 
 
+def test_keep_docstrings():
+    t = ast_parse("""
+        def foo(x):
+            \"\"\"foo something\"\"\"
+            if x >= 0:
+                return 1
+
+        async def bar(x):
+            \"\"\"bar something\"\"\"
+            if x == 0:
+                return 1
+
+        class Foo:
+            \"\"\"Foo something\"\"\"
+            def __init__(self, x):
+                if x == 0:
+                    self.x = 0
+
+        foo(-1)
+    """)
+#    print(ast.dump(t, indent=True))
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(3,0), (3,4), (8,0), (8,9), (14,0), (14,15)] == get_branches(code)
+
+    t = assign2append(t)
+    code = compile(t, "foo", "exec")
+
+    g = {br.BRANCH_NAME: []}
+    exec(code, g, g)
+
+    assert 'foo something' == g['foo'].__doc__
+    assert 'bar something' == g['bar'].__doc__
+    assert 'Foo something' == g['Foo'].__doc__
+
+
 def test_for():
     t = ast_parse("""
         for v in [1, 2]:
