@@ -128,13 +128,14 @@ def wrap_pytest():
     except ModuleNotFoundError:
         return
 
+    orig_rewrite_asserts = _pytest.assertion.rewrite.rewrite_asserts
     def rewrite_asserts_wrapper(*args):
         # FIXME we should normally subject pre-instrumentation to file_matcher matching...
         # but the filename isn't clearly available. So here we instead always pre-instrument
         # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
         # *should* be innocuous if not followed by sci.instrument.
         args = (br.preinstrument(args[0]), *args[1:])
-        return _pytest.assertion.rewrite.rewrite_asserts(*args)
+        return orig_rewrite_asserts(*args)
 
     def read_or_write_pyc(*args, **kwargs):
         return None
@@ -146,18 +147,13 @@ def wrap_pytest():
             ed.replace_global_with_const('exec', wrapper_index)
             f.__code__ = ed.finish()
 
-        if sci.branch and 'rewrite_asserts' in f.__code__.co_names:
-            ed = bc.Editor(f.__code__)
-            wrapper_index = ed.add_const(rewrite_asserts_wrapper)
-            ed.replace_global_with_const('rewrite_asserts', wrapper_index)
-            f.__code__ = ed.finish()
-
     # disable cached test reading/writing
     if sci.branch:
         assert hasattr(_pytest.assertion.rewrite, "_read_pyc")
         assert hasattr(_pytest.assertion.rewrite, "_write_pyc")
         _pytest.assertion.rewrite._read_pyc = read_or_write_pyc
         _pytest.assertion.rewrite._write_pyc = read_or_write_pyc
+        _pytest.assertion.rewrite.rewrite_asserts = rewrite_asserts_wrapper
 
 if not args.dont_wrap_pytest:
     wrap_pytest()
