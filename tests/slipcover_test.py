@@ -1161,7 +1161,7 @@ def test_summary_in_output_zero_lines(do_branch):
     sci = sc.Slipcover(branch=do_branch)
     code = compile(t, 'foo', 'exec')
     code = sci.instrument(code)
-#    dis.dis(code)
+    #dis.dis(code)
 
     g = dict()
     exec(code, g, g)
@@ -1172,7 +1172,11 @@ def test_summary_in_output_zero_lines(do_branch):
         assert 'summary' in cov['files'][fn]
         summ = cov['files'][fn]['summary']
 
-        assert 1 == summ['covered_lines']
+        if PYTHON_VERSION >= (3,11):
+            assert 0 == summ['covered_lines']
+        else:
+            assert 1 == summ['covered_lines']
+
         assert 0 == summ['missing_lines']
 
         if do_branch:
@@ -1185,7 +1189,10 @@ def test_summary_in_output_zero_lines(do_branch):
     assert 'summary' in cov
     summ = cov['summary']
 
-    assert 1 == summ['covered_lines']
+    if PYTHON_VERSION >= (3,11):
+        assert 0 == summ['covered_lines']
+    else:
+        assert 1 == summ['covered_lines']
     assert 0 == summ['missing_lines']
 
     if do_branch:
