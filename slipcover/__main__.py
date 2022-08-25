@@ -124,36 +124,58 @@ def wrap_pytest():
         exec(obj, g)
 
     try:
-        import _pytest.assertion.rewrite
+        import _pytest.assertion.rewrite as pyrewrite
     except ModuleNotFoundError:
         return
 
-    orig_rewrite_asserts = _pytest.assertion.rewrite.rewrite_asserts
-    def rewrite_asserts_wrapper(*args):
-        # FIXME we should normally subject pre-instrumentation to file_matcher matching...
-        # but the filename isn't clearly available. So here we instead always pre-instrument
-        # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
-        # *should* be innocuous if not followed by sci.instrument.
-        args = (br.preinstrument(args[0]), *args[1:])
-        return orig_rewrite_asserts(*args)
-
-    def read_or_write_pyc(*args, **kwargs):
-        return None
-
-    for f in sc.Slipcover.find_functions(_pytest.assertion.rewrite.__dict__.values(), set()):
+    for f in sc.Slipcover.find_functions(pyrewrite.__dict__.values(), set()):
         if 'exec' in f.__code__.co_names:
             ed = bc.Editor(f.__code__)
             wrapper_index = ed.add_const(exec_wrapper)
             ed.replace_global_with_const('exec', wrapper_index)
             f.__code__ = ed.finish()
 
-    # disable cached test reading/writing
     if sci.branch:
-        assert hasattr(_pytest.assertion.rewrite, "_read_pyc")
-        assert hasattr(_pytest.assertion.rewrite, "_write_pyc")
-        _pytest.assertion.rewrite._read_pyc = read_or_write_pyc
-        _pytest.assertion.rewrite._write_pyc = read_or_write_pyc
-        _pytest.assertion.rewrite.rewrite_asserts = rewrite_asserts_wrapper
+        from inspect import signature
+
+        expected_sigs = {
+            'rewrite_asserts': ['mod', 'source', 'module_path', 'config'],
+            '_read_pyc': ['source', 'pyc', 'trace'],
+            '_write_pyc': ['state', 'co', 'source_stat', 'pyc']
+        }
+
+        for fun, expected in expected_sigs.items():
+            sig = signature(pyrewrite.__dict__[fun])
+            if list(sig.parameters) != expected:
+                import warnings
+                warnings.warn(f"Unable to activate pytest branch coverage: unexpected {fun} signature {str(sig)}"
+                              +"; please open an issue at https://github.com/plasma-umass/slipcover .",
+                              RuntimeWarning)
+                return
+
+        orig_rewrite_asserts = pyrewrite.rewrite_asserts
+        def rewrite_asserts_wrapper(*args):
+            # FIXME we should normally subject pre-instrumentation to file_matcher matching...
+            # but the filename isn't clearly available. So here we instead always pre-instrument
+            # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
+            # *should* be innocuous if not followed by sci.instrument.
+            args = (br.preinstrument(args[0]), *args[1:])
+            return orig_rewrite_asserts(*args)
+
+        def adjust_name(fn : Path) -> Path:
+            return fn.parent / (fn.stem + "-slipcover-" + sc.VERSION + fn.suffix)
+
+        orig_read_pyc = pyrewrite._read_pyc
+        def read_pyc(*args, **kwargs):
+            return orig_read_pyc(*args[:1], adjust_name(args[1]), *args[2:], **kwargs)
+
+        orig_write_pyc = pyrewrite._write_pyc
+        def write_pyc(*args, **kwargs):
+            return orig_write_pyc(*args[:3], adjust_name(args[3]), *args[4:], **kwargs)
+
+        pyrewrite._read_pyc = read_pyc
+        pyrewrite._write_pyc = write_pyc
+        pyrewrite.rewrite_asserts = rewrite_asserts_wrapper
 
 if not args.dont_wrap_pytest:
     wrap_pytest()

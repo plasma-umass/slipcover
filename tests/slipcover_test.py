@@ -1056,8 +1056,14 @@ def test_pytest_interpose_branch(tmp_path):
     assert [[3,4], [4,5], [4,6]] == cov['executed_branches']
     assert [[3,6]] == cov['missing_branches']
 
-    # check that we're not letting pytest cache our pre-instrumented version
-    assert pytest_cache_files == cache_files()
+    new_cache_files = set(cache_files())
+    sc_cache_files = set(fn for fn in new_cache_files if ('slipcover-' + sc.VERSION) in fn.name)
+
+    # ensure ours is being cached
+    assert {} != sc_cache_files
+
+    # and that nothing else changed
+    assert set(pytest_cache_files) == new_cache_files - sc_cache_files
     assert (pytest_cache_content == pytest_cache_files[0].read_bytes())
 
 
