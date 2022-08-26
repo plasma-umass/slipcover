@@ -6,6 +6,7 @@ from statistics import median
 from datetime import datetime
 import subprocess
 import sys
+from importlib_metadata import version
 
 
 BENCHMARK_JSON = 'benchmarks/benchmarks.json'
@@ -17,14 +18,14 @@ FLASK = Path.home() / "tmp" / "flask"
 git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
                           capture_output=True, text=True).stdout.strip()
 
-Case = namedtuple('Case', ['name', 'label', 'command', 'color'])
+Case = namedtuple('Case', ['name', 'label', 'command', 'color', 'version'])
 
-cases = [Case('base', "(no coverage)", sys.executable + " {bench_command}", None),
-         Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}", 'orange'),
-         Case('coveragepy-branch', "Coverage.py + branch", sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}", 'tab:orange'),
-#         Case('nulltracer', "null C tracer", sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}", 'tab:red'),
-         Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}", 'tab:blue'),
-         Case('slipcover-branch', "Slipcover + branch", sys.executable + " -m slipcover --branch {slipcover_opts} {bench_command}", 'blue')
+cases = [Case('base', "(no coverage)", sys.executable + " {bench_command}", None, None),
+         Case('coveragepy', "Coverage.py", sys.executable + " -m coverage run {coveragepy_opts} {bench_command}", 'orange', version('coverage')),
+         Case('coveragepy-branch', "Coverage.py + branch", sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}", 'tab:orange', version('coverage')),
+#         Case('nulltracer', "null C tracer", sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}", 'tab:red', version('nulltracer')),
+         Case('slipcover', "Slipcover", sys.executable + " -m slipcover {slipcover_opts} {bench_command}", 'tab:blue', git_head),
+         Case('slipcover-branch', "Slipcover + branch", sys.executable + " -m slipcover --branch {slipcover_opts} {bench_command}", 'blue', git_head)
 ]
 base = cases[0]
 
@@ -108,7 +109,7 @@ if SCIKIT_LEARN and SCIKIT_LEARN.exists():
         )
     )
 
-if FLASK.exists():
+if FLASK and FLASK.exists():
     benchmarks.append(
         Benchmark('flask', "-m pytest --count 5", {
                     # coveragepy options from setup.cfg
@@ -162,7 +163,7 @@ for case in cases:
 
         results[case.name][bench.name] = {
             'datetime': datetime.now().isoformat(),
-            'git_head': git_head,
+            'version': case.version,
             'times': times
         }
 
@@ -198,11 +199,11 @@ def print_results():
                        round(stdev(r),2),
                        round(stdev(r)/sqrt(len(r)),2), oh,
                        date,
-                       rd['git_head'] if 'git_head' in rd else None
+                       rd['version'] if 'version' in rd else (rd['git_head'] if 'git_head' in rd else None)
                 ]
 
     print(tabulate(get_stats(), headers=["bench", "case", "samples", "median", "mean", "stdev",
-                                         "SE", "overhead %", "date", "git_head"]))
+                                         "SE", "overhead %", "date", "version"]))
     print("")
 
     base_times = [median(results[base.name][b.name]['times']) for b in benchmarks]
