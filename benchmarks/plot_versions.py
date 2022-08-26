@@ -50,18 +50,19 @@ for v in python_versions:
             m = v2r[v][c][b]
             m['median'] = median(m['times'])
 
-fig, ax = plt.subplots(3, 1, figsize=(10, 15))
+fig, ax = plt.subplots(len(benchmarks), 1, figsize=(5, 15))
 
 max_v = None
 min_v = None
 
 first = python_versions[0]
 
-for i, c in enumerate(sorted(cases)):
-    ax[i].set_title(c)
-    for b in benchmarks:
-        values = [v2r[v][c][b]['median']/v2r[first]['base'][b]['median'] for v in python_versions]
-        ax[i].plot(python_versions, values, label=b)
+for i, b in enumerate(sorted(benchmarks)):
+    ax[i].set_title(b)
+    for c in cases:
+        if c == 'base': continue
+        values = [v2r[v][c][b]['median']/v2r[v]['base'][b]['median'] for v in python_versions]
+        ax[i].plot(python_versions, values, label=c)
 
         if max_v is None or max_v < max(values):
             max_v = max(values)
@@ -71,19 +72,20 @@ for i, c in enumerate(sorted(cases)):
     ax[i].legend()
     ax[i].set_ylabel('Normalized execution time')
 
-for i in range(len(cases)):
+# make all ranges the same to avoid misleading readers
+for i in range(len(benchmarks)):
     ax[i].set_ylim([min_v, max_v])
 
 fig.tight_layout()
 fig.savefig("benchmarks/versions.png")
 
-from tabulate import tabulate
-
-def get_comparison():
-    for b in benchmarks:
-        yield [b, round(v2r[python_versions[-2]]['base'][b]['median'], 2),
-               round(v2r[python_versions[-1]]['base'][b]['median'], 2),
-               round(v2r[python_versions[-1]]['slipcover'][b]['median'], 2)]
-
-print(tabulate(get_comparison(), headers=["bench", python_versions[-2], python_versions[-1],
-                                          f"{python_versions[-1]} + slipcover"]))
+#from tabulate import tabulate
+#
+#def get_comparison():
+#    for b in benchmarks:
+#        yield [b, round(v2r[python_versions[-2]]['base'][b]['median'], 2),
+#               round(v2r[python_versions[-1]]['base'][b]['median'], 2),
+#               round(v2r[python_versions[-1]]['slipcover'][b]['median'], 2)]
+#
+#print(tabulate(get_comparison(), headers=["bench", python_versions[-2], python_versions[-1],
+#                                          f"{python_versions[-1]} + slipcover"]))
