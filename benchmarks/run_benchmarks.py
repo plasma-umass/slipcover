@@ -6,7 +6,11 @@ from statistics import median
 from datetime import datetime
 import subprocess
 import sys
-from importlib_metadata import version
+
+if sys.version_info[:2] >= (3,11):
+    from importlib.metadata import version
+else:
+    from importlib_metadata import version
 
 
 BENCHMARK_JSON = 'benchmarks/benchmarks.json'
