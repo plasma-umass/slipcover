@@ -100,7 +100,7 @@ def load_benchmarks():
                                          'nulltracer_opts': f'--prefix={p}'
                                          })
 
-    benchmarks.extend([path2bench(p) for p in sorted(Path('benchmarks').glob('bm_*.py'))])
+    benchmarks.extend([path2bench(p) for p in sorted(BENCHMARK_JSON.parent.glob('bm_*.py'))])
     return benchmarks
 
 benchmarks = load_benchmarks()
