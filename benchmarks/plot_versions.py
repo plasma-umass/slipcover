@@ -1,91 +1,119 @@
-import json
-from statistics import median
-import packaging.version
-import matplotlib.pyplot as plt
+from pathlib import Path
 import sys
 
-BENCHMARK_JSON = 'benchmarks/benchmarks.json'
+sys.path += str(Path(sys.argv[0]).parent)
+from benchmarks import BENCHMARK_JSON, cases
 
-with open(BENCHMARK_JSON, 'r') as f:
-    entries = json.load(f)
+def parse_args():
+    import argparse
+    ap = argparse.ArgumentParser()
 
-entries = [e for e in entries if e['system']['os'][0] == 'Linux']
+    ap.add_argument('--os', type=str, default='Linux', help='select OS name')
+    ap.add_argument('--case', choices=[c.name for c in cases],
+                       action='append', help='select case(s) to run/plot')
+    ap.add_argument('--bench', type=str, default='raytrace', help='select benchmark to plot')
+    ap.add_argument('--title', type=str, default='Overhead by Python version', help='set plot title')
+    ap.add_argument('--out', type=Path, default=Path("benchmarks/versions.png"), help='set plot output file')
+    ap.add_argument('--style', type=str, help='set matplotlib style')
+    ap.add_argument('--figure-width', type=float, default=12, help='matplotlib figure width')
+    ap.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
+    ap.add_argument('--bar-labels', action='store_true', help='add labels to bars')
 
-os_versions = set(e['system']['os'][1] for e in entries)
-if len(os_versions) > 1:
-    print("OS versions: ", os_versions)
-    latest = max(os_versions)
-    entries = [e for e in entries if e['system']['os'][1] == latest]
+    args = ap.parse_args()
 
-systems = set([(' '.join(e['system']['os']), e['system']['cpu']) for e in entries])
-print("systems: ", systems)
-assert len(systems) == 1    # don't mix results across different systems
+    if not args.case:
+        args.case = ['coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
 
-v2r = {e['system']['python']: e['results'] for e in entries}
+    return args
 
-python_versions = sorted(v2r.keys(), key=lambda x: packaging.version.parse(x))
-print("versions: ", python_versions)
+args = parse_args()
 
-case_sets = [set(r.keys()) for r in v2r.values()]
-cases = list(case_sets[0].intersection(*case_sets[1:]))
-print("cases: ", cases)
+def load_data():
+    import json
+    import packaging.version
 
-# all should have the same cases
-assert sorted(cases) == sorted(v2r[python_versions[0]].keys())
+    with open(BENCHMARK_JSON, 'r') as f:
+        entries = json.load(f)
 
-bench_sets = [set(b.keys()) for r in v2r.values() for b in r.values()]
-benchmarks = list(bench_sets[0].intersection(*bench_sets[1:]))
-print("common benchmarks: ", benchmarks)
+    entries = [e for e in entries if e['system']['os'][0] == args.os]
 
-all_benchmarks = bench_sets[0].union(*bench_sets[1:])
-for v in python_versions:
-    for c in cases:
-        missing = all_benchmarks - set(v2r[v][c].keys())
-        if len(missing):
-            print(f"  missing from {v} {c}: ", missing)
+    os_versions = set(e['system']['os'][1] for e in entries)
+    if len(os_versions) > 1:
+        print("OS versions: ", os_versions)
+        latest = max(os_versions)
+        entries = [e for e in entries if e['system']['os'][1] == latest]
 
-for v in python_versions:
-    for c in cases:
-        for b in benchmarks:
-            m = v2r[v][c][b]
-            m['median'] = median(m['times'])
+    systems = set([('/'.join(e['system']['os']), e['system']['cpu']) for e in entries])
+    print("systems: ", systems)
+    assert len(systems) == 1    # don't mix results across different systems
 
-fig, ax = plt.subplots(len(benchmarks), 1, figsize=(5, 15))
+    # Python version -> results
+    v2r = {e['system']['python']: e['results'] for e in entries}
 
-max_v = None
-min_v = None
+    # sort Python versions semantically
+    python_versions = sorted(v2r.keys(), key=lambda x: packaging.version.parse(x))
+    print("versions: ", python_versions)
 
-first = python_versions[0]
+    # check data looks ok -- all should have the same cases
+    case_sets = [set(r.keys()) for r in v2r.values()]
+    common_cases = list(case_sets[0].intersection(*case_sets[1:]))
+    print("common cases: ", common_cases)
+    assert sorted(common_cases) == sorted(v2r[python_versions[0]].keys())
 
-for i, b in enumerate(sorted(benchmarks)):
-    ax[i].set_title(b)
-    for c in cases:
-        if c == 'base': continue
-        values = [v2r[v][c][b]['median']/v2r[v]['base'][b]['median'] for v in python_versions]
-        ax[i].plot(python_versions, values, label=c)
+    # print out common and missing benchmarks are -- these can differ
+    bench_sets = [set(b.keys()) for r in v2r.values() for b in r.values()]
+    benchmarks = list(bench_sets[0].intersection(*bench_sets[1:]))
+    print("common benchmarks: ", benchmarks)
 
-        if max_v is None or max_v < max(values):
-            max_v = max(values)
-        if min_v is None or min_v > min(values):
-            min_v = min(values)
+    all_benchmarks = bench_sets[0].union(*bench_sets[1:])
+    for v in python_versions:
+        for c in common_cases:
+            missing = all_benchmarks - set(v2r[v][c].keys())
+            if len(missing):
+                print(f"  missing from {v} {c}: ", missing)
 
-    ax[i].legend()
-    ax[i].set_ylabel('Normalized execution time')
+    # compute the median
+    from statistics import median
+    for v in python_versions:
+        for c in v2r[v]:
+            for b in v2r[v][c]:
+                m = v2r[v][c][b]
+                m['median'] = median(m['times'])
 
-# make all ranges the same to avoid misleading readers
-for i in range(len(benchmarks)):
-    ax[i].set_ylim([min_v, max_v])
+    return v2r, python_versions
 
+v2r, python_versions = load_data()
+
+nonbase_cases = [c for c in cases if c.name != 'base' and c.name in args.case]
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+x = np.arange(len(python_versions))
+n_bars = len(nonbase_cases)
+width = .70 # of all bars
+bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
+
+if args.style:
+    plt.style.use(args.style)
+
+fig, ax = plt.subplots()
+for case, bar_x in zip(nonbase_cases, bars_x):
+    r = [v2r[v][case.name][args.bench]['median'] / v2r[v]['base'][args.bench]['median'] for v in python_versions]
+
+    rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, color=case.color, zorder=2)
+
+    if args.bar_labels:
+        ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8)
+
+ax.set_title(args.title, size=18)
+ax.set_ylabel('Normalized execution time', size=15)
+ax.set_xticks(x, labels=python_versions, fontsize=15)
+if not args.style:
+    ax.grid(axis='y', alpha=.3)
+ax.axhline(y=1, color='black', linewidth=1, alpha=.5, zorder=1)
+ax.legend(fontsize=15)
+
+fig.set_size_inches(args.figure_width, args.figure_height)
 fig.tight_layout()
-fig.savefig("benchmarks/versions.png")
-
-#from tabulate import tabulate
-#
-#def get_comparison():
-#    for b in benchmarks:
-#        yield [b, round(v2r[python_versions[-2]]['base'][b]['median'], 2),
-#               round(v2r[python_versions[-1]]['base'][b]['median'], 2),
-#               round(v2r[python_versions[-1]]['slipcover'][b]['median'], 2)]
-#
-#print(tabulate(get_comparison(), headers=["bench", python_versions[-2], python_versions[-1],
-#                                          f"{python_versions[-1]} + slipcover"]))
+fig.savefig(args.out)

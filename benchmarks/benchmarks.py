@@ -7,21 +7,17 @@ from datetime import datetime
 import subprocess
 import sys
 
-if sys.version_info[:2] < (3,10):
-    from importlib_metadata import version, PackageNotFoundError
-else:
-    from importlib.metadata import version, PackageNotFoundError
-
 BENCHMARK_JSON = Path(sys.argv[0]).parent / 'benchmarks.json'
-TRIES = 5
-# someplace with scikit-learn 1.1.1 sources, built and ready to test
-SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
-FLASK = Path.home() / "tmp" / "flask"
-
-git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
-                          capture_output=True, text=True).stdout.strip()
 
 def load_cases():
+    if sys.version_info[:2] < (3,10):
+        from importlib_metadata import version, PackageNotFoundError
+    else:
+        from importlib.metadata import version, PackageNotFoundError
+
+    git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
     Case = namedtuple('Case', ['name', 'label', 'command', 'color', 'version'])
 
     cases = [Case('base', "(no coverage)",
@@ -57,6 +53,11 @@ cases = load_cases()
 base = cases[0]
 
 def load_benchmarks():
+    TRIES = 5
+    # someplace with scikit-learn 1.1.1 sources, built and ready to test
+    SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
+    FLASK = Path.home() / "tmp" / "flask"
+
     class Benchmark:
         def __init__(self, name, command, opts=None, cwd=None, tries=None):
             self.name = name
@@ -141,6 +142,7 @@ def parse_args():
 
     return args
 
+
 def run_command(command: str, cwd=None):
     import shlex
     import time
@@ -157,10 +159,7 @@ def run_command(command: str, cwd=None):
     return elapsed
 
 
-args = parse_args()
-
-
-def load_results():
+def load_results(args):
     try:
         with open(BENCHMARK_JSON, 'r') as f:
             saved_results = json.load(f)
@@ -214,58 +213,9 @@ def load_results():
 
     return saved_results, results
 
-saved_results, results = load_results()
-
-
-
-
 
 def overhead(time, base_time):
     return ((time/base_time)-1)*100
-
-
-if args.run:
-    for case in cases:
-        if case.name not in results:
-            if case.label in results:   # they used to be saved by label
-                results[case.name] = results[case.label]
-                del results[case.label]
-            else:
-                results[case.name] = dict()
-
-        for bench in benchmarks:
-            if bench.name in results[case.name]:
-                # 'results' used to be just a list
-                if isinstance(results[case.name][bench.name], list):
-                    results[case.name][bench.name] = {'times': results[case.name][bench.name]}
-
-                if args.rerun_case != 'all' and args.rerun_case != case.name:
-                    continue
-
-                if args.rerun_bench and args.rerun_bench != bench.name:
-                    continue
-
-            times = []
-            for _ in range(bench.tries):
-                times.append(run_command(case.command.format(**bench.format), cwd=bench.cwd))
-
-            results[case.name][bench.name] = {
-                'datetime': datetime.now().isoformat(),
-                'version': case.version,
-                'times': times
-            }
-
-            if case.name == 'coveragepy':
-                import coverage
-                results[case.name][bench.name]['coveragepy_version'] = coverage.__version__
-
-            m = median(times)
-            b_m = median(results[base.name][bench.name]['times'])
-            print(f"median: {m:.1f}" + (f" +{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
-
-            # save after each benchmark, in case we abort running others
-            with open(BENCHMARK_JSON, 'w') as f:
-                json.dump(saved_results, f)
 
 
 def print_results():
@@ -315,10 +265,8 @@ def print_results():
 
     print("")
 
-print_results()
 
-
-def plot_results():
+def plot_results(args):
     import numpy as np
     import matplotlib.pyplot as plt
 
@@ -361,5 +309,55 @@ def plot_results():
     fig.savefig(args.out)
     print(f"Plotting to {args.out}")
 
-if not args.run:
-    plot_results()
+
+if __name__ == "__main__":
+    args = parse_args()
+    saved_results, results = load_results(args)
+
+    if args.run:
+        for case in cases:
+            if case.name not in results:
+                if case.label in results:   # they used to be saved by label
+                    results[case.name] = results[case.label]
+                    del results[case.label]
+                else:
+                    results[case.name] = dict()
+
+            for bench in benchmarks:
+                if bench.name in results[case.name]:
+                    # 'results' used to be just a list
+                    if isinstance(results[case.name][bench.name], list):
+                        results[case.name][bench.name] = {'times': results[case.name][bench.name]}
+
+                    if args.rerun_case != 'all' and args.rerun_case != case.name:
+                        continue
+
+                    if args.rerun_bench and args.rerun_bench != bench.name:
+                        continue
+
+                times = []
+                for _ in range(bench.tries):
+                    times.append(run_command(case.command.format(**bench.format), cwd=bench.cwd))
+
+                results[case.name][bench.name] = {
+                    'datetime': datetime.now().isoformat(),
+                    'version': case.version,
+                    'times': times
+                }
+
+                if case.name == 'coveragepy':
+                    import coverage
+                    results[case.name][bench.name]['coveragepy_version'] = coverage.__version__
+
+                m = median(times)
+                b_m = median(results[base.name][bench.name]['times'])
+                print(f"median: {m:.1f}" + (f" +{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
+
+                # save after each benchmark, in case we abort running others
+                with open(BENCHMARK_JSON, 'w') as f:
+                    json.dump(saved_results, f)
+
+    print_results()
+
+    if not args.run:
+        plot_results(args)
