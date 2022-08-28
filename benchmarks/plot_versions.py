@@ -35,7 +35,7 @@ def load_data():
     with open(BENCHMARK_JSON, 'r') as f:
         entries = json.load(f)
 
-    entries = [e for e in entries if e['system']['os'][0] == args.os]
+    entries = [e for e in entries if e['system']['os'][0].casefold() == args.os.casefold()]
 
     os_versions = set(e['system']['os'][1] for e in entries)
     if len(os_versions) > 1:

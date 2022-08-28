@@ -1,7 +1,5 @@
 import json
-import re
 from pathlib import Path
-from collections import namedtuple
 from statistics import median
 from datetime import datetime
 import subprocess
@@ -10,6 +8,8 @@ import sys
 BENCHMARK_JSON = Path(sys.argv[0]).parent / 'benchmarks.json'
 
 def load_cases():
+    from collections import namedtuple
+
     if sys.version_info[:2] < (3,10):
         from importlib_metadata import version, PackageNotFoundError
     else:
@@ -50,7 +50,6 @@ def load_cases():
     return cases
 
 cases = load_cases()
-base = cases[0]
 
 def load_benchmarks():
     TRIES = 5
@@ -93,6 +92,8 @@ def load_benchmarks():
     )
 
     def path2bench(p: Path) -> str:
+        import re
+
         match = re.search('^(bm_)?(.*?)\.py$', p.name)
         bench_name = match.group(2) if match else p.name
 
@@ -113,6 +114,7 @@ def parse_args():
     ap.add_argument('--run', action='store_true', help='run benchmarks as needed')
     ap.add_argument('--case', choices=[c.name for c in cases],
                        action='append', help='select case(s) to run/plot')
+    ap.add_argument('--print', action='store_true', help='print results')
 
     a_run = ap.add_argument_group('running', 'options for running')
     a_run.add_argument('--rerun-case', choices=['all', 'none', *[c.name for c in cases]],
@@ -184,33 +186,54 @@ def load_results(args):
             results = dict()
             saved_results.append({'system': gen_sysid(), 'results': results})
     else:
+        def e_system_list(e):
+            return [e['system']['python'], *e['system']['os'], e['system']['cpu']]
+
+        def show_available_and_exit(entries):
+            from tabulate import tabulate
+
+            def get_systems():
+                for e in entries:
+                    yield e_system_list(e)
+
+            print("Please select results entry to plot using  --python and --os:")
+            print(tabulate(get_systems(), headers=["python", "OS", "(release)", "(cpu)"]))
+            sys.exit(1)
+
         entries = saved_results
+
         if args.os:
-            entries = [e for e in entries if e['system']['os'][0] == args.os]
+            entries = [e for e in entries if e['system']['os'][0].casefold() == args.os.casefold()]
             if len(entries) == 0:
-                raise RuntimeError(f"No entries found for {args.os}")
+                print(f"No entries found for {args.os}")
+                show_available_and_exit(saved_results)
+
         if args.python:
             entries = [e for e in entries if e['system']['python'] == args.python]
             if len(entries) == 0:
-                raise RuntimeError(f"No entries found for {args.python}")
+                print(f"No entries found for {args.python}")
+                show_available_and_exit(saved_results)
 
         if len(entries) > 1:
             found = set(f"{e['system']['os'][0]}/{e['system']['python']}" for e in entries)
             if len(found) > 1:
-                raise RuntimeError(f"Too many entries match; found {found}")
+                print("Too many entries match")
+                show_available_and_exit(entries)
 
             def max_datetime(e):
                 return max(b['datetime'] for c in e['results'].values() for b in c.values())
 
             # multiple OS versions or CPU types... pick latest results
-            date2results = {max_datetime(e): e['results'] for e in entries}
-            picked = max(date2results.keys())
-            print(f"Picking latest of {len(entries)}")
-            results = date2results[picked]
+            date2entry = {max_datetime(e): e for e in entries}
+            picked = date2entry[max(date2entry.keys())]
+            print(f"Using results for {'/'.join(e_system_list(picked))}")
+            print("")
+            results = picked['results']
 
         else:
             results = entries[0]['results']
 
+    # 'saved_results' contains the entire JSON; 'results' points into "our" entry within that
     return saved_results, results
 
 
@@ -226,7 +249,7 @@ def print_results():
         from statistics import mean, stdev
 
         for bench in benchmarks:
-            base_median = median(results[base.name][bench.name]['times'])
+            base_median = median(results['base'][bench.name]['times'])
             for case in cases:
                 if case.name not in results or bench.name not in results[case.name]: continue
 
@@ -234,7 +257,7 @@ def print_results():
                 date = str(datetime.fromisoformat(rd['datetime']).date()) if 'datetime' in rd else None
                 r = rd['times']
 
-                oh = round(overhead(median(r), base_median),1) if case != base else None
+                oh = round(overhead(median(r), base_median),1) if case.name != 'base' else None
                 yield [bench.name, case.name, len(r), round(median(r),2), round(mean(r),2),
                        round(stdev(r),2),
                        round(stdev(r)/sqrt(len(r)),2), oh,
@@ -246,10 +269,10 @@ def print_results():
                                          "SE", "overhead %", "date", "version"]))
     print("")
 
-    base_times = [median(results[base.name][b.name]['times']) for b in benchmarks]
+    base_times = [median(results['base'][b.name]['times']) for b in benchmarks]
     rel_times = dict()
     for case in cases:
-        if case == base or case.name not in results:
+        if case.name == 'base' or case.name not in results:
             continue
 
         times = [median(results[case.name][b.name]['times']) for b in benchmarks]
@@ -350,14 +373,15 @@ if __name__ == "__main__":
                     results[case.name][bench.name]['coveragepy_version'] = coverage.__version__
 
                 m = median(times)
-                b_m = median(results[base.name][bench.name]['times'])
+                b_m = median(results['base'][bench.name]['times'])
                 print(f"median: {m:.1f}" + (f" +{overhead(m, b_m):.1f}%" if case.name != "base" else ""))
 
                 # save after each benchmark, in case we abort running others
                 with open(BENCHMARK_JSON, 'w') as f:
                     json.dump(saved_results, f)
 
-    print_results()
+    if args.print:
+        print_results()
 
     if not args.run:
         plot_results(args)
