@@ -8,46 +8,42 @@ import sys
 BENCHMARK_JSON = Path(sys.argv[0]).parent / 'benchmarks.json'
 
 def load_cases():
-    from collections import namedtuple
-
     if sys.version_info[:2] < (3,10):
-        from importlib_metadata import version, PackageNotFoundError
+        from importlib_metadata import version
     else:
-        from importlib.metadata import version, PackageNotFoundError
+        from importlib.metadata import version
 
     git_head = subprocess.run("git rev-parse --short HEAD", shell=True, check=True,
                               capture_output=True, text=True).stdout.strip()
 
-    Case = namedtuple('Case', ['name', 'label', 'command', 'color', 'version'])
+    class Case:
+        def __init__(self, name, label, command, color=None, get_version=None):
+            self.name = name
+            self.label = label
+            self.command = command
+            self.color = color
+            # using a version getter allows us to only attempt to get the
+            # version when needed (the module may not exist, etc.)
+            self.get_version = get_version if get_version else lambda: None
 
-    cases = [Case('base', "(no coverage)",
-                  sys.executable + " {bench_command}", None, None),
-             Case('coveragepy', "Coverage.py line",
-                  sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
-                  'orange', version('coverage')),
-             Case('coveragepy-branch', "Coverage.py line+branch",
-                  sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
-                  'tab:orange', version('coverage'))
+    return [Case('base', "(no coverage)",
+                 sys.executable + " {bench_command}"),
+            Case('coveragepy', "Coverage.py line",
+                 sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
+                 color='orange', get_version=lambda: version('coverage')),
+            Case('coveragepy-branch', "Coverage.py line+branch",
+                 sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
+                 color='tab:orange', get_version=lambda: version('coverage')),
+            Case('nulltracer', "null C tracer",
+                 sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}",
+                 color='tab:red', get_version=lambda: version('nulltracer')),
+            Case('slipcover', "Slipcover line",
+                 sys.executable + " -m slipcover {slipcover_opts} {bench_command}",
+                 color='tab:blue', get_version=lambda: git_head),
+            Case('slipcover-branch', "Slipcover line+branch",
+                 sys.executable + " -m slipcover --branch {slipcover_opts} {bench_command}",
+                 color='blue', get_version=lambda: git_head)
     ]
-
-    try:
-        cases += [
-             Case('nulltracer', "null C tracer",
-                  sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}",
-                  'tab:red', version('nulltracer'))
-        ]
-    except PackageNotFoundError:
-        pass
-
-    cases += [
-             Case('slipcover', "Slipcover line",
-                  sys.executable + " -m slipcover {slipcover_opts} {bench_command}",
-                  'tab:blue', git_head),
-             Case('slipcover-branch', "Slipcover line+branch",
-                  sys.executable + " -m slipcover --branch {slipcover_opts} {bench_command}",
-                  'blue', git_head)
-    ]
-    return cases
 
 cases = load_cases()
 
@@ -111,15 +107,15 @@ def parse_args():
     import argparse
     ap = argparse.ArgumentParser()
 
-    ap.add_argument('--run', action='store_true', help='run benchmarks as needed')
+    ap.add_argument('--run', action='store_true', help='run benchmarks')
     ap.add_argument('--case', choices=[c.name for c in cases],
                        action='append', help='select case(s) to run/plot')
+    ap.add_argument('--bench', choices=[b.name for b in benchmarks],
+                       action='append', help='select benchmark(s) to run/plot')
     ap.add_argument('--print', action='store_true', help='print results')
 
     a_run = ap.add_argument_group('running', 'options for running')
-    a_run.add_argument('--rerun-case', choices=['all', 'none', *[c.name for c in cases]],
-                       default='slipcover', help='select "case"(s) to re-run')
-    a_run.add_argument('--rerun-bench', type=str, default=None, help='select benchmark to re-run')
+    a_run.add_argument('--no-sklearn', action='store_true', help="don't run sklearn benchmark")
 
     a_plot = ap.add_argument_group('plotting', 'options for plotting')
     a_plot.add_argument('--os', type=str, help='select OS name (conflicts with --run)')
@@ -138,6 +134,12 @@ def parse_args():
             args.case = ['slipcover', 'slipcover-branch']
         else:
             args.case = ['coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
+
+    if not args.bench:
+        args.bench = [b.name for b in benchmarks]
+
+    if args.run and args.no_sklearn:
+        args.bench = list(filter(lambda b: b != 'sklearn', args.bench))
 
     if args.run and args.os: raise Exception("--run and --os can't be used together")
     if args.run and args.python: raise Exception("--run and --python can't be used together")
@@ -168,23 +170,23 @@ def load_results(args):
     except FileNotFoundError:
         saved_results = []
 
+    def own_sysid():
+        import platform
+        import cpuinfo  # pip3 install py-cpuinfo
+
+        return {
+            'python': platform.python_version(),
+            'os': [platform.system(), platform.release()],
+            'cpu': cpuinfo.get_cpu_info()['brand_raw']
+        }
+
     if args.run:
-        def gen_sysid():
-            import platform
-            import cpuinfo  # pip3 install py-cpuinfo
-
-            return {
-                'python': platform.python_version(),
-                'os': [platform.system(), platform.release()],
-                'cpu': cpuinfo.get_cpu_info()['brand_raw']
-            }
-
         try:
-            results = next(it['results'] for it in saved_results if it['system'] == gen_sysid())
-            print(f"using {json.dumps(gen_sysid())}")
+            results = next(it['results'] for it in saved_results if it['system'] == own_sysid())
+            print(f"using {json.dumps(own_sysid())}")
         except StopIteration:
             results = dict()
-            saved_results.append({'system': gen_sysid(), 'results': results})
+            saved_results.append({'system': own_sysid(), 'results': results})
     else:
         def e_system_list(e):
             return [e['system']['python'], *e['system']['os'], e['system']['cpu']]
@@ -249,6 +251,7 @@ def print_results():
         from statistics import mean, stdev
 
         for bench in benchmarks:
+            if bench.name not in results['base']: continue
             base_median = median(results['base'][bench.name]['times'])
             for case in cases:
                 if case.name not in results or bench.name not in results[case.name]: continue
@@ -269,25 +272,6 @@ def print_results():
                                          "SE", "overhead %", "date", "version"]))
     print("")
 
-    base_times = [median(results['base'][b.name]['times']) for b in benchmarks]
-    rel_times = dict()
-    for case in cases:
-        if case.name == 'base' or case.name not in results:
-            continue
-
-        times = [median(results[case.name][b.name]['times']) for b in benchmarks]
-        rel_times[case.name] = [overhead(t, bt) for t, bt in zip(times, base_times)]
-
-        print(f"Overhead for {case.name}: {min(rel_times[case.name]):.0f}% - " +
-                                        f"{max(rel_times[case.name]):.0f}%")
-
-    if 'slipcover' in rel_times:
-        diff_times = [cover - slip for cover, slip in zip(rel_times['coveragepy'],
-                                                          rel_times['slipcover'])]
-        print(f"Slipcover savings: {min(diff_times):.0f}% - {max(diff_times):.0f}%")
-
-    print("")
-
 
 def plot_results(args):
     import numpy as np
@@ -295,7 +279,11 @@ def plot_results(args):
 
     nonbase_cases = [c for c in cases if c.name != 'base' and c.name in args.case]
 
-    x = np.arange(len(benchmarks))
+    common_benchmarks = set.intersection(*(set(results[c].keys()) for c in results))
+    if set(b.name for b in benchmarks) != common_benchmarks:
+        print(f"missing benchmark(s) {set(b.name for b in benchmarks) - common_benchmarks}")
+
+    x = np.arange(len(common_benchmarks))
     n_bars = len(nonbase_cases)
     width = .70 # of all bars
     bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
@@ -307,12 +295,12 @@ def plot_results(args):
 
     fig, ax = plt.subplots()
     for case, bar_x in zip(nonbase_cases, bars_x):
-        r = [median(results[case.name][b.name]['times']) / median(results['base'][b.name]['times']) for b in benchmarks]
+        r = [median(results[case.name][b.name]['times']) / median(results['base'][b.name]['times']) for b in benchmarks if b.name in common_benchmarks]
 
         showit = not hide_slipcover or (case.name != 'slipcover')
 
-        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, zorder=2, alpha=(None if showit else 0),
-                       color=case.color)
+        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, color=case.color, zorder=2,
+                       alpha=(None if showit else 0))
         if not showit: continue
 
         if args.bar_labels:
@@ -320,7 +308,7 @@ def plot_results(args):
 
     ax.set_title(args.title, size=18)
     ax.set_ylabel('Normalized execution time', size=15)
-    ax.set_xticks(x, labels=[b.name for b in benchmarks], fontsize=15)
+    ax.set_xticks(x, labels=[b.name for b in benchmarks if b.name in common_benchmarks], fontsize=15)
     if not args.style:
         ax.grid(axis='y', alpha=.3)
     ax.axhline(y=1, color='black', linewidth=1, alpha=.5, zorder=1)
@@ -338,7 +326,10 @@ if __name__ == "__main__":
     saved_results, results = load_results(args)
 
     if args.run:
-        for case in cases:
+        print(f"Selected cases:      {args.case}")
+        print(f"Selected benchmarks: {args.bench}")
+
+        for case in [c for c in cases if c.name in args.case]:
             if case.name not in results:
                 if case.label in results:   # they used to be saved by label
                     results[case.name] = results[case.label]
@@ -346,17 +337,11 @@ if __name__ == "__main__":
                 else:
                     results[case.name] = dict()
 
-            for bench in benchmarks:
+            for bench in [b for b in benchmarks if b.name in args.bench]:
                 if bench.name in results[case.name]:
                     # 'results' used to be just a list
                     if isinstance(results[case.name][bench.name], list):
                         results[case.name][bench.name] = {'times': results[case.name][bench.name]}
-
-                    if args.rerun_case != 'all' and args.rerun_case != case.name:
-                        continue
-
-                    if args.rerun_bench and args.rerun_bench != bench.name:
-                        continue
 
                 times = []
                 for _ in range(bench.tries):
@@ -364,7 +349,7 @@ if __name__ == "__main__":
 
                 results[case.name][bench.name] = {
                     'datetime': datetime.now().isoformat(),
-                    'version': case.version,
+                    'version': case.get_version(),
                     'times': times
                 }
 
