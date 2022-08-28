@@ -229,7 +229,6 @@ def load_results(args):
             date2entry = {max_datetime(e): e for e in entries}
             picked = date2entry[max(date2entry.keys())]
             print(f"Using results for {'/'.join(e_system_list(picked))}")
-            print("")
             results = picked['results']
 
         else:
@@ -268,6 +267,7 @@ def print_results():
                        rd['version'] if 'version' in rd else (rd['git_head'] if 'git_head' in rd else None)
                 ]
 
+    print("")
     print(tabulate(get_stats(), headers=["bench", "case", "samples", "median", "mean", "stdev",
                                          "SE", "overhead %", "date", "version"]))
     print("")
@@ -317,8 +317,10 @@ def plot_results(args):
 
     fig.set_size_inches(args.figure_width, args.figure_height)
     fig.tight_layout()
+
     fig.savefig(args.out)
-    print(f"Plotting to {args.out}")
+    print(f"Plotted to {args.out}.")
+    print("")
 
 
 if __name__ == "__main__":

@@ -39,13 +39,13 @@ def load_data():
 
     os_versions = set(e['system']['os'][1] for e in entries)
     if len(os_versions) > 1:
-        print("OS versions: ", os_versions)
+        # pick "latest" OS version... FIXME pick by benchmark date, as in benchmarks.py
         latest = max(os_versions)
         entries = [e for e in entries if e['system']['os'][1] == latest]
 
     systems = set([('/'.join(e['system']['os']), e['system']['cpu']) for e in entries])
-    print("systems: ", systems)
-    assert len(systems) == 1    # don't mix results across different systems
+    if len(systems) > 1:
+        raise RuntimeException(f"Results sets mixes data from different systems: {systems}")
 
     # Python version -> results
     v2r = {e['system']['python']: e['results'] for e in entries}
@@ -55,22 +55,15 @@ def load_data():
     print("versions: ", python_versions)
 
     # check data looks ok -- all should have the same cases
-    case_sets = [set(r.keys()) for r in v2r.values()]
-    common_cases = list(case_sets[0].intersection(*case_sets[1:]))
+    common_cases = set.intersection(*(set(r.keys()) for r in v2r.values()))
     print("common cases: ", common_cases)
-    assert sorted(common_cases) == sorted(v2r[python_versions[0]].keys())
+    assert common_cases == set(v2r[python_versions[0]].keys())
 
-    # print out common and missing benchmarks are -- these can differ
-    bench_sets = [set(b.keys()) for r in v2r.values() for b in r.values()]
-    benchmarks = list(bench_sets[0].intersection(*bench_sets[1:]))
-    print("common benchmarks: ", benchmarks)
-
-    all_benchmarks = bench_sets[0].union(*bench_sets[1:])
-    for v in python_versions:
-        for c in common_cases:
-            missing = all_benchmarks - set(v2r[v][c].keys())
-            if len(missing):
-                print(f"  missing from {v} {c}: ", missing)
+    # check that requested benchmark is available everywhere
+    benchmarks = set.intersection(*(set(b.keys()) for r in v2r.values() for b in r.values()))
+    if args.bench not in benchmarks:
+        print(f"Benchmark {args.bench} not in common benchmarks {benchmarks}")
+        sys.exit(1)
 
     # compute the median
     from statistics import median
@@ -117,3 +110,5 @@ ax.legend(fontsize=15)
 fig.set_size_inches(args.figure_width, args.figure_height)
 fig.tight_layout()
 fig.savefig(args.out)
+print(f"Plotted to {args.out}.")
+print("")
