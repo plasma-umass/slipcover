@@ -37,7 +37,10 @@ public:
 
 
     PyObject* signal() {
-        if (!_signalled || _d_miss_threshold < 1) { // _d_miss_threshold < 1 means REALLY don't de-instrument
+        // _d_miss_threshold == -1 means de-instrument (disable) this block,
+        //      but don't de-instrument Python;
+        // _d_miss_threshold == -2 means de-instrument both
+        if (!_signalled || _d_miss_threshold < -1) {
             _signalled = true;
 
             PyPtr<> newly_seen = PyObject_GetAttrString(_sci, "newly_seen");
