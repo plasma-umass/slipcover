@@ -289,11 +289,13 @@ def plot_results(args):
     import numpy as np
     import matplotlib.pyplot as plt
 
-    nonbase_cases = [c for c in cases if c.name != 'base' and c.name in args.case]
+    selected_cases = [c for c in cases if c.name in args.case]
+    nonbase_cases = [c for c in selected_cases if c.name != 'base']
 
-    common_benchmarks = set.intersection(*(set(results[c].keys()) for c in results))
-    if set(b.name for b in benchmarks) != common_benchmarks:
-        print(f"missing benchmark(s) {set(b.name for b in benchmarks) - common_benchmarks}")
+    all_benchmarks = set.union(*(set(results[c.name].keys()) for c in selected_cases))
+    common_benchmarks = set.intersection(*(set(results[c.name].keys()) for c in selected_cases))
+    if common_benchmarks != all_benchmarks:
+        print(f"WARNING: some benchmarks are missing: {all_benchmarks - common_benchmarks}")
 
     x = np.arange(len(common_benchmarks))
     n_bars = len(nonbase_cases)
