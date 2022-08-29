@@ -37,7 +37,7 @@ public:
 
 
     PyObject* signal() {
-        if (!_signalled || _d_miss_threshold < 0) { // _d_miss_threshold < 0 means don't de-instrument
+        if (!_signalled || _d_miss_threshold < 1) { // _d_miss_threshold < 1 means REALLY don't de-instrument
             _signalled = true;
 
             PyPtr<> newly_seen = PyObject_GetAttrString(_sci, "newly_seen");
