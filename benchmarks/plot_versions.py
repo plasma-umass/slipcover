@@ -107,7 +107,7 @@ def latex_results(args):
 
     with open(args.latex, "w") as out:
         print("\\begin{tabular}{l " + ("r " * len(nonbase_cases)) + "}", file=out)
-        line = "\\thead[l]{Python}"
+        line = "\\thead[l]{Python\\\\version}"
         for case in nonbase_cases:
             case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
             case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
