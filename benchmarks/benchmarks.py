@@ -28,31 +28,31 @@ def load_cases():
 
     return [Case('base', "(no coverage)",
                  sys.executable + " {bench_command}"),
-            Case('coveragepy', "Coverage.py line",
+            Case('coveragepy', "coverage.py line",
                  sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
                  color='orange', get_version=lambda: version('coverage')),
-            Case('coveragepy-branch', "Coverage.py line+branch",
+            Case('coveragepy-branch', "coverage.py line+branch",
                  sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
                  color='tab:orange', get_version=lambda: version('coverage')),
             Case('nulltracer', "null C tracer",
                  sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}",
                  color='tab:red', get_version=lambda: version('nulltracer')),
-            Case('slipcover', "Slipcover line",
+            Case('slipcover', "SlipCover line",
                  sys.executable + " -m slipcover {slipcover_opts} {bench_command}",
                  color='tab:blue', get_version=lambda: git_head),
-            Case('slipcover-branch', "Slipcover line+branch",
+            Case('slipcover-branch', "SlipCover line+branch",
                  sys.executable + " -m slipcover --branch {slipcover_opts} {bench_command}",
                  color='blue', get_version=lambda: git_head),
-            Case('slipcover-no-deinstr-1', "Slipcover line, no bytecode deinstr.",
+            Case('slipcover-no-deinstr-1', "SlipCover line, no bytecode deinstr.",
                  sys.executable + " -m slipcover --threshold=-1 {slipcover_opts} {bench_command}",
                  color='silver', get_version=lambda: git_head),
             Case('slipcover-branch-no-deinstr-1', "Slipcover l+b, no bytecode deinstr.",
                  sys.executable + " -m slipcover --branch --threshold=-1 {slipcover_opts} {bench_command}",
                  color='grey', get_version=lambda: git_head),
-            Case('slipcover-no-deinstr', "Slipcover line, no deinstr.",
+            Case('slipcover-no-deinstr', "SlipCover line, no deinstr.",
                  sys.executable + " -m slipcover --threshold=-2 {slipcover_opts} {bench_command}",
                  color='lightgreen', get_version=lambda: git_head),
-            Case('slipcover-branch-no-deinstr', "Slipcover l+b, no deinstr.",
+            Case('slipcover-branch-no-deinstr', "SlipCover l+b, no deinstr.",
                  sys.executable + " -m slipcover --branch --threshold=-2 {slipcover_opts} {bench_command}",
                  color='green', get_version=lambda: git_head),
     ]
@@ -145,6 +145,7 @@ def parse_args():
     a_plot.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
     a_plot.add_argument('--bar-labels', action='store_true', help='add labels to bars')
     a_plot.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
+    a_plot.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
 
     args = ap.parse_args()
 
@@ -298,6 +299,7 @@ def print_results():
 def plot_results(args):
     import numpy as np
     import matplotlib.pyplot as plt
+    import re
 
     selected_cases = [c for c in cases if c.name in args.case]
     nonbase_cases = [c for c in selected_cases if c.name != 'base']
@@ -326,7 +328,11 @@ def plot_results(args):
 
         showit = not hide_slipcover or (case.name != 'slipcover')
 
-        rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, color=case.color, zorder=2,
+        case_label = case.label
+        if args.rename_slipcover:
+            case_label = re.sub('[Ss]lip[Cc]over', args.rename_slipcover, case_label)
+
+        rects = ax.bar(x + bar_x, r, width/n_bars, label=case_label, color=case.color, zorder=2,
                        alpha=(None if showit else 0))
         if not showit: continue
 
@@ -351,7 +357,7 @@ def plot_results(args):
 
 
 def latex_results(args):
-    import numpy as np
+    import re
 
     selected_cases = [c for c in cases if c.name in args.case]
     nonbase_cases = [c for c in selected_cases if c.name != 'base']
@@ -377,19 +383,34 @@ def latex_results(args):
 
         return "".join([repl.get(c, c) for c in s])
 
+    def texttt(s):
+        return f"\\texttt{{{s}}}"
+
     with open(args.out, "w") as out:
-        print("\\begin{tabular}{| l | l | r |}", file=out)
-        print("\\hline", file=out)
-        print("\\textbf{Benchmark} & \\textbf{Case} & \\textbf{Norm. Time} \\\\", file=out)
+        print("\\begin{tabular}{l " + ("r " * len(nonbase_cases)) + "}", file=out)
+        line = "\\thead[l]{Benchmark}"
+        for case in nonbase_cases:
+            case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
+            case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
+
+            import textwrap
+            case_name = "\\\\ ".join(textwrap.wrap(case_name, 10, break_long_words=False))
+
+            line += " & \\thead[r]{" + case_name + "}"
+        line += " \\\\"
+        print(line, file=out)
         print("\\hline", file=out)
 
         for bench in [b for b in benchmarks if b.name in common_benchmarks]:
-            base_result = median(results['base'][bench.name]['times'])
-            for i, case in enumerate(nonbase_cases):
-                r = median(results[case.name][bench.name]['times']) / base_result
-                print(f"{'' if i>0 else latex_escape(bench.name)} & {latex_escape(case.label)} & {r:.2f}$\\times$ \\\\", file=out)
+            line = f"{texttt(latex_escape(bench.name))}"
 
-        print("\\hline", file=out)
+            base_result = median(results['base'][bench.name]['times'])
+            for case in nonbase_cases:
+                r = median(results[case.name][bench.name]['times']) / base_result
+                line += f" & {r:.2f}$\\times$"
+            line += " \\\\"
+            print(line, file=out)
+
         print("\\end{tabular}", file=out)
 
     print(f"Wrote to {args.out}.")
