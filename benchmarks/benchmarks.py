@@ -138,6 +138,7 @@ def parse_args():
     a_plot.add_argument('--figure-width', type=float, default=12, help='matplotlib figure width')
     a_plot.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
     a_plot.add_argument('--bar-labels', action='store_true', help='add labels to bars')
+    a_plot.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
 
     args = ap.parse_args()
 
@@ -304,6 +305,9 @@ def plot_results(args):
 
     hide_slipcover = False
 
+    plt.rcParams.update({'font.weight': 'bold'})
+    plt.rc('ytick', labelsize=12+args.font_size_delta)
+
     if args.style:
         plt.style.use(args.style)
 
@@ -318,16 +322,16 @@ def plot_results(args):
         if not showit: continue
 
         if args.bar_labels:
-            ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8)
+            ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8+args.font_size_delta)
 
-    ax.set_title(args.title, size=18)
-    ax.set_ylabel('Normalized execution time', size=15)
-    ax.set_xticks(x, labels=[b.name for b in benchmarks if b.name in common_benchmarks], fontsize=15)
+    ax.set_title(args.title, size=18+args.font_size_delta, weight='bold')
+    ax.set_ylabel('Normalized execution time', size=15+args.font_size_delta)
+    ax.set_xticks(x, labels=[b.name for b in benchmarks if b.name in common_benchmarks], fontsize=15+args.font_size_delta)
     if not args.style:
         ax.grid(axis='y', alpha=.3)
     ax.axhline(y=1, color='black', linewidth=1, alpha=.5, zorder=1)
     if not hide_slipcover:
-        ax.legend(fontsize=15)
+        ax.legend(fontsize=15+args.font_size_delta)
 
     fig.set_size_inches(args.figure_width, args.figure_height)
     fig.tight_layout()
