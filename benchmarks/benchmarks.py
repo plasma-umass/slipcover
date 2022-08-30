@@ -360,7 +360,8 @@ if __name__ == "__main__":
                         results[case.name][bench.name] = {'times': results[case.name][bench.name]}
 
                 times = []
-                for _ in range(bench.tries):
+                for t in range(bench.tries):
+                    print(f"--- {case.name} {bench.name} #{t+1}/{bench.tries} ---")
                     times.append(run_command(case.command.format(**bench.format), cwd=bench.cwd))
 
                 results[case.name][bench.name] = {
