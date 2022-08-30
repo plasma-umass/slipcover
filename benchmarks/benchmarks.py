@@ -119,21 +119,27 @@ def parse_args():
     import argparse
     ap = argparse.ArgumentParser()
 
-    ap.add_argument('--run', action='store_true', help='run benchmarks')
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument('--run', action='store_true', help='run benchmarks')
+    g.add_argument('--plot', action='store_true', help='plot graph')
+    g.add_argument('--latex', action='store_true', help='write out LaTeX table')
+
+    ap.add_argument('--print', action='store_true', help='print out table of results')
     ap.add_argument('--case', choices=[c.name for c in cases],
                        action='append', help='select case(s) to run/plot')
     ap.add_argument('--bench', choices=[b.name for b in benchmarks],
                        action='append', help='select benchmark(s) to run/plot')
-    ap.add_argument('--print', action='store_true', help='print results')
 
     a_run = ap.add_argument_group('running', 'options for running')
     a_run.add_argument('--no-sklearn', action='store_true', help="don't run sklearn benchmark")
 
-    a_plot = ap.add_argument_group('plotting', 'options for plotting')
-    a_plot.add_argument('--os', type=str, help='select OS name (conflicts with --run)')
-    a_plot.add_argument('--python', type=str, help='select python version (conflicts with --run)')
+    g = ap.add_argument_group('plotting and latex', 'options for --plot and --latex')
+    g.add_argument('--os', type=str, help='select OS name (conflicts with --run)')
+    g.add_argument('--python', type=str, help='select python version (conflicts with --run)')
+    g.add_argument('--out', type=Path, help='set output file')
+
+    a_plot = ap.add_argument_group('plotting', 'options for --plot')
     a_plot.add_argument('--title', type=str, default='Line / Line+Branch Coverage Benchmarks', help='set plot title')
-    a_plot.add_argument('--out', type=Path, default=Path("benchmarks/benchmarks.png"), help='set plot output file')
     a_plot.add_argument('--style', type=str, help='set matplotlib style')
     a_plot.add_argument('--figure-width', type=float, default=12, help='matplotlib figure width')
     a_plot.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
@@ -147,6 +153,9 @@ def parse_args():
             args.case = ['slipcover', 'slipcover-branch']
         else:
             args.case = ['coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
+
+    if not args.run and not args.out:
+        raise Exception("specify output file with --out")
 
     if not args.bench:
         args.bench = [b.name for b in benchmarks]
@@ -341,6 +350,52 @@ def plot_results(args):
     print("")
 
 
+def latex_results(args):
+    import numpy as np
+
+    selected_cases = [c for c in cases if c.name in args.case]
+    nonbase_cases = [c for c in selected_cases if c.name != 'base']
+
+    all_benchmarks = set.union(*(set(results[c.name].keys()) for c in selected_cases))
+    common_benchmarks = set.intersection(*(set(results[c.name].keys()) for c in selected_cases))
+    if common_benchmarks != all_benchmarks:
+        print(f"WARNING: some benchmarks are missing: {all_benchmarks - common_benchmarks}")
+
+    def latex_escape(s):
+        repl = {
+            '&':  r'\&',
+            '%':  r'\%', 
+            '$':  r'\$', 
+            '#':  r'\#', 
+            '_':  r'\_', 
+            '{':  r'\{', 
+            '}':  r'\}',
+            '~':  r'\textasciitilde{}', 
+            '^':  r'\^{}', 
+            '\\': r'\textbackslash',
+        }
+
+        return "".join([repl.get(c, c) for c in s])
+
+    with open(args.out, "w") as out:
+        print("\\begin{tabular}{| l | l | r |}", file=out)
+        print("\\hline", file=out)
+        print("\\textbf{Benchmark} & \\textbf{Case} & \\textbf{Norm. Time} \\\\", file=out)
+        print("\\hline", file=out)
+
+        for bench in [b for b in benchmarks if b.name in common_benchmarks]:
+            base_result = median(results['base'][bench.name]['times'])
+            for case in nonbase_cases:
+                r = median(results[case.name][bench.name]['times']) / base_result
+                print(f"{latex_escape(bench.name)} & {latex_escape(case.label)} & {r:.2f}$\\times$ \\\\", file=out)
+
+        print("\\hline", file=out)
+        print("\\end{tabular}", file=out)
+
+    print(f"wrote to {args.out}.")
+    print("")
+
+
 if __name__ == "__main__":
     args = parse_args()
     saved_results, results = load_results(args)
@@ -389,5 +444,8 @@ if __name__ == "__main__":
     if args.print:
         print_results()
 
-    if not args.run:
+    if args.latex:
+        latex_results(args)
+
+    if args.plot:
         plot_results(args)
