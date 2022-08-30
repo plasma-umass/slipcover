@@ -385,14 +385,14 @@ def latex_results(args):
 
         for bench in [b for b in benchmarks if b.name in common_benchmarks]:
             base_result = median(results['base'][bench.name]['times'])
-            for case in nonbase_cases:
+            for i, case in enumerate(nonbase_cases):
                 r = median(results[case.name][bench.name]['times']) / base_result
-                print(f"{latex_escape(bench.name)} & {latex_escape(case.label)} & {r:.2f}$\\times$ \\\\", file=out)
+                print(f"{'' if i>0 else latex_escape(bench.name)} & {latex_escape(case.label)} & {r:.2f}$\\times$ \\\\", file=out)
 
         print("\\hline", file=out)
         print("\\end{tabular}", file=out)
 
-    print(f"wrote to {args.out}.")
+    print(f"Wrote to {args.out}.")
     print("")
 
 

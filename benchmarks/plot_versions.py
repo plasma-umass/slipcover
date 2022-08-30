@@ -14,6 +14,7 @@ def parse_args():
     ap.add_argument('--bench', type=str, default='raytrace', help='select benchmark to plot')
     ap.add_argument('--title', type=str, default='Overhead by Python version', help='set plot title')
     ap.add_argument('--out', type=Path, default=Path("benchmarks/versions.png"), help='set plot output file')
+    ap.add_argument('--latex', type=Path, help='also output LaTeX table to given file')
     ap.add_argument('--style', type=str, help='set matplotlib style')
     ap.add_argument('--figure-width', type=float, default=12, help='matplotlib figure width')
     ap.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
@@ -78,6 +79,49 @@ def load_data():
 
 v2r, python_versions = load_data()
 
+
+def latex_results(args):
+    import numpy as np
+
+    selected_cases = [c for c in cases if c.name in args.case]
+    nonbase_cases = [c for c in selected_cases if c.name != 'base']
+
+    def latex_escape(s):
+        repl = {
+            '&':  r'\&',
+            '%':  r'\%', 
+            '$':  r'\$', 
+            '#':  r'\#', 
+            '_':  r'\_', 
+            '{':  r'\{', 
+            '}':  r'\}',
+            '~':  r'\textasciitilde{}', 
+            '^':  r'\^{}', 
+            '\\': r'\textbackslash',
+        }
+
+        return "".join([repl.get(c, c) for c in s])
+
+    with open(args.latex, "w") as out:
+        print("\\begin{tabular}{| l | l | r |}", file=out)
+        print("\\hline", file=out)
+        print("\\textbf{Python} & \\textbf{Case} & \\textbf{Norm. Time} \\\\", file=out)
+        print("\\hline", file=out)
+
+        for version in python_versions:
+            base_result = v2r[version]['base'][args.bench]['median']
+
+            for i, case in enumerate(nonbase_cases):
+                r = v2r[version][case.name][args.bench]['median'] / base_result
+                print(f"{'' if i>0 else latex_escape(version)} & {latex_escape(case.label)} & {r:.2f}$\\times$ \\\\", file=out)
+
+        print("\\hline", file=out)
+        print("\\end{tabular}", file=out)
+
+    print(f"Wrote to {args.latex}.")
+    print("")
+
+
 nonbase_cases = [c for c in cases if c.name != 'base' and c.name in args.case]
 
 import matplotlib.pyplot as plt
@@ -116,3 +160,6 @@ fig.tight_layout()
 fig.savefig(args.out)
 print(f"Plotted to {args.out}.")
 print("")
+
+if args.latex:
+    latex_results(args)
