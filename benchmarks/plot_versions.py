@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import re
 
 sys.path += str(Path(sys.argv[0]).parent)
 from benchmarks import BENCHMARK_JSON, cases
@@ -20,6 +21,7 @@ def parse_args():
     ap.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
     ap.add_argument('--bar-labels', action='store_true', help='add labels to bars')
     ap.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
+    ap.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
 
     args = ap.parse_args()
 
@@ -81,8 +83,6 @@ v2r, python_versions = load_data()
 
 
 def latex_results(args):
-    import numpy as np
-
     selected_cases = [c for c in cases if c.name in args.case]
     nonbase_cases = [c for c in selected_cases if c.name != 'base']
 
@@ -102,20 +102,24 @@ def latex_results(args):
 
         return "".join([repl.get(c, c) for c in s])
 
+    def texttt(s):
+        return f"\\texttt{{{s}}}"
+
     with open(args.latex, "w") as out:
-        print("\\begin{tabular}{| l | l | r |}", file=out)
-        print("\\hline", file=out)
+        print("\\begin{tabular}{l l r}", file=out)
+#        print("\\hline", file=out)
         print("\\textbf{Python} & \\textbf{Case} & \\textbf{Norm. Time} \\\\", file=out)
-        print("\\hline", file=out)
+#        print("\\hline", file=out)
 
         for version in python_versions:
             base_result = v2r[version]['base'][args.bench]['median']
 
             for i, case in enumerate(nonbase_cases):
                 r = v2r[version][case.name][args.bench]['median'] / base_result
-                print(f"{'' if i>0 else latex_escape(version)} & {latex_escape(case.label)} & {r:.2f}$\\times$ \\\\", file=out)
+                case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
+                print(f"{'' if i>0 else texttt(latex_escape(version))} & {texttt(case_name)} & {r:.2f}$\\times$ \\\\", file=out)
 
-        print("\\hline", file=out)
+#        print("\\hline", file=out)
         print("\\end{tabular}", file=out)
 
     print(f"Wrote to {args.latex}.")
@@ -142,7 +146,11 @@ fig, ax = plt.subplots()
 for case, bar_x in zip(nonbase_cases, bars_x):
     r = [v2r[v][case.name][args.bench]['median'] / v2r[v]['base'][args.bench]['median'] for v in python_versions]
 
-    rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, color=case.color, zorder=2)
+    case_label = case.label
+    if args.rename_slipcover:
+        case_label = re.sub('[Ss]lip[Cc]over', args.rename_slipcover, case_label)
+
+    rects = ax.bar(x + bar_x, r, width/n_bars, label=case_label, color=case.color, zorder=2)
 
     if args.bar_labels:
         ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8+args.font_size_delta)
