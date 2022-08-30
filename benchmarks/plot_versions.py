@@ -18,6 +18,7 @@ def parse_args():
     ap.add_argument('--figure-width', type=float, default=12, help='matplotlib figure width')
     ap.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
     ap.add_argument('--bar-labels', action='store_true', help='add labels to bars')
+    ap.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
 
     args = ap.parse_args()
 
@@ -87,6 +88,9 @@ n_bars = len(nonbase_cases)
 width = .70 # of all bars
 bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
+plt.rcParams.update({'font.weight': 'bold'})
+plt.rc('ytick', labelsize=12+args.font_size_delta)
+
 if args.style:
     plt.style.use(args.style)
 
@@ -97,15 +101,15 @@ for case, bar_x in zip(nonbase_cases, bars_x):
     rects = ax.bar(x + bar_x, r, width/n_bars, label=case.label, color=case.color, zorder=2)
 
     if args.bar_labels:
-        ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8)
+        ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8+args.font_size_delta)
 
-ax.set_title(args.title, size=18)
-ax.set_ylabel('Normalized execution time', size=15)
-ax.set_xticks(x, labels=python_versions, fontsize=15)
+ax.set_title(args.title, size=18+args.font_size_delta, weight='bold')
+ax.set_ylabel('Normalized execution time', size=15+args.font_size_delta)
+ax.set_xticks(x, labels=python_versions, fontsize=15+args.font_size_delta)
 if not args.style:
     ax.grid(axis='y', alpha=.3)
 ax.axhline(y=1, color='black', linewidth=1, alpha=.5, zorder=1)
-ax.legend(fontsize=15)
+ax.legend(fontsize=15+args.font_size_delta)
 
 fig.set_size_inches(args.figure_width, args.figure_height)
 fig.tight_layout()
