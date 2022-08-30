@@ -108,7 +108,7 @@ def latex_results(args):
     with open(args.latex, "w") as out:
         print("\\begin{tabular}{l l r}", file=out)
 #        print("\\hline", file=out)
-        print("\\textbf{Python} & \\textbf{Case} & \\textbf{Norm. Time} \\\\", file=out)
+        print("\\textbf{Python} & \\textbf{Case} & \\textbf{Time} \\\\", file=out)
 #        print("\\hline", file=out)
 
         for version in python_versions:
@@ -117,7 +117,8 @@ def latex_results(args):
             for i, case in enumerate(nonbase_cases):
                 r = v2r[version][case.name][args.bench]['median'] / base_result
                 case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
-                print(f"{'' if i>0 else texttt(latex_escape(version))} & {texttt(case_name)} & {r:.2f}$\\times$ \\\\", file=out)
+                case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
+                print(f"{'' if i>0 else texttt(latex_escape(version))} & {case_name} & {r:.2f}$\\times$ \\\\", file=out)
 
 #        print("\\hline", file=out)
         print("\\end{tabular}", file=out)

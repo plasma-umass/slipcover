@@ -397,8 +397,9 @@ def latex_results(args):
             for i, case in enumerate(nonbase_cases):
                 r = median(results[case.name][bench.name]['times']) / base_result
                 case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
+                case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
 
-                print(f"{'' if i>0 else texttt(latex_escape(bench.name))} & {texttt(case_name)} & {r:.2f}$\\times$ \\\\", file=out)
+                print(f"{'' if i>0 else texttt(latex_escape(bench.name))} & {case_name} & {r:.2f}$\\times$ \\\\", file=out)
 
 #        print("\\hline", file=out)
         print("\\end{tabular}", file=out)
