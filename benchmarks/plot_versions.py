@@ -106,19 +106,29 @@ def latex_results(args):
         return f"\\texttt{{{s}}}"
 
     with open(args.latex, "w") as out:
-        print("\\begin{tabular}{l l r}", file=out)
-#        print("\\hline", file=out)
-        print("\\textbf{Python} & \\textbf{Case} & \\textbf{Time} \\\\", file=out)
-#        print("\\hline", file=out)
+        print("\\begin{tabular}{l " + ("r " * len(nonbase_cases)) + "}", file=out)
+        line = "\\thead[l]{Python}"
+        for case in nonbase_cases:
+            case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
+            case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
+
+            import textwrap
+            case_name = "\\\\ ".join(textwrap.wrap(case_name, 10, break_long_words=False))
+
+            line += " & \\thead[r]{" + case_name + "}"
+        line += " \\\\"
+        print(line, file=out)
+        print("\\hline", file=out)
 
         for version in python_versions:
-            base_result = v2r[version]['base'][args.bench]['median']
+            line = f"{texttt(latex_escape(version))}"
 
-            for i, case in enumerate(nonbase_cases):
+            base_result = v2r[version]['base'][args.bench]['median']
+            for case in nonbase_cases:
                 r = v2r[version][case.name][args.bench]['median'] / base_result
-                case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
-                case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
-                print(f"{'' if i>0 else texttt(latex_escape(version))} & {case_name} & {r:.2f}$\\times$ \\\\", file=out)
+                line += f" & {r:.2f}$\\times$"
+            line += " \\\\"
+            print(line, file=out)
 
 #        print("\\hline", file=out)
         print("\\end{tabular}", file=out)

@@ -387,21 +387,30 @@ def latex_results(args):
         return f"\\texttt{{{s}}}"
 
     with open(args.out, "w") as out:
-        print("\\begin{tabular}{l l r}", file=out)
-#        print("\\hline", file=out)
-        print("\\textbf{Benchmark} & \\textbf{Case} & \\textbf{Norm. Time} \\\\", file=out)
-#        print("\\hline", file=out)
+        print("\\begin{tabular}{l " + ("r " * len(nonbase_cases)) + "}", file=out)
+        line = "\\thead[l]{Benchmark}"
+        for case in nonbase_cases:
+            case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
+            case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
+
+            import textwrap
+            case_name = "\\\\ ".join(textwrap.wrap(case_name, 10, break_long_words=False))
+
+            line += " & \\thead[r]{" + case_name + "}"
+        line += " \\\\"
+        print(line, file=out)
+        print("\\hline", file=out)
 
         for bench in [b for b in benchmarks if b.name in common_benchmarks]:
+            line = f"{texttt(latex_escape(bench.name))}"
+
             base_result = median(results['base'][bench.name]['times'])
-            for i, case in enumerate(nonbase_cases):
+            for case in nonbase_cases:
                 r = median(results[case.name][bench.name]['times']) / base_result
-                case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
-                case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
+                line += f" & {r:.2f}$\\times$"
+            line += " \\\\"
+            print(line, file=out)
 
-                print(f"{'' if i>0 else texttt(latex_escape(bench.name))} & {case_name} & {r:.2f}$\\times$ \\\\", file=out)
-
-#        print("\\hline", file=out)
         print("\\end{tabular}", file=out)
 
     print(f"Wrote to {args.out}.")
