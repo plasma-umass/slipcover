@@ -28,59 +28,59 @@ def ast_parse(s):
 
 
 @pytest.mark.parametrize("stats", [False, True])
-def test_tracker_signal(stats):
-    from slipcover import tracker
+def test_probe_signal(stats):
+    from slipcover import probe
 
     sci = sc.Slipcover(collect_stats=stats)
 
-    t_123 = tracker.register(sci, "/foo/bar.py", 123, -1)
-    tracker.signal(t_123)
+    t_123 = probe.new(sci, "/foo/bar.py", 123, -1)
+    probe.signal(t_123)
 
-    t_42 = tracker.register(sci, "/foo2/baz.py", 42, -1)
-    tracker.signal(t_42)
-    tracker.signal(t_42)
+    t_42 = probe.new(sci, "/foo2/baz.py", 42, -1)
+    probe.signal(t_42)
+    probe.signal(t_42)
 
-    t_314 = tracker.register(sci, "/foo2/baz.py", 314, -1)
-    tracker.signal(t_314)
+    t_314 = probe.new(sci, "/foo2/baz.py", 314, -1)
+    probe.signal(t_314)
 
     # line never executed
-    t_666 = tracker.register(sci, "/foo/beast.py", 666, -1)
+    t_666 = probe.new(sci, "/foo/beast.py", 666, -1)
 
     d = sci.newly_seen
     assert ["/foo/bar.py", "/foo2/baz.py"] == sorted(d.keys())
     assert [123] == sorted(list(d["/foo/bar.py"]))
     assert [42, 314] == sorted(list(d["/foo2/baz.py"]))
 
-    assert ("/foo2/baz.py", 42, 1, 0, 2) == tracker.get_stats(t_42)
-    assert ("/foo2/baz.py", 314, 0, 0, 1) == tracker.get_stats(t_314)
+    assert ("/foo2/baz.py", 42, 1, 0, 2) == probe.get_stats(t_42)
+    assert ("/foo2/baz.py", 314, 0, 0, 1) == probe.get_stats(t_314)
 
-    assert ("/foo/beast.py", 666, 0, 0, 0) == tracker.get_stats(t_666)
+    assert ("/foo/beast.py", 666, 0, 0, 0) == probe.get_stats(t_666)
 
 
 @pytest.mark.parametrize("stats", [False, True])
-def test_tracker_deinstrument(stats):
-    from slipcover import tracker
+def test_probe_deinstrument(stats):
+    from slipcover import probe
 
     sci = sc.Slipcover(collect_stats=stats)
 
-    t = tracker.register(sci, "/foo/bar.py", 123, 3)
-    tracker.signal(t)
+    t = probe.new(sci, "/foo/bar.py", 123, 3)
+    probe.signal(t)
 
     assert ["/foo/bar.py"] == sorted(sci.newly_seen.keys())
 
-    tracker.signal(t)
-    tracker.signal(t)
-    tracker.signal(t)   # triggers deinstrument_seen... but not instrumented through sci
+    probe.signal(t)
+    probe.signal(t)
+    probe.signal(t)   # triggers deinstrument_seen... but not instrumented through sci
 
-    tracker.deinstrument(t) # fake it since sci didn't instrument it
-    tracker.signal(t)   # u-miss
+    probe.mark_removed(t) # fake it since sci didn't instrument it
+    probe.signal(t)   # u-miss
 
-    tracker.hit(t)
+    probe.no_signal(t)
 
     assert [] == sorted(sci.newly_seen.keys())
     assert ["/foo/bar.py"] == sorted(sci.all_seen.keys())
 
-    assert ("/foo/bar.py", 123, 3, 1, 6) == tracker.get_stats(t)
+    assert ("/foo/bar.py", 123, 3, 1, 6) == probe.get_stats(t)
 
 
 
@@ -695,7 +695,7 @@ def test_deinstrument_with_many_consts(stats):
     code = sci.instrument(code)
 
     # this is the "important" part of the test: check that it can
-    # update the tracker(s) even if it requires processing EXTENDED_ARGs
+    # update the probe(s) even if it requires processing EXTENDED_ARGs
     code = sci.deinstrument(code, set(range(1, N)))
     dis.dis(code)
 
@@ -734,7 +734,7 @@ def test_deinstrument_some(stats):
 
 @pytest.mark.parametrize("do_branch", [False, True])
 def test_deinstrument_seen_upon_d_miss_threshold(do_branch):
-    from slipcover import tracker as tr
+    from slipcover import probe as tr
 
     t = ast_parse("""
         def foo(n):
@@ -759,11 +759,11 @@ def test_deinstrument_seen_upon_d_miss_threshold(do_branch):
 
     assert old_code != foo.__code__, "Code never de-instrumented"
 
-    # skip trackers with d_miss == 0, as these may not have been de-instrumented
-    trackers = [t for t in old_code.co_consts if type(t).__name__ == 'PyCapsule' and tr.get_stats(t)[2] > 0]
-    assert len(trackers) > 0
-    for t in trackers:
-        assert not tr.is_instrumented(t), f"tracker still instrumented: {tr.get_stats(t)}"
+    # skip probes with d_miss == 0, as these may not have been de-instrumented
+    probes = [t for t in old_code.co_consts if type(t).__name__ == 'PyCapsule' and tr.get_stats(t)[2] > 0]
+    assert len(probes) > 0
+    for t in probes:
+        assert tr.was_removed(t), f"probe still instrumented: {tr.get_stats(t)}"
 
     cov = sci.get_coverage()['files']['foo']
     if PYTHON_VERSION >= (3,11):

@@ -5,7 +5,7 @@ import types
 from typing import Dict, Set, List
 from collections import defaultdict, Counter
 import threading
-from . import tracker
+from . import probe
 from . import bytecode as bc
 from . import branch as br
 from pathlib import Path
@@ -111,7 +111,7 @@ class Slipcover:
         self._get_newly_seen()
 
         self.modules = []
-        self.all_trackers = []
+        self.all_probes = []
 
     def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
@@ -148,8 +148,8 @@ class Slipcover:
             if isinstance(c, types.CodeType):
                 ed.set_const(i, self.instrument(c, co))
 
-        ed.add_const(tracker.hit)   # used during de-instrumentation
-        tracker_signal_index = ed.add_const(tracker.signal)
+        ed.add_const(probe.no_signal)   # used during de-instrumentation
+        probe_signal_index = ed.add_const(probe.signal)
 
         off_list = list(dis.findlinestarts(co))
         if self.branch:
@@ -158,7 +158,7 @@ class Slipcover:
 
         branch_set = set()
         insert_labels = []
-        trackers = []
+        probes = []
 
         delta = 0
         for off_item in off_list:
@@ -173,11 +173,11 @@ class Slipcover:
 
                 insert_labels.append(lineno)
 
-                tr = tracker.register(self, co.co_filename, lineno, self.d_miss_threshold)
-                trackers.append(tr)
+                tr = probe.new(self, co.co_filename, lineno, self.d_miss_threshold)
+                probes.append(tr)
                 tr_index = ed.add_const(tr)
 
-                delta += ed.insert_function_call(offset+delta, tracker_signal_index, (tr_index,))
+                delta += ed.insert_function_call(offset+delta, probe_signal_index, (tr_index,))
 
             else: # from find_const_assignments
                 begin_off, end_off, branch_index = off_item
@@ -186,22 +186,22 @@ class Slipcover:
                 branch_set.add(branch)
                 insert_labels.append(branch)
 
-                tr = tracker.register(self, co.co_filename, branch, self.d_miss_threshold)
-                trackers.append(tr)
+                tr = probe.new(self, co.co_filename, branch, self.d_miss_threshold)
+                probes.append(tr)
                 ed.set_const(branch_index, tr)
 
-                delta += ed.insert_function_call(begin_off+delta, tracker_signal_index, (branch_index,),
+                delta += ed.insert_function_call(begin_off+delta, probe_signal_index, (branch_index,),
                                                  repl_length = end_off-begin_off)
 
         ed.add_const('__slipcover__')  # mark instrumented
         new_code = ed.finish()
 
         if self.collect_stats:
-            self.all_trackers.extend(trackers)
+            self.all_probes.extend(probes)
 
         if self.immediate:
-            for tr, off in zip(trackers, ed.get_inserts()):
-                tracker.set_immediate(tr, new_code.co_code, off)
+            for tr, off in zip(probes, ed.get_inserts()):
+                probe.set_immediate(tr, new_code.co_code, off)
         else:
             index = list(zip(ed.get_inserts(), insert_labels))
 
@@ -248,13 +248,13 @@ class Slipcover:
         for (offset, lineno) in index:
             if lineno in lines and (func := ed.get_inserted_function(offset)):
                 func_index, func_arg_index, *_ = func
-                if co_consts[func_index] == tracker.signal:
-                    tracker.deinstrument(co_consts[func_arg_index])
+                if co_consts[func_index] == probe.signal:
+                    probe.mark_removed(co_consts[func_arg_index])
 
                     if self.collect_stats:
-                        # If collecting stats, rather than disabling the tracker, we switch to
-                        # calling the 'tracker.hit' function on it (which we conveniently added
-                        # to the consts before tracker.signal, during instrumentation), so that
+                        # If collecting stats, rather than disabling the probe, we switch to
+                        # calling the 'probe.no_signal' function on it (which we conveniently added
+                        # to the consts before probe.signal, during instrumentation), so that
                         # we have the total execution count needed for the reports.
                         ed.replace_inserted_function(offset, func_index-1)
                     else:
@@ -293,8 +293,8 @@ class Slipcover:
                 d_misses = defaultdict(Counter)
                 u_misses = defaultdict(Counter)
                 totals = defaultdict(Counter)
-                for t in self.all_trackers:
-                    filename, lineno, d_miss_count, u_miss_count, total_count = tracker.get_stats(t)
+                for t in self.all_probes:
+                    filename, lineno, d_miss_count, u_miss_count, total_count = probe.get_stats(t)
                     if d_miss_count: d_misses[filename].update({lineno: d_miss_count})
                     if u_miss_count: u_misses[filename].update({lineno: u_miss_count})
                     totals[filename].update({lineno: total_count})

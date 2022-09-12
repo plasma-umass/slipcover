@@ -66,9 +66,9 @@ class CppExtension(build_ext):
             self.compiler.linker_so[0] = "g++"
         build_ext.build_extensions(self)
 
-tracker = setuptools.extension.Extension(
-            'slipcover.tracker',
-            sources=['tracker.cxx'],
+probe = setuptools.extension.Extension(
+            'slipcover.probe',
+            sources=['probe.cxx'],
             extra_compile_args=cxx_version('c++17') + platform_compile_args() + limited_api_args(),
             extra_link_args=platform_link_args(),
             py_limited_api=bool(limited_api_args()),
@@ -88,7 +88,7 @@ setuptools.setup(
     author_email="juan@altmayer.com, emery@cs.umass.edu",
     license="Apache License 2.0",
     packages=['slipcover'],
-    ext_modules=([tracker]),
+    ext_modules=([probe]),
     python_requires=">=3.8,<3.12",
     install_requires=[
         "tabulate"

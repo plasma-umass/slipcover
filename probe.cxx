@@ -8,32 +8,32 @@
 /**
  * Tracks code coverage.
  */
-class Tracker {
+class Probe {
     PyPtr<> _sci;
     PyPtr<> _filename;
     PyPtr<> _lineno_or_branch;
     bool _signalled;
-    bool _instrumented;
+    bool _removed;
     int _d_miss_count;
     int _u_miss_count;
-    int _hit_count;
+    int _no_signal_count;
     int _d_miss_threshold;
     std::byte* _code;
 
 public:
-    Tracker(PyObject* sci, PyObject* filename, PyObject* lineno_or_branch, PyObject* d_miss_threshold):
+    Probe(PyObject* sci, PyObject* filename, PyObject* lineno_or_branch, PyObject* d_miss_threshold):
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
         _lineno_or_branch(PyPtr<>::borrowed(lineno_or_branch)),
-        _signalled(false), _instrumented(true),
-        _d_miss_count(-1), _u_miss_count(0), _hit_count(0),
+        _signalled(false), _removed(false),
+        _d_miss_count(-1), _u_miss_count(0), _no_signal_count(0),
         _d_miss_threshold(PyLong_AsLong(d_miss_threshold)), _code(nullptr) {}
 
 
     static PyObject*
-    newCapsule(Tracker* t) {
-        return PyCapsule_New(t, NULL,
+    newCapsule(Probe* p) {
+        return PyCapsule_New(p, NULL,
                              [](PyObject* cap) {
-                                 delete (Tracker*)PyCapsule_GetPointer(cap, NULL);
+                                 delete (Probe*)PyCapsule_GetPointer(cap, NULL);
                              });
     }
 
@@ -63,12 +63,12 @@ public:
             }
         }
 
-        if (_instrumented) {
+        if (!_removed) {
             ++_d_miss_count;
 
             if (_code) {    // immediate de-instrumentation
                 *_code = static_cast<std::byte>(JUMP_FORWARD);
-                _instrumented = false;
+                _removed = true;
             }
             else if (_d_miss_count == _d_miss_threshold) {
                 // Limit D misses by deinstrumenting once we see several for a line
@@ -86,32 +86,31 @@ public:
     }
 
 
-    PyObject* hit() {
-        ++_hit_count;
+    PyObject* no_signal() {
+        ++_no_signal_count;
         Py_RETURN_NONE;
     }
 
 
-    PyObject* deinstrument() {
-        _instrumented = false;
+    PyObject* mark_removed() {
+        _removed = true;
         Py_RETURN_NONE;
     }
 
+    PyObject* was_removed() {
+        if (_removed) {
+            Py_RETURN_TRUE;
+        }
+        Py_RETURN_FALSE;
+    }
 
     PyObject* get_stats() {
         PyPtr<> d_miss_count = PyLong_FromLong(std::max(_d_miss_count, 0));
         PyPtr<> u_miss_count = PyLong_FromLong(_u_miss_count);
-        PyPtr<> total_count = PyLong_FromLong(1 + _d_miss_count + _u_miss_count + _hit_count);
+        PyPtr<> total_count = PyLong_FromLong(1 + _d_miss_count + _u_miss_count + _no_signal_count);
         return PyTuple_Pack(5, (PyObject*)_filename, (PyObject*)_lineno_or_branch,
                             (PyObject*)d_miss_count, (PyObject*)u_miss_count,
                             (PyObject*)total_count);
-    }
-
-    PyObject* is_instrumented() {
-        if (_instrumented) {
-            Py_RETURN_TRUE;
-        }
-        Py_RETURN_FALSE;
     }
 
     PyObject* set_immediate(PyObject* code_bytes, PyObject* offset) {
@@ -127,59 +126,59 @@ public:
 
 
 PyObject*
-tracker_register(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
+probe_new(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
     if (nargs < 4) {
         PyErr_SetString(PyExc_Exception, "Missing argument(s)");
         return NULL;
     }
 
-    return Tracker::newCapsule(new Tracker(args[0], args[1], args[2], args[3]));
+    return Probe::newCapsule(new Probe(args[0], args[1], args[2], args[3]));
 }
-
-#define METHOD_WRAPPER(method) \
-    static PyObject*\
-    tracker_##method(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {\
-        if (nargs < 1) {\
-            PyErr_SetString(PyExc_Exception, "Missing argument");\
-            return NULL;\
-        }\
-    \
-        return static_cast<Tracker*>(PyCapsule_GetPointer(args[0], NULL))->method();\
-    }
-
-METHOD_WRAPPER(signal);
-METHOD_WRAPPER(hit);
-METHOD_WRAPPER(deinstrument);
-METHOD_WRAPPER(get_stats);
-METHOD_WRAPPER(is_instrumented);
 
 
 PyObject*
-tracker_set_immediate(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
+probe_set_immediate(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
     if (nargs < 3) {
         PyErr_SetString(PyExc_Exception, "Missing argument(s)");
         return NULL;
     }
 
-    return static_cast<Tracker*>(PyCapsule_GetPointer(args[0], NULL))->set_immediate(args[1], args[2]);
+    return static_cast<Probe*>(PyCapsule_GetPointer(args[0], NULL))->set_immediate(args[1], args[2]);
 }
+
+#define METHOD_WRAPPER(method) \
+    static PyObject*\
+    probe_##method(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {\
+        if (nargs < 1) {\
+            PyErr_SetString(PyExc_Exception, "Missing argument");\
+            return NULL;\
+        }\
+    \
+        return static_cast<Probe*>(PyCapsule_GetPointer(args[0], NULL))->method();\
+    }
+
+METHOD_WRAPPER(signal);
+METHOD_WRAPPER(no_signal);
+METHOD_WRAPPER(mark_removed);
+METHOD_WRAPPER(was_removed);
+METHOD_WRAPPER(get_stats);
 
 
 static PyMethodDef methods[] = {
-    {"register",     (PyCFunction)tracker_register, METH_FASTCALL, "registers a new tracker"},
-    {"signal",       (PyCFunction)tracker_signal, METH_FASTCALL, "signals the line was reached"},
-    {"hit",          (PyCFunction)tracker_hit, METH_FASTCALL, "signals the line was reached after full deinstrumentation"},
-    {"deinstrument", (PyCFunction)tracker_deinstrument, METH_FASTCALL, "marks a tracker deinstrumented"},
-    {"get_stats",    (PyCFunction)tracker_get_stats, METH_FASTCALL, "returns tracker stats"},
-    {"is_instrumented", (PyCFunction)tracker_is_instrumented, METH_FASTCALL, "returns whether tracker is instrumented"},
-    {"set_immediate", (PyCFunction)tracker_set_immediate, METH_FASTCALL, "sets up for immediate deinstrumentation"},
+    {"new", (PyCFunction)probe_new, METH_FASTCALL, "creates a new probe"},
+    {"set_immediate", (PyCFunction)probe_set_immediate, METH_FASTCALL, "sets up for immediate removal"},
+    {"signal", (PyCFunction)probe_signal, METH_FASTCALL, "signals this probe's line or branch was reached"},
+    {"no_signal", (PyCFunction)probe_no_signal, METH_FASTCALL, "like signal, but called only after this probe is removed"},
+    {"mark_removed", (PyCFunction)probe_mark_removed, METH_FASTCALL, "marks a probe removed (de-instrumented)"},
+    {"was_removed", (PyCFunction)probe_was_removed, METH_FASTCALL, "returns whether probe was removed"},
+    {"get_stats", (PyCFunction)probe_get_stats, METH_FASTCALL, "returns probe stats"},
     {NULL, NULL, 0, NULL}
 };
 
 
-static struct PyModuleDef tracker_module = {
+static struct PyModuleDef probe_module = {
     PyModuleDef_HEAD_INIT,
-    "tracker",
+    "probe",
     NULL, // no documentation
     -1,
     methods,
@@ -191,8 +190,8 @@ static struct PyModuleDef tracker_module = {
 
 
 PyMODINIT_FUNC
-PyInit_tracker() {
-    PyObject* m = PyModule_Create(&tracker_module);
+PyInit_probe() {
+    PyObject* m = PyModule_Create(&probe_module);
     if (m == nullptr) {
         return nullptr;
     }

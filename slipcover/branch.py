@@ -15,7 +15,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                                ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
 
             for node in ast.walk(mark):
-                node.lineno = 0 # we ignore line 0, so this avoids generating line trackers
+                node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
 
             return [mark]
 
