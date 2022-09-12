@@ -550,7 +550,6 @@ def test_meta_in_results(do_branch):
 
 
 def test_get_coverage_detects_lines():
-    sci = sc.Slipcover()
     base_line = current_line()
     def foo(n):             # 1
         """Foo.
@@ -601,8 +600,6 @@ def gen_test_sequence():
 @pytest.mark.skipif(sys.version.split()[0] in ['3.11.0b4', '3.11.0rc1'], reason='brittle test')
 @pytest.mark.parametrize("N", gen_test_sequence())
 def test_instrument_long_jump(N):
-    sci = sc.Slipcover()
-
     # each 'if' adds a branch
     src = gen_long_jump_code(N)
 
@@ -623,6 +620,11 @@ def test_instrument_long_jump(N):
         # such as any not adjusted after adjusting branch lengths
         assert bc.op_NOP == code.co_code[offset]
 
+    # we want at least one branch to have grown in length
+    print([b.arg() for b in orig_branches])
+    print([b.arg() for b in bc.Branch.from_code(code)])
+    assert any(b.length > orig_branches[i].length for i, b in enumerate(bc.Branch.from_code(code)))
+
     exec(code, locals(), globals())
     assert N == x
 
@@ -630,16 +632,9 @@ def test_instrument_long_jump(N):
     assert [*range(1, 4)] == cov['executed_lines']
     assert [] == cov['missing_lines']
 
-    # we want at least one branch to have grown in length
-    print([b.arg() for b in orig_branches])
-    print([b.arg() for b in bc.Branch.from_code(code)])
-    assert any(b.length > orig_branches[i].length for i, b in enumerate(bc.Branch.from_code(code)))
-
 
 @pytest.mark.parametrize("stats", [False, True])
 def test_deinstrument(stats):
-    sci = sc.Slipcover(collect_stats=stats)
-
     base_line = current_line()
     def foo(n):
         def bar(n):
@@ -650,7 +645,7 @@ def test_deinstrument(stats):
         return x
     last_line = current_line()
 
-    sci = sc.Slipcover()
+    sci = sc.Slipcover(collect_stats=stats)
     assert not sci.get_coverage()['files'].keys()
 
     sci.instrument(foo)
