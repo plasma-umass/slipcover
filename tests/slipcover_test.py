@@ -656,6 +656,32 @@ def test_deinstrument(stats):
 
 
 @pytest.mark.parametrize("stats", [False, True])
+def test_deinstrument_immediately(stats):
+    base_line = current_line()
+    def foo(n):
+        def bar(n):
+            return n+1
+        x = 0
+        for i in range(bar(n)):
+            x += i
+        return x
+    last_line = current_line()
+
+    sci = sc.Slipcover(collect_stats=stats, immediate=True)
+    assert not sci.get_coverage()['files'].keys()
+
+    sci.instrument(foo)
+
+    for off, *_ in dis.findlinestarts(foo.__code__):
+        assert foo.__code__.co_code[off] == bc.op_NOP
+
+    assert 6 == foo(3)
+
+    for off, *_ in dis.findlinestarts(foo.__code__):
+        assert foo.__code__.co_code[off] == bc.op_JUMP_FORWARD
+
+
+@pytest.mark.parametrize("stats", [False, True])
 def test_deinstrument_with_many_consts(stats):
     sci = sc.Slipcover(collect_stats=stats)
 

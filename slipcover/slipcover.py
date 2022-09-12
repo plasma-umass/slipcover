@@ -83,8 +83,10 @@ class FileMatcher:
 
 
 class Slipcover:
-    def __init__(self, collect_stats: bool = False, d_miss_threshold: int = 50, branch: bool = False):
+    def __init__(self, collect_stats: bool = False, immediate: bool = False,
+                 d_miss_threshold: int = 50, branch: bool = False):
         self.collect_stats = collect_stats
+        self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
 
@@ -156,6 +158,7 @@ class Slipcover:
 
         branch_set = set()
         insert_labels = []
+        trackers = []
 
         delta = 0
         for off_item in off_list:
@@ -169,10 +172,10 @@ class Slipcover:
                         offset += 2 # TODO will we overtake the next offset from findlinestarts?
 
                 insert_labels.append(lineno)
+
                 tr = tracker.register(self, co.co_filename, lineno, self.d_miss_threshold)
+                trackers.append(tr)
                 tr_index = ed.add_const(tr)
-                if self.collect_stats:
-                    self.all_trackers.append(tr)
 
                 delta += ed.insert_function_call(offset+delta, tracker_signal_index, (tr_index,))
 
@@ -184,9 +187,8 @@ class Slipcover:
                 insert_labels.append(branch)
 
                 tr = tracker.register(self, co.co_filename, branch, self.d_miss_threshold)
+                trackers.append(tr)
                 ed.set_const(branch_index, tr)
-                if self.collect_stats:
-                    self.all_trackers.append(tr)
 
                 delta += ed.insert_function_call(begin_off+delta, tracker_signal_index, (branch_index,),
                                                  repl_length = end_off-begin_off)
@@ -194,7 +196,14 @@ class Slipcover:
         ed.add_const('__slipcover__')  # mark instrumented
         new_code = ed.finish()
 
-        index = list(zip(ed.get_inserts(), insert_labels))
+        if self.collect_stats:
+            self.all_trackers.extend(trackers)
+
+        if self.immediate:
+            for tr, off in zip(trackers, ed.get_inserts()):
+                tracker.set_immediate(tr, new_code.co_code, off)
+        else:
+            index = list(zip(ed.get_inserts(), insert_labels))
 
         with self.lock:
             # Python 3.11.0b4 generates a 0th line
@@ -204,7 +213,9 @@ class Slipcover:
             if not parent:
                 self.instrumented[co.co_filename].add(new_code)
 
-            self.code2index[new_code] = index
+            if not self.immediate:
+                self.code2index[new_code] = index
+
         return new_code
 
 
@@ -213,6 +224,8 @@ class Slipcover:
 
         If invoked on a function, de-instruments its code.
         """
+
+        assert not self.immediate
 
         if isinstance(co, types.FunctionType):
             co.__code__ = self.deinstrument(co.__code__, lines)
@@ -234,9 +247,9 @@ class Slipcover:
 
         for (offset, lineno) in index:
             if lineno in lines and (func := ed.get_inserted_function(offset)):
-                func_index = func[0]
+                func_index, func_arg_index, *_ = func
                 if co_consts[func_index] == tracker.signal:
-                    tracker.deinstrument(co_consts[func[1]])
+                    tracker.deinstrument(co_consts[func_arg_index])
 
                     if self.collect_stats:
                         # If collecting stats, rather than disabling the tracker, we switch to

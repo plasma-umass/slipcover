@@ -2,6 +2,7 @@
 #include <Python.h>
 #include <algorithm>
 #include "pyptr.h"
+#include "opcode.h"
 
 
 /**
@@ -17,6 +18,7 @@ class Tracker {
     int _u_miss_count;
     int _hit_count;
     int _d_miss_threshold;
+    std::byte* _code;
 
 public:
     Tracker(PyObject* sci, PyObject* filename, PyObject* lineno_or_branch, PyObject* d_miss_threshold):
@@ -24,7 +26,7 @@ public:
         _lineno_or_branch(PyPtr<>::borrowed(lineno_or_branch)),
         _signalled(false), _instrumented(true),
         _d_miss_count(-1), _u_miss_count(0), _hit_count(0),
-        _d_miss_threshold(PyLong_AsLong(d_miss_threshold)) {}
+        _d_miss_threshold(PyLong_AsLong(d_miss_threshold)), _code(nullptr) {}
 
 
     static PyObject*
@@ -39,8 +41,8 @@ public:
     PyObject* signal() {
         // _d_miss_threshold == -1 means de-instrument (disable) this block,
         //      but don't de-instrument Python;
-        // _d_miss_threshold == -2 means de-instrument both
-        if (!_signalled || _d_miss_threshold < -1) {
+        // _d_miss_threshold == -2 means don't de-instrument either
+        if (!_signalled || (_code == nullptr && _d_miss_threshold < -1)) {
             _signalled = true;
 
             PyPtr<> newly_seen = PyObject_GetAttrString(_sci, "newly_seen");
@@ -62,10 +64,16 @@ public:
         }
 
         if (_instrumented) {
-            // Limit D misses by deinstrumenting once we see several for a line
-            // Any other lines getting D misses get deinstrumented at the same time,
-            // so this needn't be a large threshold.
-            if (++_d_miss_count == _d_miss_threshold) {
+            ++_d_miss_count;
+
+            if (_code) {    // immediate de-instrumentation
+                *_code = static_cast<std::byte>(JUMP_FORWARD);
+                _instrumented = false;
+            }
+            else if (_d_miss_count == _d_miss_threshold) {
+                // Limit D misses by deinstrumenting once we see several for a line
+                // Any other lines getting D misses get deinstrumented at the same time,
+                // so this needn't be a large threshold.
                 PyPtr<> deinstrument_seen = PyUnicode_FromString("deinstrument_seen");
                 PyPtr<> result = PyObject_CallMethodObjArgs(_sci, deinstrument_seen, NULL);
             }
@@ -105,6 +113,16 @@ public:
         }
         Py_RETURN_FALSE;
     }
+
+    PyObject* set_immediate(PyObject* code_bytes, PyObject* offset) {
+        _code = reinterpret_cast<std::byte*>(PyBytes_AsString(code_bytes));
+        if (_code == nullptr) {
+            return NULL;
+        }
+        _code += PyLong_AsLong(offset);
+
+        Py_RETURN_NONE;
+    }
 };
 
 
@@ -136,6 +154,17 @@ METHOD_WRAPPER(get_stats);
 METHOD_WRAPPER(is_instrumented);
 
 
+PyObject*
+tracker_set_immediate(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
+    if (nargs < 3) {
+        PyErr_SetString(PyExc_Exception, "Missing argument(s)");
+        return NULL;
+    }
+
+    return static_cast<Tracker*>(PyCapsule_GetPointer(args[0], NULL))->set_immediate(args[1], args[2]);
+}
+
+
 static PyMethodDef methods[] = {
     {"register",     (PyCFunction)tracker_register, METH_FASTCALL, "registers a new tracker"},
     {"signal",       (PyCFunction)tracker_signal, METH_FASTCALL, "signals the line was reached"},
@@ -143,6 +172,7 @@ static PyMethodDef methods[] = {
     {"deinstrument", (PyCFunction)tracker_deinstrument, METH_FASTCALL, "marks a tracker deinstrumented"},
     {"get_stats",    (PyCFunction)tracker_get_stats, METH_FASTCALL, "returns tracker stats"},
     {"is_instrumented", (PyCFunction)tracker_is_instrumented, METH_FASTCALL, "returns whether tracker is instrumented"},
+    {"set_immediate", (PyCFunction)tracker_set_immediate, METH_FASTCALL, "sets up for immediate deinstrumentation"},
     {NULL, NULL, 0, NULL}
 };
 
