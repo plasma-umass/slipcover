@@ -1110,11 +1110,14 @@ def test_loader_supports_resources(tmp_path):
 
     cmdfile = tmp_path / "t.py"
     cmdfile.write_text("""
+import sys
+sys.path.append('tests')
+
 import importlib.resources as r
-import tests.imported
+import imported
 
 def test_resources():
-    assert list(r.contents('tests.imported')) != []
+    assert list(r.contents('imported')) != []
 """)
 
     p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-qq", cmdfile])
