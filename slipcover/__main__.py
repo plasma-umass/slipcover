@@ -56,7 +56,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
         for f in self.meta_path:
             found = f.find_spec(fullname, path, target) if hasattr(f, 'find_spec') else None
             if found:
-                if found.origin and (file_matcher.matches(found.origin) or 'images' in fullname):
+                if found.origin and file_matcher.matches(found.origin):
                     if self.args.debug:
                         print(f"adding {fullname} from {found.origin}")
                     found.loader = SlipcoverLoader(self.sci, found.loader, found.origin)
