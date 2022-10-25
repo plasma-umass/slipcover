@@ -293,8 +293,8 @@ class Slipcover:
                 d_misses = defaultdict(Counter)
                 u_misses = defaultdict(Counter)
                 totals = defaultdict(Counter)
-                for t in self.all_probes:
-                    filename, lineno, d_miss_count, u_miss_count, total_count = probe.get_stats(t)
+                for p in self.all_probes:
+                    filename, lineno, d_miss_count, u_miss_count, total_count = probe.get_stats(p)
                     if d_miss_count: d_misses[filename].update({lineno: d_miss_count})
                     if u_miss_count: u_misses[filename].update({lineno: u_miss_count})
                     totals[filename].update({lineno: total_count})
