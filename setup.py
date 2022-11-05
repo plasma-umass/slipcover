@@ -35,6 +35,12 @@ def cxx_version(v):
     return [f"-std={v}" if sys.platform != "win32" else f"/std:{v}"]
 
 def platform_compile_args():
+    # If flags are specified as a global env var use them,
+    # this happens during conda build,
+    # and is needed to override build configurations on osx
+    if flags := os.environ.get("CXXFLAGS", "").split():
+        return flags
+
     if sys.platform == 'darwin':
         return "-arch x86_64 -arch arm64 -arch arm64e".split()
     if sys.platform == 'win32':
@@ -55,16 +61,24 @@ def limited_api_args():
     # [bdist_wheel]
     # py-limited-api=cp310
     #
-#    return ['-DPy_LIMITED_API=0x030a0000']
+    #    return ['-DPy_LIMITED_API=0x030a0000']
     return []
 
+
+if sys.platform == "linux" and "CXX" not in os.environ:
+    # distutils.sysconfig, called by standard build_ext,
+    # reads CXX to set c++ compiler toolchain
+    #
+    # Set to g++ in linux env if not otherwise specified
+    os.environ["CXX"] = "g++"
+
 probe = setuptools.extension.Extension(
-            'slipcover.probe',
-            sources=['probe.cxx'],
-            extra_compile_args=cxx_version('c++17') + platform_compile_args() + limited_api_args(),
-            extra_link_args=platform_link_args(),
-            py_limited_api=bool(limited_api_args()),
-            language='c++'
+    'slipcover.probe',
+    sources=['probe.cxx'],
+    extra_compile_args=cxx_version('c++17') + platform_compile_args() + limited_api_args(),
+    extra_link_args=platform_link_args(),
+    py_limited_api=bool(limited_api_args()),
+    language='c++',
 )
 
 
