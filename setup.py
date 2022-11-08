@@ -66,13 +66,6 @@ def limited_api_args():
     return []
 
 
-if sys.platform == "linux" and "CXX" not in os.environ:
-    # distutils.sysconfig, called by standard build_ext,
-    # reads CXX to set c++ compiler toolchain
-    #
-    # Set to g++ in linux env if not otherwise specified
-    os.environ["CXX"] = "g++"
-
 probe = setuptools.extension.Extension(
     'slipcover.probe',
     sources=['probe.cxx'],
