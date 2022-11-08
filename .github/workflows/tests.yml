@@ -35,3 +35,32 @@ jobs:
 
     - name: run tests
       run: python3 -m pytest
+
+  # Run a manylinux wheel build to verify build configuration
+  test-build-wheel-manylinux:
+    runs-on: ubuntu-latest
+    container: ${{ matrix.container }}
+    strategy:
+      matrix:
+        python_version: ['3.8', '3.9', '3.10']
+        include:
+          - os: ubuntu-latest
+            container: quay.io/pypa/manylinux_2_24_x86_64  # https://github.com/pypa/manylinux
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: set up python
+        run: |
+          PYV=`echo "${{ matrix.python_version }}" | tr -d "."`; ls -d -1 /opt/python/cp$PYV*/bin | head -n 1 >> $GITHUB_PATH
+          cat $GITHUB_PATH
+      - name: install dependencies
+        run: |
+          python3 -m pip install setuptools wheel twine
+      - name: build wheel
+        run: |
+            python3 setup.py bdist_wheel
+      - name: run auditwheel for manylinux
+        run: |
+          auditwheel repair dist/*.whl
+          rm -f dist/*.whl
+          mv wheelhouse/*.whl dist/
