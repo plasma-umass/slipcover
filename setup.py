@@ -42,6 +42,7 @@ def platform_compile_args():
     if flags := os.environ.get("CXXFLAGS", "").split():
         return flags
 
+    # Otherwise default to a multi-arch build
     if sys.platform == 'darwin':
         return "-arch x86_64 -arch arm64 -arch arm64e".split()
     if sys.platform == 'win32':
