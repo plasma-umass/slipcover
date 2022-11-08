@@ -1,6 +1,7 @@
 import setuptools
 from setuptools.command.build_ext import build_ext
 import sys
+import os
 from pathlib import Path
 
 def get_version():
