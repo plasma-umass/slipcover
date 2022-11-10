@@ -1,6 +1,6 @@
 import setuptools
-from setuptools.command.build_ext import build_ext
 import sys
+import os
 from pathlib import Path
 
 def get_version():
@@ -35,6 +35,13 @@ def cxx_version(v):
     return [f"-std={v}" if sys.platform != "win32" else f"/std:{v}"]
 
 def platform_compile_args():
+    # If flags are specified as a global env var use them,
+    # this happens during conda build,
+    # and is needed to override build configurations on osx
+    if flags := os.environ.get("CXXFLAGS", "").split():
+        return flags
+
+    # Otherwise default to a multi-arch build
     if sys.platform == 'darwin':
         return "-arch x86_64 -arch arm64 -arch arm64e".split()
     if sys.platform == 'win32':
@@ -55,24 +62,17 @@ def limited_api_args():
     # [bdist_wheel]
     # py-limited-api=cp310
     #
-#    return ['-DPy_LIMITED_API=0x030a0000']
+    #    return ['-DPy_LIMITED_API=0x030a0000']
     return []
 
-class CppExtension(build_ext):
-    def build_extensions(self):
-        if sys.platform == "linux":
-            self.compiler.compiler_so[0] = "g++"
-            self.compiler.compiler_cxx[0] = "g++"
-            self.compiler.linker_so[0] = "g++"
-        build_ext.build_extensions(self)
 
 probe = setuptools.extension.Extension(
-            'slipcover.probe',
-            sources=['probe.cxx'],
-            extra_compile_args=cxx_version('c++17') + platform_compile_args() + limited_api_args(),
-            extra_link_args=platform_link_args(),
-            py_limited_api=bool(limited_api_args()),
-            language='C++'
+    'slipcover.probe',
+    sources=['probe.cxx'],
+    extra_compile_args=cxx_version('c++17') + platform_compile_args() + limited_api_args(),
+    extra_link_args=platform_link_args(),
+    py_limited_api=bool(limited_api_args()),
+    language='c++',
 )
 
 
@@ -93,7 +93,6 @@ setuptools.setup(
     install_requires=[
         "tabulate"
     ],
-    cmdclass={"build_ext": CppExtension},
     classifiers=[
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",

@@ -1,2 +1,5 @@
 # dev-build.txt is only present on development builds
 include dev-build.txt
+
+# pyptr.h is required in source distributions
+include pyptr.h
