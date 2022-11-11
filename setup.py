@@ -5,7 +5,7 @@ from pathlib import Path
 
 def get_version():
     import re
-    v = re.findall(r"\nVERSION *= *\"([^\"]+)\"", Path("slipcover/slipcover.py").read_text())[0]
+    v = re.findall(r"\nVERSION *= *\"([^\"]+)\"", Path("src/slipcover/slipcover.py").read_text())[0]
     return v
 
 VERSION = get_version()
@@ -68,7 +68,7 @@ def limited_api_args():
 
 probe = setuptools.extension.Extension(
     'slipcover.probe',
-    sources=['probe.cxx'],
+    sources=['src/probe.cxx'],
     extra_compile_args=cxx_version('c++17') + platform_compile_args() + limited_api_args(),
     extra_link_args=platform_link_args(),
     py_limited_api=bool(limited_api_args()),
@@ -88,6 +88,7 @@ setuptools.setup(
     author_email="juan@altmayer.com, emery@cs.umass.edu",
     license="Apache License 2.0",
     packages=['slipcover'],
+    package_dir={'': 'src'},
     ext_modules=([probe]),
     python_requires=">=3.8,<3.12",
     install_requires=[
