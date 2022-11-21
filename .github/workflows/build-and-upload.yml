@@ -49,7 +49,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           # setuptool's bdist uses 'git archive' to find files, and fails silently if it can't,
           # leading to missing files in the archive.  Run it separately to force a failure in that case.
-          (cd slipcover; git archive --prefix slipcover/ HEAD | tar -t > /dev/null)
+          (cd src; git archive --prefix slipcover/ HEAD | tar -t > /dev/null)
 
       - name: get coordinated .devN
         if: github.event_name != 'release'

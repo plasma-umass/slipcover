@@ -42,7 +42,7 @@ jobs:
     container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_version: ['3.8', '3.9', '3.10']
+        python_version: ['3.8', '3.9', '3.10', '3.11']
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux2014_x86_64 # https://github.com/pypa/manylinux
