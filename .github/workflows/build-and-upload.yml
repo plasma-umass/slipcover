@@ -19,7 +19,7 @@ jobs:
     steps:
       - run: TZ='America/New_York' date '+%Y%m%d%H%M' > dev-build.txt
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: devN
           path: dev-build.txt
@@ -40,7 +40,7 @@ jobs:
             upload_source: true   # just need ONE of them to do it
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Mark workspace safe for git
         # needed for container and self-hosted runners; see https://github.com/actions/checkout/issues/766
@@ -53,13 +53,13 @@ jobs:
 
       - name: get coordinated .devN
         if: github.event_name != 'release'
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: devN
 
       - name: set up python (script version)
         if: matrix.container == ''
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python_version }}
 
