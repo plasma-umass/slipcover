@@ -486,7 +486,8 @@ def test_append_svarint():
 @pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
 @pytest.mark.parametrize("n", [0, 42, 63, 200, 65539])
 def test_write_varint_be(n):
-    assert n == dis.parse_varint(iter(bc.write_varint_be(n)))
+    dis_parse_varint = dis.parse_varint if 'parse_varint' in dis.__dict__ else dis._parse_varint
+    assert n == dis_parse_varint(iter(bc.write_varint_be(n)))
 
 
 @pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")
@@ -583,7 +584,7 @@ def gen_test_sequence():
     return [(64*1024*arg)//b.arg() for arg in [0xFF, 0xFFFF]]#, 0xFFFFFF]]
 
 
-@pytest.mark.skipif(sys.version.split()[0] in ['3.11.0b4', '3.11.0rc1'], reason='brittle test')
+@pytest.mark.skipif(sys.version.split()[0] in ['3.11.0', '3.11.0b4', '3.11.0rc1'], reason='brittle test')
 @pytest.mark.parametrize("N", gen_test_sequence())
 def test_adjust_long_jump(N):
     # each 'if' adds a branch
