@@ -433,7 +433,10 @@ class Slipcover:
 
                     pct = 100*(exec_l+exec_b)/(exec_l+miss_l+exec_b+miss_b)
                 else:
-                    pct = 100*exec_l/(exec_l+miss_l)
+                    if (exec_l+miss_l) == 0:
+                        pct = 100
+                    else:
+                        pct = 100*exec_l/(exec_l+miss_l)
 
                 yield [f, exec_l+miss_l, miss_l,
                        *([exec_b+miss_b, miss_b] if self.branch else []),
