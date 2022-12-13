@@ -1230,3 +1230,5 @@ def test_summary_in_output_zero_lines(do_branch):
         assert 0 == summ['covered_branches']
 
     assert 100.0 == summ['percent_covered']
+
+    sci.print_coverage(sys.stdout) # any divisions by zero here?

@@ -431,9 +431,7 @@ class Slipcover:
                     exec_b = len(f_info['executed_branches'])
                     miss_b = len(f_info['missing_branches'])
 
-                    pct = 100*(exec_l+exec_b)/(exec_l+miss_l+exec_b+miss_b)
-                else:
-                    pct = 100*exec_l/(exec_l+miss_l)
+                pct = f_info['summary']['percent_covered']
 
                 yield [f, exec_l+miss_l, miss_l,
                        *([exec_b+miss_b, miss_b] if self.branch else []),
