@@ -81,6 +81,7 @@ ap.add_argument('--out', type=Path, help="specify output file name")
 ap.add_argument('--source', help="specify directories to cover")
 ap.add_argument('--omit', help="specify file(s) to omit")
 ap.add_argument('--immediate', action='store_true', help="request immediate de-instrumentation")
+ap.add_argument('--skip-covered', action='store_true', help="omit fully covered files (from text, non-JSON output)")
 ap.add_argument('--threshold', type=int, default=50, metavar="T",
                 help="threshold for de-instrumentation (if not immediate)")
 
@@ -118,7 +119,8 @@ if args.omit:
         file_matcher.addOmit(o)
 
 sci = sc.Slipcover(collect_stats=args.stats, immediate=args.immediate,
-                   d_miss_threshold=args.threshold, branch=args.branch)
+                   d_miss_threshold=args.threshold, branch=args.branch,
+                   skip_covered=args.skip_covered)
 
 def wrap_pytest():
     def exec_wrapper(obj, g):

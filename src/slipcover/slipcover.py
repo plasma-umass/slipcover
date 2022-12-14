@@ -84,11 +84,12 @@ class FileMatcher:
 
 class Slipcover:
     def __init__(self, collect_stats: bool = False, immediate: bool = False,
-                 d_miss_threshold: int = 50, branch: bool = False):
+                 d_miss_threshold: int = 50, branch: bool = False, skip_covered: bool = False):
         self.collect_stats = collect_stats
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
+        self.skip_covered = skip_covered
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -432,6 +433,9 @@ class Slipcover:
                     miss_b = len(f_info['missing_branches'])
 
                 pct = f_info['summary']['percent_covered']
+
+                if self.skip_covered and pct == 100.0:
+                    continue
 
                 yield [f, exec_l+miss_l, miss_l,
                        *([exec_b+miss_b, miss_b] if self.branch else []),
