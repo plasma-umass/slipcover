@@ -969,6 +969,28 @@ def test_print_coverage_branch(capsys):
     assert re.match(f'^foo\\.py +{total_l} +{miss_l} +{total_b} +{miss_b} +{pct}', output[3])
 
 
+@pytest.mark.parametrize("do_stats", [False, True])
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_print_coverage_zero_lines(do_branch, do_stats, capsys):
+    t = ast_parse("")
+    if do_branch:
+        t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=do_branch)
+    code = compile(t, 'foo.py', 'exec')
+    code = sci.instrument(code)
+    #dis.dis(code)
+
+    import re
+
+    g = dict()
+    exec(code, g, g)
+    sci.print_coverage(sys.stdout)
+    output = capsys.readouterr()[0]
+    output = output.splitlines()
+    assert re.match(f'^foo\\.py +{"1" if PYTHON_VERSION < (3,11) else "0"} +0{" +0 +0" if do_branch else ""} +100', output[3])
+
+
 def test_find_functions():
     import class_test as t
 
@@ -1230,5 +1252,3 @@ def test_summary_in_output_zero_lines(do_branch):
         assert 0 == summ['covered_branches']
 
     assert 100.0 == summ['percent_covered']
-
-    sci.print_coverage(sys.stdout) # any divisions by zero here?
