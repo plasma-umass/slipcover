@@ -5,6 +5,7 @@ from slipcover import branch as br
 import types
 import dis
 import sys
+import re
 
 
 PYTHON_VERSION = sys.version_info[0:2]
@@ -916,8 +917,6 @@ def test_print_coverage(stats, capsys):
     missd = len(cov['missing_lines'])
     total = execd+missd
 
-    import re
-
     # TODO test more cases (multiple files, etc.)
     output = capsys.readouterr()[0]
     print(output)
@@ -960,13 +959,40 @@ def test_print_coverage_branch(capsys):
 
     pct = round(100*(exec_l+exec_b)/(total_l+total_b))
 
-    import re
-
     # TODO test more cases (multiple files, etc.)
     output = capsys.readouterr()[0]
     print(output)
     output = output.splitlines()
     assert re.match(f'^foo\\.py +{total_l} +{miss_l} +{total_b} +{miss_b} +{pct}', output[3])
+
+
+@pytest.mark.parametrize("do_stats", [False, True])
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_print_coverage_zero_lines(do_branch, do_stats, capsys):
+    t = ast_parse("")
+    if do_branch:
+        t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=do_branch)
+    code = compile(t, 'foo.py', 'exec')
+    code = sci.instrument(code)
+    #dis.dis(code)
+
+    g = dict()
+    exec(code, g, g)
+    sci.print_coverage(sys.stdout)
+    output = capsys.readouterr()[0]
+    output = output.splitlines()
+    assert re.match(f'^foo\\.py +{"1" if PYTHON_VERSION < (3,11) else "0"} +0{" +0 +0" if do_branch else ""} +100', output[3])
+
+
+def test_print_coverage_skip_covered():
+    import subprocess
+
+    p = subprocess.run(f"{sys.executable} -m slipcover --skip-covered tests/importer.py".split(), check=True, capture_output=True)
+    output = str(p.stdout)
+    assert '__init__.py' in output
+    assert 'importer.py' not in output
 
 
 def test_find_functions():
@@ -1230,3 +1256,17 @@ def test_summary_in_output_zero_lines(do_branch):
         assert 0 == summ['covered_branches']
 
     assert 100.0 == summ['percent_covered']
+
+
+@pytest.mark.parametrize("json_flag", ["", "--json"])
+def test_fail_under(json_flag):
+    import subprocess
+
+    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --fail-under 100 tests/branch.py".split(), check=False)
+    assert 0 == p.returncode
+
+    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 83 tests/branch.py".split(), check=False)
+    assert 0 == p.returncode
+
+    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 84 tests/branch.py".split(), check=False)
+    assert 2 == p.returncode
