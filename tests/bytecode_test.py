@@ -584,7 +584,7 @@ def gen_test_sequence():
     return [(64*1024*arg)//b.arg() for arg in [0xFF, 0xFFFF]]#, 0xFFFFFF]]
 
 
-@pytest.mark.skipif(sys.version.split()[0] in ['3.11.0', '3.11.0b4', '3.11.0rc1'], reason='brittle test')
+@pytest.mark.skipif(PYTHON_VERSION == (3,11), reason='brittle test')
 @pytest.mark.parametrize("N", gen_test_sequence())
 def test_adjust_long_jump(N):
     # each 'if' adds a branch
