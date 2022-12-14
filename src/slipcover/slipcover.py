@@ -10,7 +10,7 @@ from . import bytecode as bc
 from . import branch as br
 from pathlib import Path
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 # FIXME provide __all__
 
