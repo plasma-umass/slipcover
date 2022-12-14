@@ -1256,3 +1256,17 @@ def test_summary_in_output_zero_lines(do_branch):
         assert 0 == summ['covered_branches']
 
     assert 100.0 == summ['percent_covered']
+
+
+@pytest.mark.parametrize("json_flag", ["", "--json"])
+def test_fail_under(json_flag):
+    import subprocess
+
+    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --fail-under 100 tests/branch.py".split(), check=False)
+    assert 0 == p.returncode
+
+    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 83 tests/branch.py".split(), check=False)
+    assert 0 == p.returncode
+
+    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 84 tests/branch.py".split(), check=False)
+    assert 2 == p.returncode

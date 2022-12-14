@@ -82,6 +82,7 @@ ap.add_argument('--source', help="specify directories to cover")
 ap.add_argument('--omit', help="specify file(s) to omit")
 ap.add_argument('--immediate', action='store_true', help="request immediate de-instrumentation")
 ap.add_argument('--skip-covered', action='store_true', help="omit fully covered files (from text, non-JSON output)")
+ap.add_argument('--fail-under', type=float, default=0, help="fail execution with RC 2 if the overall coverage lays lower than this")
 ap.add_argument('--threshold', type=int, default=50, metavar="T",
                 help="threshold for de-instrumentation (if not immediate)")
 
@@ -233,3 +234,8 @@ else:
     import runpy
     sys.argv = [*args.module, *args.script_or_module_args]
     runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
+
+if args.fail_under:
+    cov = sci.get_coverage()
+    if cov['summary']['percent_covered'] < args.fail_under:
+        sys.exit(2)
