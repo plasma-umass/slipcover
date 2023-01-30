@@ -70,6 +70,7 @@ def load_benchmarks():
     # someplace with scikit-learn 1.1.1 sources, built and ready to test
     SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
     FLASK = Path.home() / "tmp" / "flask"
+    MATPLOTLIB = Path.home() / "tmp" / "matplotlib"
 
     class Benchmark:
         def __init__(self, name, command, opts=None, cwd=None, tries=None):
@@ -102,6 +103,13 @@ def load_benchmarks():
                     'nulltracer_opts': '--prefix=src'
                   },
                   cwd=FLASK
+        )
+    )
+
+    benchmarks.append(
+        Benchmark('matplotlib', "-m pytest -k 'not (test_backends_interactive or test_get_font_names)'", {
+                  },
+                  cwd=MATPLOTLIB
         )
     )
 
@@ -147,7 +155,7 @@ def parse_args():
     a_plot = ap.add_argument_group('plotting', 'options for --plot')
     a_plot.add_argument('--title', type=str, default='Line / Line+Branch Coverage Benchmarks', help='set plot title')
     a_plot.add_argument('--style', type=str, help='set matplotlib style')
-    a_plot.add_argument('--figure-width', type=float, default=12, help='matplotlib figure width')
+    a_plot.add_argument('--figure-width', type=float, default=16, help='matplotlib figure width')
     a_plot.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
     a_plot.add_argument('--bar-labels', action='store_true', help='add labels to bars')
     a_plot.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
