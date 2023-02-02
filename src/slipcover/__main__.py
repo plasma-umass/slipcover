@@ -6,6 +6,7 @@ from slipcover import bytecode as bc
 from slipcover import branch as br
 import ast
 import atexit
+import platform
 
 from importlib.abc import MetaPathFinder, Loader
 from importlib.machinery import SourceFileLoader
@@ -80,7 +81,8 @@ ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON o
 ap.add_argument('--out', type=Path, help="specify output file name")
 ap.add_argument('--source', help="specify directories to cover")
 ap.add_argument('--omit', help="specify file(s) to omit")
-ap.add_argument('--immediate', action='store_true', help="request immediate de-instrumentation")
+ap.add_argument('--immediate', action='store_true',
+                help=(argparse.SUPPRESS if platform.python_implementation() == "PyPy" else "request immediate de-instrumentation"))
 ap.add_argument('--skip-covered', action='store_true', help="omit fully covered files (from text, non-JSON output)")
 ap.add_argument('--fail-under', type=float, default=0, help="fail execution with RC 2 if the overall coverage lays lower than this")
 ap.add_argument('--threshold', type=int, default=50, metavar="T",

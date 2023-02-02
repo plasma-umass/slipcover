@@ -2,7 +2,9 @@
 #include <Python.h>
 #include <algorithm>
 #include "pyptr.h"
-#include "opcode.h"
+#ifndef PYPY_VERSION
+    #include "opcode.h"
+#endif
 
 
 /**
@@ -66,11 +68,14 @@ public:
         if (!_removed) {
             ++_d_miss_count;
 
+#ifndef PYPY_VERSION
             if (_code) {    // immediate de-instrumentation
                 *_code = static_cast<std::byte>(JUMP_FORWARD);
                 _removed = true;
             }
-            else if (_d_miss_count == _d_miss_threshold) {
+            else
+#endif
+            if (_d_miss_count == _d_miss_threshold) {
                 // Limit D misses by deinstrumenting once we see several for a line
                 // Any other lines getting D misses get deinstrumented at the same time,
                 // so this needn't be a large threshold.
@@ -114,6 +119,11 @@ public:
     }
 
     PyObject* set_immediate(PyObject* code_bytes, PyObject* offset) {
+#ifdef PYPY_VERSION
+        PyErr_SetString(PyExc_Exception, "Error: set_immediate does not work with PyPy");
+        return NULL;
+#endif
+
         _code = reinterpret_cast<std::byte*>(PyBytes_AsString(code_bytes));
         if (_code == nullptr) {
             return NULL;

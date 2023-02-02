@@ -5,6 +5,7 @@ from slipcover import branch as br
 import types
 import dis
 import sys
+import platform
 import re
 
 
@@ -656,6 +657,7 @@ def test_deinstrument(stats):
     assert [] == sci.get_coverage()['files'][simple_current_file()]['executed_lines']
 
 
+@pytest.mark.skipif(platform.python_implementation() == 'PyPy', reason="Immediate de-instrumentation does not work with PyPy")
 @pytest.mark.parametrize("stats", [False, True])
 def test_deinstrument_immediately(stats):
     base_line = current_line()
