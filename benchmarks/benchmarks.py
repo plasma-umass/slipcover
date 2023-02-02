@@ -212,7 +212,7 @@ def load_results(args):
         import cpuinfo  # pip3 install py-cpuinfo
 
         return {
-            'python': platform.python_version(),
+            'python': ("pypy" if platform.python_implementation() == "PyPy" else "") + platform.python_version(),
             'os': [platform.system(), platform.release()],
             'cpu': cpuinfo.get_cpu_info()['brand_raw']
         }
