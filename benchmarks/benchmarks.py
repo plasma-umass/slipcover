@@ -133,53 +133,49 @@ def parse_args():
     import argparse
     ap = argparse.ArgumentParser()
 
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument('--run', action='store_true', help='run benchmarks')
-    g.add_argument('--plot', action='store_true', help='plot graph')
-    g.add_argument('--latex', action='store_true', help='write out LaTeX table')
+    sp = ap.add_subparsers(dest='cmd')
 
-    ap.add_argument('--print', action='store_true', help='print out table of results')
-    ap.add_argument('--case', choices=[c.name for c in cases],
+    run = sp.add_parser('run', help='run benchmarks')
+    plot = sp.add_parser('plot', help='plot graph')
+    latex = sp.add_parser('latex', help='write out LaTeX table')
+
+    plot.add_argument('--print', action='store_true', help='print out table of results')
+
+    for p in [run, plot, latex]:
+        p.add_argument('--case', choices=[c.name for c in cases],
                        action='append', help='select case(s) to run/plot')
-    ap.add_argument('--bench', choices=[b.name for b in benchmarks],
+        p.add_argument('--bench', choices=[b.name for b in benchmarks],
                        action='append', help='select benchmark(s) to run/plot')
 
-    a_run = ap.add_argument_group('running', 'options for running')
-    a_run.add_argument('--no-sklearn', action='store_true', help="don't run sklearn benchmark")
+    run.add_argument('--no-sklearn', action='store_true', help="don't run sklearn benchmark")
 
-    g = ap.add_argument_group('plotting and latex', 'options for --plot and --latex')
-    g.add_argument('--os', type=str, help='select OS name (conflicts with --run)')
-    g.add_argument('--python', type=str, help='select python version (conflicts with --run)')
-    g.add_argument('--out', type=Path, help='set output file')
+    for p in [plot, latex]:
+        p.add_argument('--os', type=str, help='select OS name (conflicts with --run)')
+        p.add_argument('--python', type=str, help='select python version (conflicts with --run)')
+        p.add_argument('--out', type=Path, help='set output file', required=True)
 
-    a_plot = ap.add_argument_group('plotting', 'options for --plot')
-    a_plot.add_argument('--title', type=str, default='Line / Line+Branch Coverage Benchmarks', help='set plot title')
-    a_plot.add_argument('--style', type=str, help='set matplotlib style')
-    a_plot.add_argument('--figure-width', type=float, default=16, help='matplotlib figure width')
-    a_plot.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
-    a_plot.add_argument('--bar-labels', action='store_true', help='add labels to bars')
-    a_plot.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
-    a_plot.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
+    plot.add_argument('--title', type=str, default='Line / Line+Branch Coverage Benchmarks', help='set plot title')
+    plot.add_argument('--style', type=str, help='set matplotlib style')
+    plot.add_argument('--figure-width', type=float, default=16, help='matplotlib figure width')
+    plot.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
+    plot.add_argument('--bar-labels', action='store_true', help='add labels to bars')
+    plot.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
+    plot.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
+    plot.add_argument('--speedup', action='store_true', help='plot speedup graph')
 
     args = ap.parse_args()
 
     if not args.case:
-        if args.run:
+        if args.cmd == 'run':
             args.case = ['slipcover', 'slipcover-branch']
         else:
             args.case = ['coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
 
-    if not args.run and not args.out:
-        raise Exception("specify output file with --out")
-
     if not args.bench:
         args.bench = [b.name for b in benchmarks]
 
-    if args.run and args.no_sklearn:
+    if args.cmd == 'run' and no_sklearn:
         args.bench = list(filter(lambda b: b != 'sklearn', args.bench))
-
-    if args.run and args.os: raise Exception("--run and --os can't be used together")
-    if args.run and args.python: raise Exception("--run and --python can't be used together")
 
     return args
 
@@ -217,7 +213,7 @@ def load_results(args):
             'cpu': cpuinfo.get_cpu_info()['brand_raw']
         }
 
-    if args.run:
+    if args.cmd == 'run':
         try:
             results = next(it['results'] for it in saved_results if it['system'] == own_sysid())
             print(f"using {json.dumps(own_sysid())}")
@@ -315,13 +311,22 @@ def plot_results(args):
     import matplotlib.pyplot as plt
     import re
 
-    selected_cases = [c for c in cases if c.name in args.case]
-    nonbase_cases = [c for c in selected_cases if c.name != 'base']
+    def getBase(caseName):
+        if not args.speedup: return 'base'
+        if caseName.startswith('slipcover-branch'): return 'coveragepy-branch'
+        if caseName.startswith('slipcover'): return 'coveragepy'
+        return None
 
-    all_benchmarks = set.union(*(set(results[c.name].keys()) for c in selected_cases))
-    common_benchmarks = set.intersection(*(set(results[c.name].keys()) for c in selected_cases))
+    bases = set([getBase(c) for c in args.case if getBase(c)])
+    relevant_cases = set.union(set(args.case), bases)
+
+    all_benchmarks = set.union(*(set(results[c].keys()) for c in relevant_cases))
+    common_benchmarks = set.intersection(*(set(results[c].keys()) for c in relevant_cases))
     if common_benchmarks != all_benchmarks:
-        print(f"WARNING: some benchmarks are missing: {all_benchmarks - common_benchmarks}")
+        print(f"WARNING: some cases are missing benchmarks: {all_benchmarks - common_benchmarks}")
+
+    # note 'cases' and 'benchmarks' are global
+    nonbase_cases = [c for c in cases if c.name in args.case and c.name not in bases]
 
     x = np.arange(len(common_benchmarks))
     n_bars = len(nonbase_cases)
@@ -336,9 +341,15 @@ def plot_results(args):
     if args.style:
         plt.style.use(args.style)
 
+    def getValue(caseName, benchName):
+        if args.speedup:
+            return median(results[getBase(caseName)][benchName]['times']) / median(results[caseName][benchName]['times'])
+
+        return median(results[caseName][benchName]['times']) / median(results['base'][benchName]['times'])
+
     fig, ax = plt.subplots()
     for case, bar_x in zip(nonbase_cases, bars_x):
-        r = [median(results[case.name][b.name]['times']) / median(results['base'][b.name]['times']) for b in benchmarks if b.name in common_benchmarks]
+        r = [getValue(case.name, b.name) for b in benchmarks if b.name in common_benchmarks]
 
         showit = not hide_slipcover or (case.name != 'slipcover')
 
@@ -354,11 +365,14 @@ def plot_results(args):
             ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8+args.font_size_delta)
 
     ax.set_title(args.title, size=18+args.font_size_delta, weight='bold')
-    ax.set_ylabel('Normalized execution time', size=15+args.font_size_delta)
+    if args.speedup:
+        ax.set_ylabel('Speedup over coverage.py', size=15+args.font_size_delta)
+    else:
+        ax.set_ylabel('Normalized execution time', size=15+args.font_size_delta)
     ax.set_xticks(x, labels=[b.name for b in benchmarks if b.name in common_benchmarks], fontsize=15+args.font_size_delta)
     if not args.style:
         ax.grid(axis='y', alpha=.3)
-    ax.axhline(y=1, color='black', linewidth=1, alpha=.5, zorder=1)
+    ax.axhline(y=1, color='black', linewidth=1, alpha=.5, zorder=1) # 1x line
     if not hide_slipcover:
         ax.legend(fontsize=15+args.font_size_delta)
 
@@ -435,7 +449,7 @@ if __name__ == "__main__":
     args = parse_args()
     saved_results, results = load_results(args)
 
-    if args.run:
+    if args.cmd == 'run':
         print(f"Selected cases:      {args.case}")
         print(f"Selected benchmarks: {args.bench}")
 
@@ -479,8 +493,8 @@ if __name__ == "__main__":
     if args.print:
         print_results()
 
-    if args.latex:
+    if args.cmd == 'latex':
         latex_results(args)
 
-    if args.plot:
+    if args.cmd == 'plot':
         plot_results(args)
