@@ -3,7 +3,7 @@ name: tests
 on:
   push:
     paths:
-      - slipcover/**
+      - src/**
       - test/**
       - setup.py
       - requirements.txt
@@ -19,8 +19,7 @@ jobs:
     strategy:
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
-#        python: [ '3.8', '3.9', '3.10', '3.11', 'pypy-3.9' ]
-        python: [ 'pypy-3.9' ]
+        python: [ '3.8', '3.9', 'pypy-3.9', '3.10', '3.11' ]
 
     steps:
     - uses: actions/checkout@v3
@@ -43,7 +42,7 @@ jobs:
     container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_version: ['3.11']  # good enough to just test with one version?
+        python_version: ['pypy-3.9', '3.11']
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux2014_x86_64 # https://github.com/pypa/manylinux
