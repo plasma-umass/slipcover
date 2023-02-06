@@ -22,6 +22,7 @@ def parse_args():
     ap.add_argument('--bar-labels', action='store_true', help='add labels to bars')
     ap.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
     ap.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
+    ap.add_argument('--skip-version', default=[], action='append', help='omit given Python version')
 
     args = ap.parse_args()
 
@@ -53,6 +54,9 @@ def load_data():
 
     # Python version -> results
     v2r = {e['system']['python']: e['results'] for e in entries}
+
+    for v in args.skip_version:
+        del v2r[v]
 
     # sort Python versions semantically
     python_versions = sorted(v2r.keys(), key=lambda x: packaging.version.parse(x))
