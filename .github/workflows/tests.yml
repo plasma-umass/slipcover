@@ -42,7 +42,7 @@ jobs:
     container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_version: ['pypy-3.9', '3.11']
+        python_tag: ['cp311', 'pp39']
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux2014_x86_64 # https://github.com/pypa/manylinux
@@ -51,11 +51,11 @@ jobs:
       - uses: actions/checkout@v3
       - name: set up python
         run: |
-          PYV=`echo "${{ matrix.python_version }}" | tr -d "."`; ls -d -1 /opt/python/cp$PYV*/bin | head -n 1 >> $GITHUB_PATH
-          cat $GITHUB_PATH
+            PYT=`echo "${{ matrix.python_tag }}" | tr -d "."`; ls -d -1 /opt/python/$PYT-*/bin | head -n 1 >> $GITHUB_PATH
+            cat $GITHUB_PATH
       - name: install dependencies
         run: |
-          python3 -m pip install setuptools wheel twine
+            python3 -m pip install setuptools wheel twine
       - name: build sdist
         run: |
             python3 setup.py sdist
