@@ -4,6 +4,7 @@ from statistics import median
 from datetime import datetime
 import subprocess
 import sys
+import platform
 
 BENCHMARK_JSON = Path(sys.argv[0]).parent / 'benchmarks.json'
 
@@ -97,7 +98,8 @@ def load_benchmarks():
     )
 
     benchmarks.append(
-        Benchmark('flask', "-m pytest --count 5", {
+        # test_cli can lead to PyPy crashes when used with --count
+        Benchmark('flask', "-m pytest --count 5" + " -k 'not test_cli'" if platform.python_implementation() == "PyPy" else "", {
                     # coveragepy options from setup.cfg
                     'slipcover_opts': '--source=src,*/site-packages',
                     'nulltracer_opts': '--prefix=src'
@@ -142,7 +144,7 @@ def parse_args():
     plot.add_argument('--print', action='store_true', help='print out table of results')
 
     for p in [run, plot, latex]:
-        p.add_argument('--case', choices=[c.name for c in cases],
+        p.add_argument('--case', choices=[c.name for c in cases] + ['all'],
                        action='append', help='select case(s) to run/plot')
         p.add_argument('--bench', choices=[b.name for b in benchmarks],
                        action='append', help='select benchmark(s) to run/plot')
@@ -171,10 +173,18 @@ def parse_args():
         else:
             args.case = ['coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
 
+    if 'all' in args.case:
+        tmp = set(args.case)
+        tmp.remove('all')
+        tmp.update(['base', 'coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch',
+                    'slipcover-no-deinstr-1', 'slipcover-no-deinstr',
+                    'slipcover-branch-no-deinstr-1', 'slipcover-branch-no-deinstr'])
+        args.case = list(tmp)
+
     if not args.bench:
         args.bench = [b.name for b in benchmarks]
 
-    if args.cmd == 'run' and no_sklearn:
+    if args.cmd == 'run' and args.no_sklearn:
         args.bench = list(filter(lambda b: b != 'sklearn', args.bench))
 
     return args
@@ -204,7 +214,6 @@ def load_results(args):
         saved_results = []
 
     def own_sysid():
-        import platform
         import cpuinfo  # pip3 install py-cpuinfo
 
         return {
@@ -488,13 +497,13 @@ if __name__ == "__main__":
 
                 # save after each benchmark, in case we abort running others
                 with open(BENCHMARK_JSON, 'w') as f:
-                    json.dump(saved_results, f)
-
-    if args.print:
-        print_results()
+                    json.dump(saved_results, f, indent=4)
 
     if args.cmd == 'latex':
         latex_results(args)
 
     if args.cmd == 'plot':
+        if args.print:
+            print_results()
+
         plot_results(args)
