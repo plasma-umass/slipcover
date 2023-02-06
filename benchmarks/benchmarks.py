@@ -331,8 +331,9 @@ def plot_results(args):
 
     all_benchmarks = set.union(*(set(results[c].keys()) for c in relevant_cases))
     common_benchmarks = set.intersection(*(set(results[c].keys()) for c in relevant_cases))
-    if common_benchmarks != all_benchmarks:
-        print(f"WARNING: some cases are missing benchmarks: {all_benchmarks - common_benchmarks}")
+    for c in relevant_cases:
+        if set(results[c].keys()) != all_benchmarks:
+            print(f"WARNING: \"{c}\" is missing benchmarks {all_benchmarks - set(results[c].keys())}")
 
     # note 'cases' and 'benchmarks' are global
     nonbase_cases = [c for c in cases if c.name in args.case and c.name not in bases]
