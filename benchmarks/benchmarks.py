@@ -44,12 +44,15 @@ def load_cases():
             Case('slipcover-branch', "SlipCover line+branch",
                  sys.executable + " -m slipcover --branch {slipcover_opts} {bench_command}",
                  color='blue', get_version=lambda: git_head),
+    ] + ([] if platform.python_implementation() == "PyPy" else [
+        # immediate de-instrumentation doesn't work with PyPy
             Case('slipcover-imm', "SlipCover line, immediate deinstr.",
                  sys.executable + " -m slipcover --immediate {slipcover_opts} {bench_command}",
                  color='orchid', get_version=lambda: git_head),
             Case('slipcover-branch-imm', "SlipCover l+b, immediate deinstr.",
                  sys.executable + " -m slipcover --branch --immediate {slipcover_opts} {bench_command}",
                  color='purple', get_version=lambda: git_head),
+    ]) + [
             Case('slipcover-no-deinstr-1', "SlipCover line, no bytecode deinstr.",
                  sys.executable + " -m slipcover --threshold=-1 {slipcover_opts} {bench_command}",
                  color='silver', get_version=lambda: git_head),
@@ -69,7 +72,7 @@ cases = load_cases()
 def load_benchmarks():
     TRIES = 5
     # someplace with scikit-learn 1.1.1 sources, built and ready to test
-    SCIKIT_LEARN = Path.home() / "tmp" / "scikit-learn"
+    SCIKIT_LEARN = Path.home() / "tmp" / ("scikit-learn" + ("-pypy" if platform.python_implementation() == "PyPy" else ""))
     FLASK = Path.home() / "tmp" / "flask"
     MATPLOTLIB = Path.home() / "tmp" / "matplotlib"
 
@@ -176,9 +179,7 @@ def parse_args():
     if 'all' in args.case:
         tmp = set(args.case)
         tmp.remove('all')
-        tmp.update(['base', 'coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch',
-                    'slipcover-no-deinstr-1', 'slipcover-no-deinstr',
-                    'slipcover-branch-no-deinstr-1', 'slipcover-branch-no-deinstr'])
+        tmp.update([c.name for c in cases])
         args.case = list(tmp)
 
     if not args.bench:
