@@ -332,8 +332,11 @@ def plot_results(args):
 
     all_benchmarks = set.union(*(set(results[c].keys()) for c in relevant_cases))
     common_benchmarks = set.intersection(*(set(results[c].keys()) for c in relevant_cases))
+    all_benchmarks = all_benchmarks.intersection(args.bench)
+    common_benchmarks = common_benchmarks.intersection(args.bench)
+
     for c in relevant_cases:
-        if set(results[c].keys()) != all_benchmarks:
+        if not all_benchmarks.issubset(results[c].keys()):
             print(f"WARNING: \"{c}\" is missing benchmarks {all_benchmarks - set(results[c].keys())}")
 
     # note 'cases' and 'benchmarks' are global
@@ -403,6 +406,9 @@ def latex_results(args):
 
     all_benchmarks = set.union(*(set(results[c.name].keys()) for c in selected_cases))
     common_benchmarks = set.intersection(*(set(results[c.name].keys()) for c in selected_cases))
+    all_benchmarks = all_benchmarks.intersection(args.bench)
+    common_benchmarks = common_benchmarks.intersection(args.bench)
+
     if common_benchmarks != all_benchmarks:
         print(f"WARNING: some benchmarks are missing: {all_benchmarks - common_benchmarks}")
 
