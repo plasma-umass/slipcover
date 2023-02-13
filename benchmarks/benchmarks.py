@@ -452,14 +452,15 @@ def latex_results(args):
 
         print("\\hline", file=out)
 
-        line = "median"
+        from scipy.stats.mstats import gmean
+        line = "geom. mean"
         for case in nonbase_cases:
             r = []
             for bench in [b for b in benchmarks if b.name in common_benchmarks]:
                 base_result = median(results['base'][bench.name]['times'])
                 r.append(median(results[case.name][bench.name]['times']) / base_result)
 
-            line += f" & {median(r):.2f}$\\times$"
+            line += f" & {gmean(r):.2f}$\\times$"
         line += " \\\\"
 
         print(line, file=out)
