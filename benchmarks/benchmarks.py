@@ -152,6 +152,8 @@ def parse_args():
         p.add_argument('--bench', choices=[b.name for b in benchmarks],
                        action='append', help='select benchmark(s) to run/plot')
 
+    latex.add_argument('--absolute', action='store_true', help='emit absolute numbers')
+
     run.add_argument('--no-sklearn', action='store_true', help="don't run sklearn benchmark")
 
     for p in [plot, latex]:
@@ -432,8 +434,12 @@ def latex_results(args):
         return f"\\texttt{{{s}}}"
 
     with open(args.out, "w") as out:
-        print("\\begin{tabular}{l " + ("r " * len(nonbase_cases)) + "}", file=out)
+        print("\\begin{tabular}{l " + ("r " * (int(args.absolute)+len(nonbase_cases))) + "}", file=out)
         line = "\\thead[l]{Benchmark}"
+
+        if args.absolute:
+            line += " & \\thead[r]{no coverage}"
+
         for case in nonbase_cases:
             case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
             case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
@@ -450,25 +456,34 @@ def latex_results(args):
             line = f"{texttt(latex_escape(bench.name))}"
 
             base_result = median(results['base'][bench.name]['times'])
+
+            if args.absolute:
+                line += f" & {base_result:.1f}s"
+
             for case in nonbase_cases:
-                r = median(results[case.name][bench.name]['times']) / base_result
-                line += f" & {r:.2f}$\\times$"
+                if args.absolute:
+                    r = median(results[case.name][bench.name]['times'])
+                    line += f" & {r:.1f}s"
+                else:
+                    r = median(results[case.name][bench.name]['times']) / base_result
+                    line += f" & {r:.2f}$\\times$"
             line += " \\\\"
             print(line, file=out)
 
         print("\\hline", file=out)
 
-        line = "median"
-        for case in nonbase_cases:
-            r = []
-            for bench in [b for b in benchmarks if b.name in common_benchmarks]:
-                base_result = median(results['base'][bench.name]['times'])
-                r.append(median(results[case.name][bench.name]['times']) / base_result)
+        if not args.absolute:
+            line = "median"
+            for case in nonbase_cases:
+                r = []
+                for bench in [b for b in benchmarks if b.name in common_benchmarks]:
+                    base_result = median(results['base'][bench.name]['times'])
+                    r.append(median(results[case.name][bench.name]['times']) / base_result)
 
-            line += f" & {median(r):.2f}$\\times$"
-        line += " \\\\"
+                line += f" & {median(r):.2f}$\\times$"
+            line += " \\\\"
 
-        print(line, file=out)
+            print(line, file=out)
 
         print("\\end{tabular}", file=out)
 
