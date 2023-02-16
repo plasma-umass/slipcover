@@ -23,6 +23,7 @@ def parse_args():
     ap.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
     ap.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
     ap.add_argument('--skip-version', default=[], action='append', help='omit given Python version')
+    ap.add_argument('--absolute', action='store_true', help='emit absolute numbers in LaTeX')
 
     args = ap.parse_args()
 
@@ -110,8 +111,12 @@ def latex_results(args):
         return f"\\texttt{{{s}}}"
 
     with open(args.latex, "w") as out:
-        print("\\begin{tabular}{l " + ("r " * len(nonbase_cases)) + "}", file=out)
+        print("\\begin{tabular}{l " + ("r " * (int(args.absolute)+len(nonbase_cases))) + "}", file=out)
         line = "\\thead[l]{Python\\\\version}"
+
+        if args.absolute:
+            line += " & \\thead[r]{no coverage}"
+
         for case in nonbase_cases:
             case_name = re.sub('[Ss]lip[Cc]over', '\\\\systemname{}', latex_escape(case.label))
             case_name = re.sub('coverage\\.py', '\\\\texttt{coverage.py}', case_name)
@@ -128,9 +133,17 @@ def latex_results(args):
             line = f"{texttt(latex_escape(version))}"
 
             base_result = v2r[version]['base'][args.bench]['median']
+
+            if args.absolute:
+                line += f" & {base_result:.1f}s"
+
             for case in nonbase_cases:
-                r = v2r[version][case.name][args.bench]['median'] / base_result
-                line += f" & {r:.2f}$\\times$"
+                if args.absolute:
+                    r = v2r[version][case.name][args.bench]['median']
+                    line += f" & {r:.1f}s"
+                else:
+                    r = v2r[version][case.name][args.bench]['median'] / base_result
+                    line += f" & {r:.2f}$\\times$"
             line += " \\\\"
             print(line, file=out)
 
