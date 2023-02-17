@@ -388,9 +388,8 @@ def plot_results(args):
         ax.set_ylabel('Normalized execution time', size=15+args.font_size_delta)
     ax.set_yscale(args.yscale)
     if args.yscale == 'log':
-        from matplotlib.ticker import StrMethodFormatter, NullFormatter
-        ax.yaxis.set_major_formatter(StrMethodFormatter('{x:.0f}'))
-        ax.yaxis.set_minor_formatter(NullFormatter())
+        from matplotlib.ticker import ScalarFormatter
+        ax.yaxis.set_major_formatter(ScalarFormatter())
 
     ax.set_xticks(x, labels=[b.name for b in benchmarks if b.name in common_benchmarks], fontsize=15+args.font_size_delta)
     if not args.style:
