@@ -10,7 +10,7 @@ from . import bytecode as bc
 from . import branch as br
 from pathlib import Path
 
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 
 # FIXME provide __all__
 
@@ -31,55 +31,6 @@ class PathSimplifier:
             return str(f.relative_to(self.cwd))
         except ValueError:
             return path 
-
-
-class FileMatcher:
-    def __init__(self):
-        self.cwd = Path.cwd()
-        self.sources = []
-        self.omit = []
-
-        import inspect  # usually in Python lib
-        # pip is usually in site-packages; importing it causes warnings
-
-        self.pylib_paths = [Path(inspect.__file__).parent] + \
-                           [Path(p) for p in sys.path if (Path(p) / "pip").exists()]
-
-    def addSource(self, source : Path):
-        if isinstance(source, str):
-            source = Path(source)
-        if not source.is_absolute():
-            source = self.cwd / source
-        self.sources.append(source)
-
-    def addOmit(self, omit):
-        if not omit.startswith('*'):
-            omit = self.cwd / omit
-
-        self.omit.append(omit)
-
-    def matches(self, filename : Path):
-        if isinstance(filename, str):
-            if filename == 'built-in': return False     # can't instrument
-            filename = Path(filename)
-
-        if filename.suffix in ('.pyd', '.so'): return False  # can't instrument DLLs
-
-        if not filename.is_absolute():
-            filename = self.cwd / filename
-
-        if self.omit:
-            from fnmatch import fnmatch
-            if any(fnmatch(filename, o) for o in self.omit):
-                return False
-
-        if self.sources:
-            return any(s in filename.parents for s in self.sources)
-
-        if any(p in self.pylib_paths for p in filename.parents):
-            return False
-
-        return self.cwd in filename.parents
 
 
 class Slipcover:

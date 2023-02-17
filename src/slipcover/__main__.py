@@ -1,69 +1,12 @@
 import sys
 from pathlib import Path
 from typing import Any, Dict
-from slipcover import slipcover as sc
-from slipcover import bytecode as bc
-from slipcover import branch as br
+import slipcover as sc
+import slipcover.branch as br
 import ast
 import atexit
 import platform
 
-from importlib.abc import MetaPathFinder, Loader
-from importlib.machinery import SourceFileLoader
-
-class SlipcoverLoader(Loader):
-    def __init__(self, sci: sc.Slipcover, orig_loader: Loader, origin: str):
-        self.sci = sci                  # Slipcover object measuring coverage
-        self.orig_loader = orig_loader  # original loader we're wrapping
-        self.origin = Path(origin)      # module origin (source file for a source loader)
-
-        # loadlib checks for this attribute to see if we support it... keep in sync with orig_loader
-        if not getattr(self.orig_loader, "get_resource_reader", None):
-            delattr(self, "get_resource_reader")
-
-    # for compability with loaders supporting resources, used e.g. by sklearn
-    def get_resource_reader(self, fullname: str):
-        return self.orig_loader.get_resource_reader(fullname)
-
-    def create_module(self, spec):
-        return self.orig_loader.create_module(spec)
-
-    def get_code(self, name):   # expected by pyrun
-        return self.orig_loader.get_code(name)
-
-    def exec_module(self, module):
-        # branch coverage requires pre-instrumentation from source
-        if sci.branch and isinstance(self.orig_loader, SourceFileLoader) and self.origin.exists():
-            t = br.preinstrument(ast.parse(self.origin.read_text()))
-            code = compile(t, str(self.origin), "exec")
-        else:
-            code = self.orig_loader.get_code(module.__name__)
-
-        sci.register_module(module)
-        code = sci.instrument(code)
-        exec(code, module.__dict__)
-
-
-class SlipcoverMetaPathFinder(MetaPathFinder):
-    def __init__(self, sci, file_matcher, meta_path, debug=False):
-        self.debug = debug
-        self.sci = sci
-        self.file_matcher = file_matcher
-        self.meta_path = meta_path
-
-    def find_spec(self, fullname, path, target=None):
-        if self.debug:
-            print(f"Looking for {fullname}")
-        for f in self.meta_path:
-            found = f.find_spec(fullname, path, target) if hasattr(f, 'find_spec') else None
-            if found:
-                if found.origin and file_matcher.matches(found.origin):
-                    if self.debug:
-                        print(f"adding {fullname} from {found.origin}")
-                    found.loader = SlipcoverLoader(self.sci, found.loader, found.origin)
-                return found
-
-        return None
 
 #
 # The intended usage is:
@@ -109,6 +52,7 @@ else:
 base_path = Path(args.script).resolve().parent if args.script \
             else Path('.').resolve()
 
+
 file_matcher = sc.FileMatcher()
 
 if args.source:
@@ -121,74 +65,15 @@ if args.omit:
     for o in args.omit.split(','):
         file_matcher.addOmit(o)
 
+
 sci = sc.Slipcover(collect_stats=args.stats, immediate=args.immediate,
                    d_miss_threshold=args.threshold, branch=args.branch,
                    skip_covered=args.skip_covered)
 
-def wrap_pytest():
-    def exec_wrapper(obj, g):
-        if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
-            obj = sci.instrument(obj)
-        exec(obj, g)
-
-    try:
-        import _pytest.assertion.rewrite as pyrewrite
-    except ModuleNotFoundError:
-        return
-
-    for f in sc.Slipcover.find_functions(pyrewrite.__dict__.values(), set()):
-        if 'exec' in f.__code__.co_names:
-            ed = bc.Editor(f.__code__)
-            wrapper_index = ed.add_const(exec_wrapper)
-            ed.replace_global_with_const('exec', wrapper_index)
-            f.__code__ = ed.finish()
-
-    if sci.branch:
-        from inspect import signature
-
-        expected_sigs = {
-            'rewrite_asserts': ['mod', 'source', 'module_path', 'config'],
-            '_read_pyc': ['source', 'pyc', 'trace'],
-            '_write_pyc': ['state', 'co', 'source_stat', 'pyc']
-        }
-
-        for fun, expected in expected_sigs.items():
-            sig = signature(pyrewrite.__dict__[fun])
-            if list(sig.parameters) != expected:
-                import warnings
-                warnings.warn(f"Unable to activate pytest branch coverage: unexpected {fun} signature {str(sig)}"
-                              +"; please open an issue at https://github.com/plasma-umass/slipcover .",
-                              RuntimeWarning)
-                return
-
-        orig_rewrite_asserts = pyrewrite.rewrite_asserts
-        def rewrite_asserts_wrapper(*args):
-            # FIXME we should normally subject pre-instrumentation to file_matcher matching...
-            # but the filename isn't clearly available. So here we instead always pre-instrument
-            # (pytest instrumented) files. Our pre-instrumentation adds global assignments that
-            # *should* be innocuous if not followed by sci.instrument.
-            args = (br.preinstrument(args[0]), *args[1:])
-            return orig_rewrite_asserts(*args)
-
-        def adjust_name(fn : Path) -> Path:
-            return fn.parent / (fn.stem + "-slipcover-" + sc.VERSION + fn.suffix)
-
-        orig_read_pyc = pyrewrite._read_pyc
-        def read_pyc(*args, **kwargs):
-            return orig_read_pyc(*args[:1], adjust_name(args[1]), *args[2:], **kwargs)
-
-        orig_write_pyc = pyrewrite._write_pyc
-        def write_pyc(*args, **kwargs):
-            return orig_write_pyc(*args[:3], adjust_name(args[3]), *args[4:], **kwargs)
-
-        pyrewrite._read_pyc = read_pyc
-        pyrewrite._write_pyc = write_pyc
-        pyrewrite.rewrite_asserts = rewrite_asserts_wrapper
 
 if not args.dont_wrap_pytest:
-    wrap_pytest()
+    sc.wrap_pytest(sci, file_matcher)
 
-sys.meta_path.insert(0, SlipcoverMetaPathFinder(sci, file_matcher, sys.meta_path.copy(), debug=args.debug))
 
 
 def print_coverage(outfile):
@@ -199,6 +84,7 @@ def print_coverage(outfile):
     else:
         sci.print_coverage(outfile=outfile)
 
+
 def sci_atexit():
     if args.out:
         with open(args.out, "w") as outfile:
@@ -208,6 +94,7 @@ def sci_atexit():
 
 if not args.silent:
     atexit.register(sci_atexit)
+
 
 if args.script:
     # python 'globals' for the script being executed
@@ -230,12 +117,14 @@ if args.script:
         code = compile(t, str(Path(args.script).resolve()), "exec")
 
     code = sci.instrument(code)
-    exec(code, script_globals)
+    with sc.ImportManager(sci, file_matcher):
+        exec(code, script_globals)
 
 else:
     import runpy
     sys.argv = [*args.module, *args.script_or_module_args]
-    runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
+    with sc.ImportManager(sci, file_matcher):
+        runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
 
 if args.fail_under:
     cov = sci.get_coverage()

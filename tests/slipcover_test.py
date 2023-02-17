@@ -1,7 +1,7 @@
 import pytest
-from slipcover import slipcover as sc
-from slipcover import bytecode as bc
-from slipcover import branch as br
+import slipcover.slipcover as sc
+import slipcover.bytecode as bc
+import slipcover.branch as br
 import types
 import dis
 import sys
@@ -93,146 +93,6 @@ def test_pathsimplifier_not_relative():
     ps = sc.PathSimplifier()
 
     assert ".." == ps.simplify("..")
-
-
-def test_filematcher_defaults():
-    import os
-    from pathlib import Path
-    cwd = Path.cwd()
-
-    fm = sc.FileMatcher()
-
-    assert fm.matches('myscript.py')
-    assert not fm.matches('built-in')
-    assert not fm.matches('myscript.pyd')
-    assert not fm.matches('myscript.so')
-    assert fm.matches('./myscript.py')
-    assert fm.matches('mymodule/mymodule.py')
-    assert fm.matches('./mymodule/mymodule.py')
-    assert fm.matches('./other/other.py')
-    assert fm.matches(cwd / 'myscript.py')
-    assert fm.matches(cwd / 'mymodule' / 'mymodule.py')
-    assert not fm.matches(Path.cwd().parent / 'other.py')
-
-    import inspect  # should be in python's own lib
-    assert not fm.matches(inspect.getfile(inspect))
-
-    # pip is usually in site-packages, but importing it causes warnings
-    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
-    assert not fm.matches(site_packages / 'foo.py')
-
-
-@pytest.fixture
-def return_to_dir():
-    import os
-    from pathlib import Path
-    cwd = str(Path.cwd())
-    yield
-    os.chdir(cwd)
-
-
-def test_filematcher_defaults_from_root(return_to_dir):
-    import os
-    from pathlib import Path
-
-    os.chdir('/')
-    fm = sc.FileMatcher()
-
-    assert fm.matches('myscript.py')
-    assert not fm.matches('built-in')
-    assert not fm.matches('myscript.pyd')
-    assert not fm.matches('myscript.so')
-    assert fm.matches(Path('.') / 'myscript.py')
-    assert fm.matches(Path('mymodule') / 'mymodule.py')
-    assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
-    assert fm.matches(Path('.') / 'other' / 'other.py')
-
-    import inspect  # should be in python's own lib
-    assert not fm.matches(inspect.getfile(inspect))
-
-    # pip is usually in site-packages, but importing it causes warnings
-    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
-    assert not fm.matches(site_packages / 'foo.py')
-
-def test_filematcher_source():
-    from pathlib import Path
-    cwd = str(Path.cwd())
-
-    fm = sc.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addSource('prereq')
-
-    assert not fm.matches('myscript.py')
-    assert not fm.matches('./myscript.py')
-    assert not fm.matches('built-in')
-    assert not fm.matches('myscript.pyd')
-    assert not fm.matches('myscript.so')
-    assert fm.matches('mymodule/mymodule.py')
-    assert fm.matches('mymodule/foo.py')
-    assert not fm.matches('mymodule/myscript.pyd')
-    assert not fm.matches('mymodule/myscript.so')
-    assert fm.matches('./mymodule/mymodule.py')
-    assert fm.matches('prereq/__main__.py')
-    assert not fm.matches('./other/other.py')
-    assert not fm.matches(cwd + '/myscript.py')
-    assert fm.matches(cwd + '/mymodule/mymodule.py')
-    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
-
-    import inspect  # should be in python's own lib
-    assert not fm.matches(inspect.getfile(inspect))
-
-    # pip is usually in site-packages, but importing it causes warnings
-    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
-    assert not fm.matches(site_packages / 'foo.py')
-
-
-def test_filematcher_omit_pattern():
-    from pathlib import Path
-    cwd = str(Path.cwd())
-
-    fm = sc.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addOmit('*/foo.py')
-
-    assert not fm.matches('myscript.py')
-    assert not fm.matches('./myscript.py')
-    assert fm.matches('mymodule/mymodule.py')
-    assert not fm.matches('mymodule/foo.py')
-    assert not fm.matches('mymodule/1/2/3/foo.py')
-    assert fm.matches('./mymodule/mymodule.py')
-    assert not fm.matches('./other/other.py')
-    assert not fm.matches(cwd + '/myscript.py')
-    assert fm.matches(cwd + '/mymodule/mymodule.py')
-    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
-
-    import inspect  # should be in python's own lib
-    assert not fm.matches(inspect.getfile(inspect))
-
-    # pip is usually in site-packages, but importing it causes warnings
-    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
-    assert not fm.matches(site_packages / 'foo.py')
-
-# TODO what about patterns starting with '?'
-
-
-def test_filematcher_omit_nonpattern():
-    from pathlib import Path
-    cwd = str(Path.cwd())
-
-    fm = sc.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addOmit('mymodule/foo.py')
-
-    assert not fm.matches('myscript.py')
-    assert not fm.matches('./myscript.py')
-    assert fm.matches('mymodule/mymodule.py')
-    assert not fm.matches('mymodule/foo.py')
-    assert fm.matches('mymodule/1/2/3/foo.py')
-    assert fm.matches('./mymodule/mymodule.py')
-    assert not fm.matches('./other/other.py')
-    assert not fm.matches(cwd + '/myscript.py')
-    assert fm.matches(cwd + '/mymodule/mymodule.py')
-    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
 
 
 @pytest.mark.parametrize("stats", [False, True])
@@ -1131,25 +991,6 @@ def test_pytest_plugins_visible():
                              capture_output=True)
 
     assert plain.stdout == with_sc.stdout
-
-
-def test_loader_supports_resources(tmp_path):
-    import subprocess
-
-    cmdfile = tmp_path / "t.py"
-    cmdfile.write_text("""
-import sys
-sys.path.append('tests')
-
-import importlib.resources as r
-import imported
-
-def test_resources():
-    assert list(r.contents('imported')) != []
-""")
-
-    p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-qq", cmdfile])
-    assert p.returncode == 0
 
 
 @pytest.mark.parametrize("do_branch", [True, False])

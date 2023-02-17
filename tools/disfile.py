@@ -56,7 +56,7 @@ def decode_linetable(co):
 with open(args.file, "r") as f:
     code = compile(f.read(), sys.argv[1], "exec")
     if (args.instrument):
-        from slipcover import slipcover as sc
+        import slipcover as sc
         sci = sc.Slipcover()
         code = sci.instrument(code)
     dis.dis(code)

@@ -1,5 +1,5 @@
 import pytest
-from slipcover import bytecode as bc
+import slipcover.bytecode as bc
 import types
 import dis
 import sys

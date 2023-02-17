@@ -3,7 +3,7 @@
 
 import sys
 from pathlib import Path
-from slipcover import slipcover as sc
+import slipcover as sc
 import dis
 import atexit
 import threading
