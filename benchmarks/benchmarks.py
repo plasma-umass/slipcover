@@ -169,6 +169,7 @@ def parse_args():
     plot.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
     plot.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
     plot.add_argument('--speedup', action='store_true', help='plot speedup graph')
+    plot.add_argument('--yscale', type=str, default="linear", help='set matplotlib Y scale')
 
     args = ap.parse_args()
 
@@ -385,6 +386,7 @@ def plot_results(args):
         ax.set_ylabel('Speedup over coverage.py', size=15+args.font_size_delta)
     else:
         ax.set_ylabel('Normalized execution time', size=15+args.font_size_delta)
+    ax.set_yscale(args.yscale)
     ax.set_xticks(x, labels=[b.name for b in benchmarks if b.name in common_benchmarks], fontsize=15+args.font_size_delta)
     if not args.style:
         ax.grid(axis='y', alpha=.3)
