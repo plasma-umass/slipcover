@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from importlib.abc import MetaPathFinder, Loader
-from importlib.machinery import SourceFileLoader
+from importlib import machinery
 
 class SlipcoverLoader(Loader):
     def __init__(self, sci: Slipcover, orig_loader: Loader, origin: str):
@@ -31,7 +31,7 @@ class SlipcoverLoader(Loader):
     def exec_module(self, module):
         import ast
         # branch coverage requires pre-instrumentation from source
-        if self.sci.branch and isinstance(self.orig_loader, SourceFileLoader) and self.origin.exists():
+        if self.sci.branch and isinstance(self.orig_loader, machinery.SourceFileLoader) and self.origin.exists():
             t = br.preinstrument(ast.parse(self.origin.read_text()))
             code = compile(t, str(self.origin), "exec")
         else:
@@ -68,6 +68,9 @@ class FileMatcher:
         self.omit.append(omit)
 
     def matches(self, filename : Path):
+        if filename is None:
+            return False
+
         if isinstance(filename, str):
             if filename == 'built-in': return False     # can't instrument
             filename = Path(filename)
@@ -90,25 +93,45 @@ class FileMatcher:
 
         return self.cwd in filename.parents
 
+class MatchEverything:
+    def __init__(self):
+        pass
+
+    def matches(self, filename : Path):
+        return True
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
     def __init__(self, sci, file_matcher, debug=False):
         self.debug = debug
         self.sci = sci
         self.file_matcher = file_matcher
-        self.meta_path = sys.meta_path.copy()
 
     def find_spec(self, fullname, path, target=None):
         if self.debug:
             print(f"Looking for {fullname}")
-        for f in self.meta_path:
-            found = f.find_spec(fullname, path, target) if hasattr(f, 'find_spec') else None
-            if found:
-                if found.origin and self.file_matcher.matches(found.origin):
-                    if self.debug:
-                        print(f"adding {fullname} from {found.origin}")
-                    found.loader = SlipcoverLoader(self.sci, found.loader, found.origin)
-                return found
+
+        for f in sys.meta_path:
+            # skip ourselves
+            if isinstance(f, SlipcoverMetaPathFinder):
+                continue
+
+            if not hasattr(f, "find_spec"):
+                continue
+
+            spec = f.find_spec(fullname, path, target)
+            if spec is None or spec.loader is None:
+                continue
+
+            # can't instrument extension files
+            if isinstance(spec.loader, machinery.ExtensionFileLoader):
+                return None
+
+            if self.file_matcher.matches(spec.origin):
+                if self.debug:
+                    print(f"instrumenting {fullname} from {spec.origin}")
+                spec.loader = SlipcoverLoader(self.sci, spec.loader, spec.origin)
+
+            return spec
 
         return None
 
@@ -117,7 +140,7 @@ class ImportManager:
     """A context manager that enables instrumentation while active."""
 
     def __init__(self, sci: Slipcover, file_matcher: FileMatcher = None, debug: bool = False):
-        self.mpf = SlipcoverMetaPathFinder(sci, file_matcher if file_matcher else FileMatcher(), debug)
+        self.mpf = SlipcoverMetaPathFinder(sci, file_matcher if file_matcher else MatchEverything(), debug)
 
     def __enter__(self) -> "ImportManager":
         sys.meta_path.insert(0, self.mpf)
