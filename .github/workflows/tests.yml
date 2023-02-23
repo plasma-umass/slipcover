@@ -55,7 +55,7 @@ jobs:
             cat $GITHUB_PATH
       - name: install dependencies
         run: |
-            python3 -m pip install setuptools wheel twine
+            python3 -m pip install wheel twine
       - name: build sdist
         run: |
             python3 setup.py sdist
