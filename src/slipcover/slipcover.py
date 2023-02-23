@@ -106,7 +106,10 @@ class Slipcover:
         off_list = list(dis.findlinestarts(co))
         if self.branch:
             off_list.extend(list(ed.find_const_assignments(br.BRANCH_NAME)))
-            off_list.sort()
+            # sort line probes (2-tuples) before branch probes (3-tuples) because
+            # line probes don't overwrite bytecode like branch probes do, so if there
+            # are two being inserted at the same offset, the accumulated offset 'delta' applies
+            off_list.sort(key = lambda x: (x[0], len(x)))
 
         branch_set = set()
         insert_labels = []

@@ -95,6 +95,43 @@ def test_pathsimplifier_not_relative():
     assert ".." == ps.simplify("..")
 
 
+def check_line_probes(code):
+    # Are all lines where we expect?
+    for (offset, line) in dis.findlinestarts(code):
+        if line:
+            print(f"checking {code.co_name} line {line}")
+            assert bc.op_NOP == code.co_code[offset], f"NOP missing at offset {offset}"
+            probe_len = bc.branch2offset(code.co_code[offset+1])
+            it = iter(bc.unpack_opargs(code.co_code[offset+2:offset+2+probe_len]))
+
+            if PYTHON_VERSION >= (3,11):
+                op_offset, op_len, op, op_arg = next(it)
+                assert op == bc.op_PUSH_NULL
+
+            op_offset, op_len, op, op_arg = next(it)
+            assert op == bc.op_LOAD_CONST
+
+            op_offset, op_len, op, op_arg = next(it)
+            assert op == bc.op_LOAD_CONST
+
+            op_offset, op_len, op, op_arg = next(it)
+            if PYTHON_VERSION >= (3,11):
+                assert op == bc.op_PRECALL
+                op_offset, op_len, op, op_arg = next(it)
+                assert op == bc.op_CALL
+            else:
+                assert op == bc.op_CALL_FUNCTION
+
+            op_offset, op_len, op, op_arg = next(it)
+            assert op == bc.op_POP_TOP
+
+            assert next(it, None) is None   # check end of probe
+
+    for const in code.co_consts:
+        if isinstance(const, types.CodeType):
+            check_line_probes(const)
+
+
 @pytest.mark.parametrize("stats", [False, True])
 def test_instrument(stats):
     sci = sc.Slipcover(collect_stats=stats)
@@ -108,15 +145,13 @@ def test_instrument(stats):
             x += (i+1)
         return x
 
-    dis.dis(foo)
     sci.instrument(foo)
+    dis.dis(foo)
 
     assert foo.__code__.co_stacksize >= bc.calc_max_stack(foo.__code__.co_code)
     assert '__slipcover__' in foo.__code__.co_consts
 
-    # Are all lines where we expect?
-    for (offset, _) in dis.findlinestarts(foo.__code__):
-        assert bc.op_NOP == foo.__code__.co_code[offset]
+    check_line_probes(foo.__code__)
 
     dis.dis(foo)
     assert 6 == foo(3)
@@ -362,6 +397,8 @@ def test_instrument_branches():
     code = sci.instrument(code)
 #    dis.dis(code)
 
+    check_line_probes(code)
+
     g = dict()
     exec(code, g, g)
 
@@ -374,6 +411,30 @@ def test_instrument_branches():
 
     assert [(2,3),(3,4),(4,6)] == cov['executed_branches']
     assert [(2,9),(3,0),(4,5)] == cov['missing_branches']
+
+
+def test_instrument_branches_pypy_crash():
+    """In Python 3.9, the branch instrumentation at the beginning of foo's code
+       object shows as being on line 5; that leads to a branch probe and a line
+       probe being inserted at the same offset (0), but the instrumentation loop
+       used to assume that insertion offsets rose monotonically."""
+    t = ast_parse("""
+        # this comment and the whitespace below are important
+
+
+
+        def foo():
+            while True:
+                f()
+    """)
+    t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=True)
+    code = compile(t, 'foo', 'exec')
+    code = sci.instrument(code)
+    dis.dis(code)
+
+    check_line_probes(code)
 
 
 @pytest.mark.parametrize("do_branch", [True, False])
