@@ -4,6 +4,7 @@ import argparse
 
 ap = argparse.ArgumentParser(prog=sys.argv[0])
 ap.add_argument('--instrument', action='store_true', help="instrument with slipcover")
+ap.add_argument('--branch', action='store_true', help="pre-instrument for branch coverage")
 ap.add_argument('file', help="the script to run")
 args = ap.parse_args()
 
@@ -53,14 +54,24 @@ def decode_linetable(co):
         off += 2*length
 
 
-with open(args.file, "r") as f:
-    code = compile(f.read(), sys.argv[1], "exec")
-    if (args.instrument):
-        import slipcover as sc
-        sci = sc.Slipcover()
-        code = sci.instrument(code)
-    dis.dis(code)
+import ast
 
-    if sys.version_info[0:2] >= (3,11):
-        decode_linetable(code)
+with open(args.file, "r") as f:
+    t = ast.parse(f.read())
+
+if args.branch:
+    import slipcover.branch as br
+    t = br.preinstrument(t)
+
+code = compile(t, sys.argv[1], "exec")
+
+if args.instrument:
+    import slipcover as sc
+    sci = sc.Slipcover(branch=args.branch)
+    code = sci.instrument(code)
+
+dis.dis(code)
+
+if sys.version_info[0:2] >= (3,11):
+    decode_linetable(code)
 
