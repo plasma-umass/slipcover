@@ -101,8 +101,7 @@ def load_benchmarks():
     )
 
     benchmarks.append(
-        # test_cli can lead to PyPy crashes when used with --count
-        Benchmark('flask', "-m pytest --count 5" + " -k 'not test_cli'" if platform.python_implementation() == "PyPy" else "", {
+        Benchmark('flask', "-m pytest --count 5", {
                     # coveragepy options from setup.cfg
                     'slipcover_opts': '--source=src,*/site-packages',
                     'nulltracer_opts': '--prefix=src'
@@ -141,12 +140,11 @@ def parse_args():
     sp = ap.add_subparsers(dest='cmd')
 
     run = sp.add_parser('run', help='run benchmarks')
+    show = sp.add_parser('show', help='show benchmark results')
     plot = sp.add_parser('plot', help='plot graph')
     latex = sp.add_parser('latex', help='write out LaTeX table')
 
-    plot.add_argument('--print', action='store_true', help='print out table of results')
-
-    for p in [run, plot, latex]:
+    for p in [run, show, plot, latex]:
         p.add_argument('--case', choices=[c.name for c in cases] + ['all'],
                        action='append', help='select case(s) to run/plot')
         p.add_argument('--bench', choices=[b.name for b in benchmarks],
@@ -156,9 +154,11 @@ def parse_args():
 
     run.add_argument('--no-sklearn', action='store_true', help="don't run sklearn benchmark")
 
-    for p in [plot, latex]:
+    for p in [show, plot, latex]:
         p.add_argument('--os', type=str, help='select OS name (conflicts with --run)')
         p.add_argument('--python', type=str, help='select python version (conflicts with --run)')
+
+    for p in [plot, latex]:
         p.add_argument('--out', type=Path, help='set output file', required=True)
 
     plot.add_argument('--title', type=str, default='Line / Line+Branch Coverage Benchmarks', help='set plot title')
@@ -288,7 +288,7 @@ def overhead(time, base_time):
     return ((time/base_time)-1)*100
 
 
-def print_results():
+def show_results():
     from tabulate import tabulate
 
     def get_stats():
@@ -542,11 +542,11 @@ if __name__ == "__main__":
                 with open(BENCHMARK_JSON, 'w') as f:
                     json.dump(saved_results, f, indent=4)
 
-    if args.cmd == 'latex':
+    elif args.cmd == 'show':
+        show_results()
+
+    elif args.cmd == 'latex':
         latex_results(args)
 
-    if args.cmd == 'plot':
-        if args.print:
-            print_results()
-
+    elif args.cmd == 'plot':
         plot_results(args)
