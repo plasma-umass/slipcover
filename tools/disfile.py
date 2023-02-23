@@ -63,7 +63,7 @@ if args.branch:
     import slipcover.branch as br
     t = br.preinstrument(t)
 
-code = compile(t, sys.argv[1], "exec")
+code = compile(t, args.file, "exec")
 
 if args.instrument:
     import slipcover as sc
