@@ -150,6 +150,7 @@ def test_loader_supports_resources(tmp_path):
     cmdfile.write_text("""
 import sys
 sys.path.append('tests')
+from pathlib import Path
 
 import importlib.resources as r
 import imported
@@ -170,6 +171,7 @@ def test_import_manager_instruments(tmp_path, do_branch):
     cmdfile.write_text(f"""
 import sys
 sys.path.append('tests')
+from pathlib import Path
 
 import slipcover as sc
 
@@ -181,7 +183,7 @@ def test():
     imported.do_stuff()
 
     cov = sci.get_coverage()
-    assert 'tests/imported/__init__.py' in cov['files']
+    assert str(Path('tests/imported/__init__.py')) in cov['files']
 """)
 
     p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-vv", cmdfile])
@@ -195,6 +197,7 @@ def test_import_manager_removed(tmp_path):
     cmdfile.write_text("""
 import sys
 sys.path.append('tests')
+from pathlib import Path
 
 import slipcover as sc
 
@@ -208,7 +211,7 @@ def test():
     imported.do_stuff()
 
     cov = sci.get_coverage()
-    assert 'tests/imported/__init__.py' not in cov['files']
+    assert str(Path('tests/imported/__init__.py')) not in cov['files']
 """)
 
     p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-vv", cmdfile])
@@ -223,6 +226,7 @@ def test_import_manager_instruments_everything(tmp_path, do_branch):
     cmdfile.write_text(f"""
 import sys
 sys.path.append('tests')
+from pathlib import Path
 
 import slipcover as sc
 
@@ -232,7 +236,7 @@ def test():
         import pip
 
     cov = sci.get_coverage()
-    assert any('pip/__init__' in k for k in cov['files'].keys())
+    assert any(str(Path('pip/__init__.py')) in k for k in cov['files'].keys())
 """)
 
     p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-vv", cmdfile])
