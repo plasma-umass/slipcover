@@ -54,7 +54,7 @@ While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original.
 
 On [PyPy 3.9](https://pypy.org), the speedup is so high for some of the benchmarks
-that we plot it in logarithmic scale.
+that we plot it in logarithmic scale (see the second image on the right).
 
 ### Accuracy
 We verified Slipcover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
