@@ -147,12 +147,12 @@ def parse_args():
     for p in [run, show, plot, latex]:
         p.add_argument('--case', choices=[c.name for c in cases] + ['all'],
                        action='append', help='select case(s) to run/plot')
+        p.add_argument('--omit-case', action='append', help='select case(s) to omit from run/plot')
         p.add_argument('--bench', choices=[b.name for b in benchmarks],
                        action='append', help='select benchmark(s) to run/plot')
+        p.add_argument('--omit-bench', action='append', help='select benchmark(s) to omit from run/plot')
 
     latex.add_argument('--absolute', action='store_true', help='emit absolute numbers')
-
-    run.add_argument('--no-sklearn', action='store_true', help="don't run sklearn benchmark")
 
     for p in [show, plot, latex]:
         p.add_argument('--os', type=str, help='select OS name (conflicts with --run)')
@@ -188,8 +188,13 @@ def parse_args():
     if not args.bench:
         args.bench = [b.name for b in benchmarks]
 
-    if args.cmd == 'run' and args.no_sklearn:
-        args.bench = list(filter(lambda b: b != 'sklearn', args.bench))
+    if args.omit_case:
+        for c in args.omit_case:
+            args.case.remove(c)
+
+    if args.omit_bench:
+        for b in args.omit_bench:
+            args.bench.remove(b)
 
     return args
 
