@@ -34,8 +34,8 @@ is no longer needed, allowing those parts to run at full speed.
 Care is taken throughout Slipcover to keep things as efficient as possible.
 
 ### Performance
-<img src="benchmarks/cpython.png?raw=True" align="right" width="55%"/>
-<img src="benchmarks/pypy.png?raw=True" align="right" width="55%"/>
+<img src="benchmarks/cpython.png?raw=True" align="right" width="65%"/>
+<img src="benchmarks/pypy.png?raw=True" align="right" width="65%"/>
 
 The first image on the right shows Slipcover's [speedup](https://en.wikipedia.org/wiki/Speedup)
 in relation to [Coverage.py](https://github.com/nedbat/coveragepy), running on
