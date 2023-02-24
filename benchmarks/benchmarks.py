@@ -379,7 +379,7 @@ def plot_results(args):
         if not showit: continue
 
         if args.bar_labels:
-            ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8+args.font_size_delta)
+            ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=10+args.font_size_delta)
 
     ax.set_title(args.title, size=18+args.font_size_delta, weight='bold')
     if args.speedup:
