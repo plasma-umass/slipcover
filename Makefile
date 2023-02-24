@@ -30,6 +30,10 @@ bench:
 	- find . -iname \*__pycache__\* | xargs rm -rf
 	python3 benchmarks/run_benchmarks.py
 
+plot:
+	python3 benchmarks/benchmarks.py plot --os=Linux --python=3.10.5 --out benchmarks/cpython.png --speedup --title "Coverage Speedup (higher is better)"
+	python3 benchmarks/benchmarks.py plot --os=Linux --python=pypy3.9.16 --out benchmarks/pypy.png --speedup --title "Coverage Speedup on PyPy (log scale; higher is better)" --yscale log
+
 clean:
 	- rm -rf *.so src/slipcover/*.so
 	- rm -rf src/*.egg-info

@@ -34,11 +34,12 @@ is no longer needed, allowing those parts to run at full speed.
 Care is taken throughout Slipcover to keep things as efficient as possible.
 
 ### Performance
-<img src="benchmarks/benchmarks.png?raw=True" align="right" width="50%"/>
+<img src="benchmarks/cpython.png?raw=True" align="right" width="50%"/>
+<img src="benchmarks/pypy.png?raw=True" align="right" width="50%"/>
 
-The image on the right shows the execution time of a few benchmarks.
-It compares how long they take to run while tracking coverage using [Coverage.py](https://github.com/nedbat/coveragepy),
-in orange, and tracking coverage using Slipcover, in blue, relative to their normal running times.
+The first image on the right shows Slipcover's [speedup](https://en.wikipedia.org/wiki/Speedup)
+in relation to [Coverage.py](https://github.com/nedbat/coveragepy), running on
+[CPython 3.10.5](https://github.com/python/cpython).
 
 The first two benchmarks are the test suites for [scikit-learn](https://scikit-learn.org/stable/)
 and [Flask](https://flask.palletsprojects.com/);
@@ -51,6 +52,9 @@ suite (with a larger proportion of execution time spent in Python, rather than i
 generate more tracing events, causing more overhead in Coverage.py.
 While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original.
+
+On [PyPy 3.9](https://pypy.org), the speedup is so high for some of the benchmarks
+that we plot it in logarithmic scale.
 
 ### Accuracy
 We verified Slipcover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
