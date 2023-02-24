@@ -118,7 +118,7 @@ its `box.py` and `image.py` components.
 
 ## Platforms
 Our GitHub workflows run the automated test suite on Linux, MacOS and Windows, but
-really it should work anywhere where CPython does.
+really it should work anywhere where CPython/PyPy does.
 
 ## Contributing
 Slipcover is alpha software, and under active development.
