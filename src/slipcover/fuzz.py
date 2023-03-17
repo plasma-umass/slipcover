@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Callable
 
 
 def wrap_function(function: Callable[..., Any]) -> Callable[..., Any]:
