@@ -8,11 +8,12 @@ import sys
 from importlib.abc import MetaPathFinder, Loader
 from importlib import machinery
 
+
 class SlipcoverLoader(Loader):
     def __init__(self, sci: Slipcover, orig_loader: Loader, origin: str):
-        self.sci = sci                  # Slipcover object measuring coverage
+        self.sci = sci  # Slipcover object measuring coverage
         self.orig_loader = orig_loader  # original loader we're wrapping
-        self.origin = Path(origin)      # module origin (source file for a source loader)
+        self.origin = Path(origin)  # module origin (source file for a source loader)
 
         # loadlib checks for this attribute to see if we support it... keep in sync with orig_loader
         if not getattr(self.orig_loader, "get_resource_reader", None):
@@ -25,13 +26,18 @@ class SlipcoverLoader(Loader):
     def create_module(self, spec):
         return self.orig_loader.create_module(spec)
 
-    def get_code(self, name):   # expected by pyrun
+    def get_code(self, name):  # expected by pyrun
         return self.orig_loader.get_code(name)
 
     def exec_module(self, module):
         import ast
+
         # branch coverage requires pre-instrumentation from source
-        if self.sci.branch and isinstance(self.orig_loader, machinery.SourceFileLoader) and self.origin.exists():
+        if (
+            self.sci.branch
+            and isinstance(self.orig_loader, machinery.SourceFileLoader)
+            and self.origin.exists()
+        ):
             t = br.preinstrument(ast.parse(self.origin.read_text()))
             code = compile(t, str(self.origin), "exec")
         else:
@@ -49,12 +55,14 @@ class FileMatcher:
         self.omit = []
 
         import inspect  # usually in Python lib
+
         # pip is usually in site-packages; importing it causes warnings
 
-        self.pylib_paths = [Path(inspect.__file__).parent] + \
-                           [Path(p) for p in sys.path if (Path(p) / "pip").exists()]
+        self.pylib_paths = [Path(inspect.__file__).parent] + [
+            Path(p) for p in sys.path if (Path(p) / "pip").exists()
+        ]
 
-    def addSource(self, source : Path):
+    def addSource(self, source: Path):
         if isinstance(source, str):
             source = Path(source)
         if not source.is_absolute():
@@ -62,26 +70,29 @@ class FileMatcher:
         self.sources.append(source)
 
     def addOmit(self, omit):
-        if not omit.startswith('*'):
+        if not omit.startswith("*"):
             omit = self.cwd / omit
 
         self.omit.append(omit)
 
-    def matches(self, filename : Path):
+    def matches(self, filename: Path):
         if filename is None:
             return False
 
         if isinstance(filename, str):
-            if filename == 'built-in': return False     # can't instrument
+            if filename == "built-in":
+                return False  # can't instrument
             filename = Path(filename)
 
-        if filename.suffix in ('.pyd', '.so'): return False  # can't instrument DLLs
+        if filename.suffix in (".pyd", ".so"):
+            return False  # can't instrument DLLs
 
         if not filename.is_absolute():
             filename = self.cwd / filename
 
         if self.omit:
             from fnmatch import fnmatch
+
             if any(fnmatch(filename, o) for o in self.omit):
                 return False
 
@@ -93,12 +104,14 @@ class FileMatcher:
 
         return self.cwd in filename.parents
 
+
 class MatchEverything:
     def __init__(self):
         pass
 
-    def matches(self, filename : Path):
+    def matches(self, filename: Path):
         return True
+
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
     def __init__(self, sci, file_matcher, debug=False):
@@ -139,8 +152,12 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 class ImportManager:
     """A context manager that enables instrumentation while active."""
 
-    def __init__(self, sci: Slipcover, file_matcher: FileMatcher = None, debug: bool = False):
-        self.mpf = SlipcoverMetaPathFinder(sci, file_matcher if file_matcher else MatchEverything(), debug)
+    def __init__(
+        self, sci: Slipcover, file_matcher: FileMatcher = None, debug: bool = False
+    ):
+        self.mpf = SlipcoverMetaPathFinder(
+            sci, file_matcher if file_matcher else MatchEverything(), debug
+        )
 
     def __enter__(self) -> "ImportManager":
         sys.meta_path.insert(0, self.mpf)
@@ -157,7 +174,7 @@ class ImportManager:
 
 def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
     def exec_wrapper(obj, g):
-        if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
+        if hasattr(obj, "co_filename") and file_matcher.matches(obj.co_filename):
             obj = sci.instrument(obj)
         exec(obj, g)
 
@@ -167,31 +184,35 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
         return
 
     for f in Slipcover.find_functions(pyrewrite.__dict__.values(), set()):
-        if 'exec' in f.__code__.co_names:
+        if "exec" in f.__code__.co_names:
             ed = bc.Editor(f.__code__)
             wrapper_index = ed.add_const(exec_wrapper)
-            ed.replace_global_with_const('exec', wrapper_index)
+            ed.replace_global_with_const("exec", wrapper_index)
             f.__code__ = ed.finish()
 
     if sci.branch:
         from inspect import signature
 
         expected_sigs = {
-            'rewrite_asserts': ['mod', 'source', 'module_path', 'config'],
-            '_read_pyc': ['source', 'pyc', 'trace'],
-            '_write_pyc': ['state', 'co', 'source_stat', 'pyc']
+            "rewrite_asserts": ["mod", "source", "module_path", "config"],
+            "_read_pyc": ["source", "pyc", "trace"],
+            "_write_pyc": ["state", "co", "source_stat", "pyc"],
         }
 
         for fun, expected in expected_sigs.items():
             sig = signature(pyrewrite.__dict__[fun])
             if list(sig.parameters) != expected:
                 import warnings
-                warnings.warn(f"Unable to activate pytest branch coverage: unexpected {fun} signature {str(sig)}"
-                              +"; please open an issue at https://github.com/plasma-umass/slipcover .",
-                              RuntimeWarning)
+
+                warnings.warn(
+                    f"Unable to activate pytest branch coverage: unexpected {fun} signature {str(sig)}"
+                    + "; please open an issue at https://github.com/plasma-umass/slipcover .",
+                    RuntimeWarning,
+                )
                 return
 
         orig_rewrite_asserts = pyrewrite.rewrite_asserts
+
         def rewrite_asserts_wrapper(*args):
             # FIXME we should normally subject pre-instrumentation to file_matcher matching...
             # but the filename isn't clearly available. So here we instead always pre-instrument
@@ -200,14 +221,16 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
             args = (br.preinstrument(args[0]), *args[1:])
             return orig_rewrite_asserts(*args)
 
-        def adjust_name(fn : Path) -> Path:
+        def adjust_name(fn: Path) -> Path:
             return fn.parent / (fn.stem + "-slipcover-" + VERSION + fn.suffix)
 
         orig_read_pyc = pyrewrite._read_pyc
+
         def read_pyc(*args, **kwargs):
             return orig_read_pyc(*args[:1], adjust_name(args[1]), *args[2:], **kwargs)
 
         orig_write_pyc = pyrewrite._write_pyc
+
         def write_pyc(*args, **kwargs):
             return orig_write_pyc(*args[:3], adjust_name(args[3]), *args[4:], **kwargs)
 
