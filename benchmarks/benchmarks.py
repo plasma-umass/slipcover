@@ -206,7 +206,7 @@ def run_command(command: str, cwd=None):
     print(command)
 
     begin = time.perf_counter_ns()
-    p = subprocess.run(shlex.split(command), cwd=cwd, check=True) # capture_output=True)
+    subprocess.run(shlex.split(command), cwd=cwd, check=True) # capture_output=True)
     end = time.perf_counter_ns()
 
     elapsed = (end - begin)/1000000000

@@ -101,7 +101,7 @@ def test_unpack_opargs(EXT):
     assert (((1<<8)+2<<8)+3<<8)+4 == arg
 
     with pytest.raises(StopIteration):
-        b, l, op, arg = next(it)
+        next(it)
 
 
 @pytest.mark.skipif(PYTHON_VERSION < (3,11), reason="N/A: new in 3.11")

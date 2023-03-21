@@ -576,6 +576,8 @@ class Editor:
 
                 return f_args
 
+        return None
+
 
     def disable_inserted_function(self, offset):
         """Disables an inserted function at a given offset."""

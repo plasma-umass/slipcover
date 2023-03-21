@@ -32,7 +32,7 @@ class Test(TestBase):
         pass
 
     @classmethod
-    def f_classm(x):
+    def f_classm(cls, x):
         pass
 
 def f5():
