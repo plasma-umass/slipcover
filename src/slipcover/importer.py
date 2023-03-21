@@ -174,7 +174,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
             f.__code__ = ed.finish()
 
     if sci.branch:
-        from inspect import signature
+        import inspect
 
         expected_sigs = {
             'rewrite_asserts': ['mod', 'source', 'module_path', 'config'],
@@ -183,7 +183,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
         }
 
         for fun, expected in expected_sigs.items():
-            sig = signature(pyrewrite.__dict__[fun])
+            sig = inspect.signature(pyrewrite.__dict__[fun])
             if list(sig.parameters) != expected:
                 import warnings
                 warnings.warn(f"Unable to activate pytest branch coverage: unexpected {fun} signature {str(sig)}"
