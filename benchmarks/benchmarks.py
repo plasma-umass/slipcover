@@ -83,7 +83,7 @@ def load_benchmarks():
             for k in ['slipcover_opts', 'coveragepy_opts', 'nulltracer_opts']:
                 self.format[k] = opts[k] if opts and k in opts else ''
             self.cwd = cwd 
-            self.tries = TRIES if tries == None else tries
+            self.tries = TRIES if tries is None else tries
 
 
     benchmarks = []

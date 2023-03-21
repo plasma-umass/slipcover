@@ -60,7 +60,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                     case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
 
                 has_wildcard = isinstance(node.cases[-1].pattern, ast.MatchAs) and \
-                               node.cases[-1].pattern.pattern == None
+                               node.cases[-1].pattern.pattern is None
 
                 if not has_wildcard:
                     to_line = node.next_node.lineno if node.next_node else 0 # exit
