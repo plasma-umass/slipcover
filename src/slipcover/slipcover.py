@@ -35,12 +35,14 @@ class PathSimplifier:
 
 class Slipcover:
     def __init__(self, collect_stats: bool = False, immediate: bool = False,
-                 d_miss_threshold: int = 50, branch: bool = False, skip_covered: bool = False):
+                 d_miss_threshold: int = 50, branch: bool = False, skip_covered: bool = False,
+                 disassemble: bool = False):
         self.collect_stats = collect_stats
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.skip_covered = skip_covered
+        self.disassemble = disassemble
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -150,6 +152,9 @@ class Slipcover:
 
         ed.add_const('__slipcover__')  # mark instrumented
         new_code = ed.finish()
+
+        if self.disassemble:
+            dis.dis(new_code)
 
         if self.collect_stats:
             self.all_probes.extend(probes)

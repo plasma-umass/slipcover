@@ -33,6 +33,7 @@ ap.add_argument('--threshold', type=int, default=50, metavar="T",
 
 # intended for slipcover development only
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
+ap.add_argument('--dis', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--stats', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--dont-wrap-pytest', action='store_true', help=argparse.SUPPRESS)
@@ -68,7 +69,7 @@ if args.omit:
 
 sci = sc.Slipcover(collect_stats=args.stats, immediate=args.immediate,
                    d_miss_threshold=args.threshold, branch=args.branch,
-                   skip_covered=args.skip_covered)
+                   skip_covered=args.skip_covered, disassemble=args.dis)
 
 
 if not args.dont_wrap_pytest:
