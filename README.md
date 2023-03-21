@@ -56,6 +56,9 @@ its running time stays relatively close to the original.
 On [PyPy 3.9](https://pypy.org), the speedup is so high for some of the benchmarks
 that we plot it in logarithmic scale (see the second image on the right).
 
+In a proof-of-concept integration with a property-based testing package,
+Slipcover sped up coverage-based testing 22x.
+
 ### Accuracy
 We verified Slipcover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
 and against a [simple script](tools/oracle.py) of our own that collects coverage using Python tracing.
