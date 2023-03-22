@@ -371,9 +371,15 @@ def plot_results(args):
 
         return median(results[caseName][benchName]['times']) / median(results['base'][benchName]['times'])
 
+    min_range, max_range = None, None
+    times = 'x' if args.speedup else ''
+
     fig, ax = plt.subplots()
     for case, bar_x in zip(nonbase_cases, bars_x):
         r = [getValue(case.name, b.name) for b in benchmarks if b.name in common_benchmarks]
+
+        min_range = min(r + ([] if min_range is None else [min_range]))
+        max_range = max(r + ([] if max_range is None else [max_range]))
 
         showit = not hide_slipcover or (case.name != 'slipcover')
 
@@ -386,7 +392,7 @@ def plot_results(args):
         if not showit: continue
 
         if args.bar_labels:
-            ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=11+args.font_size_delta)
+            ax.bar_label(rects, padding=3, labels=[f'{v:.1f}{times}' for v in r], fontsize=11+args.font_size_delta)
 
     ax.set_title(args.title, size=18+args.font_size_delta, weight='bold')
     if args.speedup:
@@ -410,15 +416,15 @@ def plot_results(args):
 
     fig.savefig(args.out)
     print(f"Plotted to {args.out}.")
-    print(f"Results range from {min(r):.1f}x to {max(r):.1f}x.")
+    print(f"Results range from {min_range:.1f}{times} to {max_range:.1f}{times}.")
     print("")
 
     if args.edit_readme:
         with open("README.MD", "r") as f:
             readme = f.read()
 
-        readme = re.sub(r'(\n\n\[//\]: # \(' + args.edit_readme + r'\)\s*\n.*?from )[\d\.]+x to [\d\.]+x(.*?\n\n)',
-                        r'\g<1>' + f'{min(r):.1f}x to {max(r):.1f}x' + r'\g<2>', readme, flags=re.S)
+        readme = re.sub(r'(\n\n\[//\]: # \(' + args.edit_readme + r'\)\s*\n.*?from )[\d\.]+x? to [\d\.]+x?(.*?\n\n)',
+                        r'\g<1>' + f'{min_range:.1f}{times} to {max_range:.1f}{times}' + r'\g<2>', readme, flags=re.S)
 
         with open("README.MD", "w") as f:
             f.write(readme)

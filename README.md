@@ -55,7 +55,7 @@ While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original.
 
 [//]: # (PyPy-range)
-On [PyPy 3.9](https://pypy.org), the speedup ranges from 2.1x to 101.7x.
+On [PyPy 3.9](https://pypy.org), the speedup ranges from 2.1x to 104.9x.
 Since it is so high for some of the benchmarks, we plot it on a logarithmic scale (see the second image on the right).
 
 In a proof-of-concept integration with a property-based testing package,
