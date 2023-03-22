@@ -37,6 +37,7 @@ Care is taken throughout Slipcover to keep things as efficient as possible.
 <img src="benchmarks/cpython.png?raw=True" align="right" width="65%"/>
 <img src="benchmarks/pypy.png?raw=True" align="right" width="65%"/>
 
+[//]: # (CPython-range)
 The first image on the right shows Slipcover's [speedup](https://en.wikipedia.org/wiki/Speedup)
 in relation to [Coverage.py](https://github.com/nedbat/coveragepy), running on
 [CPython 3.10.5](https://github.com/python/cpython).
@@ -53,6 +54,7 @@ generate more tracing events, causing more overhead in Coverage.py.
 While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original.
 
+[//]: # (PyPy-range)
 On [PyPy 3.9](https://pypy.org), the speedup is so high for some of the benchmarks
 that we plot it in logarithmic scale (see the second image on the right).
 
