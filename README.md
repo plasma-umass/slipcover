@@ -38,8 +38,8 @@ Care is taken throughout Slipcover to keep things as efficient as possible.
 <img src="benchmarks/pypy.png?raw=True" align="right" width="65%"/>
 
 [//]: # (CPython-range)
-The first image on the right shows Slipcover's [speedup](https://en.wikipedia.org/wiki/Speedup)
-in relation to [Coverage.py](https://github.com/nedbat/coveragepy), running on
+The first image on the right shows Slipcover's [speedup](https://en.wikipedia.org/wiki/Speedup),
+ranging from 1.1x to 3.4x, in relation to [Coverage.py](https://github.com/nedbat/coveragepy), running on
 [CPython 3.10.5](https://github.com/python/cpython).
 
 The first two benchmarks are the test suites for [scikit-learn](https://scikit-learn.org/stable/)
@@ -55,8 +55,8 @@ While each program's structure can affect Slipcover's ability to de-instrument,
 its running time stays relatively close to the original.
 
 [//]: # (PyPy-range)
-On [PyPy 3.9](https://pypy.org), the speedup is so high for some of the benchmarks
-that we plot it in logarithmic scale (see the second image on the right).
+On [PyPy 3.9](https://pypy.org), the speedup ranges from 2.1x to 101.7x.
+Since it is so high for some of the benchmarks, we plot it on a logarithmic scale (see the second image on the right).
 
 In a proof-of-concept integration with a property-based testing package,
 Slipcover sped up coverage-based testing 22x.

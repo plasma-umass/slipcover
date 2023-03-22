@@ -171,6 +171,8 @@ def parse_args():
     plot.add_argument('--speedup', action='store_true', help='plot speedup graph')
     plot.add_argument('--yscale', type=str, default="linear", help='set matplotlib Y scale')
 
+    plot.add_argument('--edit-readme', type=str, help='Update range in given marked paragraph in README.md')
+
     args = ap.parse_args()
 
     if not args.case:
@@ -408,8 +410,18 @@ def plot_results(args):
 
     fig.savefig(args.out)
     print(f"Plotted to {args.out}.")
+    print(f"Results range from {min(r):.1f}x to {max(r):.1f}x.")
     print("")
 
+    if args.edit_readme:
+        with open("README.MD", "r") as f:
+            readme = f.read()
+
+        readme = re.sub(r'(\n\n\[//\]: # \(' + args.edit_readme + r'\)\s*\n.*?from )[\d\.]+x to [\d\.]+x(.*?\n\n)',
+                        r'\g<1>' + f'{min(r):.1f}x to {max(r):.1f}x' + r'\g<2>', readme, flags=re.S)
+
+        with open("README.MD", "w") as f:
+            f.write(readme)
 
 def latex_results(args):
     import re

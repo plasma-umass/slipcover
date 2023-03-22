@@ -31,8 +31,8 @@ bench:
 	python3 benchmarks/run_benchmarks.py
 
 plot:
-	python3 benchmarks/benchmarks.py plot --os=Linux --python=3.10.5 --omit-bench matplotlib --out benchmarks/cpython.png --speedup --title "Slipcover Coverage Speedup on CPython (higher is better)" --bar-labels
-	python3 benchmarks/benchmarks.py plot --os=Linux --python=pypy3.9.16 --out benchmarks/pypy.png --speedup --title "Slipcover Coverage Speedup on PyPy (log scale; higher is better)" --yscale log --bar-labels
+	python3 benchmarks/benchmarks.py plot --os=Linux --python=3.10.5 --omit-bench matplotlib --out benchmarks/cpython.png --speedup --title "Slipcover Coverage Speedup on CPython (higher is better)" --bar-labels --edit-readme "CPython-range"
+	python3 benchmarks/benchmarks.py plot --os=Linux --python=pypy3.9.16 --out benchmarks/pypy.png --speedup --title "Slipcover Coverage Speedup on PyPy (log scale; higher is better)" --yscale log --bar-labels --edit-readme "PyPy-range"
 
 clean:
 	- rm -rf *.so src/slipcover/*.so
