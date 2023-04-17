@@ -30,7 +30,7 @@ ap.add_argument('--skip-covered', action='store_true', help="omit fully covered 
 ap.add_argument('--fail-under', type=float, default=0, help="fail execution with RC 2 if the overall coverage lays lower than this")
 ap.add_argument('--threshold', type=int, default=50, metavar="T",
                 help="threshold for de-instrumentation (if not immediate)")
-ap.add_argument('--max-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
+ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
 
 # intended for slipcover development only
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
@@ -84,7 +84,7 @@ def print_coverage(outfile):
         print(json.dumps(sci.get_coverage(), indent=(4 if args.pretty_print else None)),
               file=outfile)
     else:
-        sci.print_coverage(max_width=args.max_width, outfile=outfile)
+        sci.print_coverage(missing_width=args.missing_width, outfile=outfile)
 
 
 def sci_atexit():
