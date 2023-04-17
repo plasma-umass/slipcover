@@ -377,7 +377,7 @@ class Slipcover:
         return ", ".join(find_ranges())
 
 
-    def print_coverage(self, outfile=sys.stdout) -> None:
+    def print_coverage(self, outfile=sys.stdout, *, max_width=None) -> None:
         cov = self.get_coverage()
 
         from tabulate import tabulate
@@ -403,10 +403,9 @@ class Slipcover:
                                                 f_info['missing_branches'] if 'missing_branches' in f_info else [])]
 
         print("", file=outfile)
-        print(tabulate(table(cov['files']),
-              headers=["File", "#lines", "#l.miss",
-                       *(["#br.", "#br.miss"] if self.branch else []),
-                       "Cover%", "Missing"]), file=outfile)
+        headers = ["File", "#lines", "#l.miss", *(["#br.", "#br.miss"] if self.branch else []), "Cover%", "Missing"]
+        maxcolwidths = [None] * (len(headers)-1) + [max_width]
+        print(tabulate(table(cov['files']), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
 
         def stats_table(files):
             for f, f_info in sorted(files.items()):
