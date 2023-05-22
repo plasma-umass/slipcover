@@ -174,6 +174,8 @@ def parse_args():
 
     plot.add_argument('--edit-readme', type=str, help='Update range in given marked paragraph in README.md')
 
+    plot.add_argument('--use-tex', type=str, help='Selects to use (La)TeX fonts and specifies the font family to use')
+
     args = ap.parse_args()
 
     if not args.case:
@@ -361,6 +363,11 @@ def plot_results(args):
     hide_slipcover = False
 
     plt.rcParams.update({'font.weight': 'bold'})
+    if args.use_tex:
+        plt.rcParams.update({
+            "text.usetex": True,
+            "font.family": args.use_tex
+        })
     plt.rc('ytick', labelsize=12+args.font_size_delta)
 
     if args.style:

@@ -25,6 +25,8 @@ def parse_args():
     ap.add_argument('--skip-version', default=[], action='append', help='omit given Python version')
     ap.add_argument('--absolute', action='store_true', help='emit absolute numbers in LaTeX')
 
+    ap.add_argument('--use-tex', type=str, help='Selects to use (La)TeX fonts and specifies the font family to use')
+
     args = ap.parse_args()
 
     if not args.case:
@@ -165,6 +167,11 @@ width = .70 # of all bars
 bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
 plt.rcParams.update({'font.weight': 'bold'})
+if args.use_tex:
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": args.use_tex
+    })
 plt.rc('ytick', labelsize=12+args.font_size_delta)
 
 if args.style:
