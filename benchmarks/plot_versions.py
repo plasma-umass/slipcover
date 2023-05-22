@@ -149,7 +149,7 @@ def latex_results(args):
             line += " \\\\"
             print(line, file=out)
 
-#        print("\\hline", file=out)
+        print("\\hline", file=out)
         print("\\end{tabular}", file=out)
 
     print(f"Wrote to {args.latex}.")
