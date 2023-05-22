@@ -135,12 +135,12 @@ def latex_results(args):
             base_result = v2r[version]['base'][args.bench]['median']
 
             if args.absolute:
-                line += f" & {base_result:.1f}s"
+                line += f" & \\SI{{{base_result:.1f}}}{{s}}"
 
             for case in nonbase_cases:
                 if args.absolute:
                     r = v2r[version][case.name][args.bench]['median']
-                    line += f" & {r:.1f}s"
+                    line += f" & \\SI{{{r:.1f}}}{{s}}"
                 else:
                     r = v2r[version][case.name][args.bench]['median'] / base_result
                     line += f" & {r:.2f}$\\times$"

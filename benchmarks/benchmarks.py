@@ -491,12 +491,12 @@ def latex_results(args):
             base_result = median(results['base'][bench.name]['times'])
 
             if args.absolute:
-                line += f" & {base_result:.1f}s"
+                line += f" & \\SI{{{base_result:.1f}}}{{s}}"
 
             for case in nonbase_cases:
                 if args.absolute:
                     r = median(results[case.name][bench.name]['times'])
-                    line += f" & {r:.1f}s"
+                    line += f" & \\SI{{{r:.1f}}}{{s}}"
                 else:
                     r = median(results[case.name][bench.name]['times']) / base_result
                     line += f" & {r:.2f}$\\times$"
