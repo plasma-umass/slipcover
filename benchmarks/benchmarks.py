@@ -170,6 +170,7 @@ def parse_args():
     plot.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
     plot.add_argument('--speedup', action='store_true', help='plot speedup graph')
     plot.add_argument('--yscale', type=str, default="linear", help='set matplotlib Y scale')
+    plot.add_argument('--extra-space', type=float, help='add extra space on Y axis')
 
     plot.add_argument('--edit-readme', type=str, help='Update range in given marked paragraph in README.md')
 
@@ -403,6 +404,9 @@ def plot_results(args):
     if args.yscale == 'log':
         from matplotlib.ticker import ScalarFormatter
         ax.yaxis.set_major_formatter(ScalarFormatter())
+
+    if args.extra_space:
+        ax.set_ylim(0, max_range*args.extra_space)
 
     ax.set_xticks(x, labels=[b.name for b in benchmarks if b.name in common_benchmarks], fontsize=15+args.font_size_delta)
     if not args.style:
