@@ -362,7 +362,10 @@ def plot_results(args):
 
     hide_slipcover = False
 
-    plt.rcParams.update({'font.weight': 'bold'})
+    plt.rcParams.update({
+        'font.weight': 'bold',
+        'pdf.fonttype': 42  # output TrueType; bigger but scalable
+    })
     if args.use_tex:
         plt.rcParams.update({
             "text.usetex": True,

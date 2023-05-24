@@ -166,7 +166,10 @@ n_bars = len(nonbase_cases)
 width = .70 # of all bars
 bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
-plt.rcParams.update({'font.weight': 'bold'})
+plt.rcParams.update({
+    'font.weight': 'bold',
+    'pdf.fonttype': 42  # output TrueType; bigger but scalable
+})
 if args.use_tex:
     plt.rcParams.update({
         "text.usetex": True,
