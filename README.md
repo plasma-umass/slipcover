@@ -130,6 +130,9 @@ SlipCover is alpha software, and under active development.
 Please feel free to [create a new issue](https://github.com/jaltmayerpizzorno/slipcover/issues/new)
 with any suggestions or issues you may encounter.
 
+## Technical Information
+For more details about how SlipCover works please see the following paper, accepted to appear at [ISSTA'23](https://conf.researchr.org/home/issta-2023): [SlipCover: Near Zero-Overhead Code Coverage for Python](https://arxiv.org/pdf/2305.02886).
+
 # Acknowledgements
 
 Logo design by [Sophia Berger](https://www.linkedin.com/in/sophia-berger/).
