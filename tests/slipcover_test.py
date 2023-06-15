@@ -413,6 +413,50 @@ def test_instrument_branches():
     assert [(2,9),(3,0),(4,5)] == cov['missing_branches']
 
 
+@pytest.mark.parametrize("x", [5, 20])
+def test_instrument_branch_into_line_block(x):
+    # the 5->7 branch may lead to a jump into the middle of line # 7's block;
+    # will it miss its line probe?  Happens with Python 3.10.9.
+    t = ast_parse(f"""
+        import pytest
+
+        def foo(x):
+            y = x + 10
+            if y > 20:
+                y -= 1
+            return y
+
+        foo({x})
+    """)
+    t = br.preinstrument(t)
+
+    sci = sc.Slipcover(branch=True)
+    code = compile(t, 'foo', 'exec')
+    code = sci.instrument(code)
+    dis.dis(code)
+
+    check_line_probes(code)
+
+    g = dict()
+    exec(code, g, g)
+
+    cov = sci.get_coverage()
+    assert {'foo'} == cov['files'].keys()
+
+    cov = cov['files']['foo']
+    if (x+10)>20:
+        assert [1,3,4,5,6,7,9] == cov['executed_lines']
+        assert [] == cov['missing_lines']
+
+        assert [(5,6)] == cov['executed_branches']
+        assert [(5,7)] == cov['missing_branches']
+    else:
+        assert [1,3,4,5,7,9] == cov['executed_lines']
+        assert [6] == cov['missing_lines']
+
+        assert [(5,7)] == cov['executed_branches']
+        assert [(5,6)] == cov['missing_branches']
+
 def test_instrument_branches_pypy_crash():
     """In Python 3.9, the branch instrumentation at the beginning of foo's code
        object shows as being on line 5; that leads to a branch probe and a line

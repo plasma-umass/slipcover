@@ -2,6 +2,7 @@ import ast
 import sys
 
 BRANCH_NAME = "_slipcover_branches"
+PYTHON_VERSION = sys.version_info[0:2]
 
 def preinstrument(tree: ast.AST) -> ast.AST:
     """Prepares an AST for Slipcover instrumentation, inserting assignments indicating where branches happen."""
@@ -15,7 +16,8 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                                ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
 
             for node in ast.walk(mark):
-                node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
+                # we ignore line 0, so this avoids generating extra line probes
+                node.lineno = 0 if PYTHON_VERSION >= (3,11) else from_line
 
             return [mark]
 
@@ -54,7 +56,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
         def visit_While(self, node: ast.While) -> ast.While:
             return self._mark_branches(node)
 
-        if sys.version_info[0:2] >= (3,10): # new in Python 3.10
+        if PYTHON_VERSION >= (3,10): # new in Python 3.10
             def visit_Match(self, node: ast.Match) -> ast.Match:
                 for case in node.cases:
                     case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
@@ -70,7 +72,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                 super().generic_visit(node)
                 return node
 
-    if sys.version_info[0:2] >= (3,10):
+    if PYTHON_VERSION >= (3,10):
         def is_Match(node: ast.AST) -> bool:
             return isinstance(node, ast.Match)
     else:
