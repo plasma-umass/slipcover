@@ -142,9 +142,10 @@ def parse_args():
     run = sp.add_parser('run', help='run benchmarks')
     show = sp.add_parser('show', help='show benchmark results')
     plot = sp.add_parser('plot', help='plot graph')
+    plot_summary = sp.add_parser('plot-summary', help='plot summary graph')
     latex = sp.add_parser('latex', help='write out LaTeX table')
 
-    for p in [run, show, plot, latex]:
+    for p in [run, show, plot, plot_summary, latex]:
         p.add_argument('--case', choices=[c.name for c in cases] + ['all'],
                        action='append', help='select case(s) to run/plot')
         p.add_argument('--omit-case', action='append', help='select case(s) to omit from run/plot')
@@ -152,29 +153,32 @@ def parse_args():
                        action='append', help='select benchmark(s) to run/plot')
         p.add_argument('--omit-bench', action='append', help='select benchmark(s) to omit from run/plot')
 
+    plot_summary.add_argument('--boxplot', action='store_true', help='output a boxplot')
+    plot_summary.add_argument('--case-name', action='append', help='rename cases')
+
     latex.add_argument('--absolute', action='store_true', help='emit absolute numbers')
 
-    for p in [show, plot, latex]:
+    for p in [show, plot, plot_summary, latex]:
         p.add_argument('--os', type=str, help='select OS name (conflicts with --run)')
         p.add_argument('--python', type=str, help='select python version (conflicts with --run)')
 
-    for p in [plot, latex]:
+    for p in [plot, plot_summary, latex]:
         p.add_argument('--out', type=Path, help='set output file', required=True)
 
-    plot.add_argument('--title', type=str, default='Line / Line+Branch Coverage Benchmarks', help='set plot title')
-    plot.add_argument('--style', type=str, help='set matplotlib style')
-    plot.add_argument('--figure-width', type=float, default=16, help='matplotlib figure width')
-    plot.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
-    plot.add_argument('--bar-labels', action='store_true', help='add labels to bars')
-    plot.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
-    plot.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
+    for p in [plot, plot_summary]:
+        p.add_argument('--title', type=str, default='Line / Line+Branch Coverage Benchmarks', help='set plot title')
+        p.add_argument('--style', type=str, help='set matplotlib style')
+        p.add_argument('--figure-width', type=float, default=16, help='matplotlib figure width')
+        p.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
+        p.add_argument('--bar-labels', action='store_true', help='add labels to bars')
+        p.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
+        p.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
+        p.add_argument('--yscale', type=str, default="linear", help='set matplotlib Y scale')
+        p.add_argument('--extra-space', type=float, help='add extra space on Y axis')
+        p.add_argument('--use-tex', type=str, help='Selects to use (La)TeX fonts and specifies the font family to use')
+
     plot.add_argument('--speedup', action='store_true', help='plot speedup graph')
-    plot.add_argument('--yscale', type=str, default="linear", help='set matplotlib Y scale')
-    plot.add_argument('--extra-space', type=float, help='add extra space on Y axis')
-
     plot.add_argument('--edit-readme', type=str, help='Update range in given marked paragraph in README.md')
-
-    plot.add_argument('--use-tex', type=str, help='Selects to use (La)TeX fonts and specifies the font family to use')
 
     args = ap.parse_args()
 
@@ -443,6 +447,93 @@ def plot_results(args):
         with open("README.MD", "w") as f:
             f.write(readme)
 
+def plot_summary_results(args):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker
+
+    relevant_cases = set(args.case)
+
+    all_benchmarks = set.union(*(set(results[c].keys()) for c in relevant_cases))
+    common_benchmarks = set.intersection(*(set(results[c].keys()) for c in relevant_cases))
+    all_benchmarks = all_benchmarks.intersection(args.bench)
+    common_benchmarks = common_benchmarks.intersection(args.bench)
+
+    for c in relevant_cases:
+        if not all_benchmarks.issubset(results[c].keys()):
+            print(f"WARNING: \"{c}\" is missing benchmarks {all_benchmarks - set(results[c].keys())}")
+
+    # note 'cases' and 'benchmarks' are global
+    hide_slipcover = False
+
+    plt.rcParams.update({
+        'font.weight': 'bold',
+        'pdf.fonttype': 42  # output TrueType; bigger but scalable
+    })
+    if args.use_tex:
+        plt.rcParams.update({
+            "text.usetex": True,
+            "font.family": args.use_tex
+        })
+    plt.rc('ytick', labelsize=12+args.font_size_delta)
+
+    if args.style:
+        plt.style.use(args.style)
+
+    def getValue(caseName, benchName):
+        exectime = median(results[caseName][benchName]['times'])
+        base = median(results['base'][benchName]['times'])
+#        return 100*(exectime - base) / base
+        return overhead(exectime, base)
+
+    fig, ax = plt.subplots()
+#    ax.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.0f%%'))
+
+    if args.boxplot:
+        data = [[getValue(c, b.name) for b in benchmarks if b.name in common_benchmarks] for c in args.case]
+        bp = ax.boxplot(data)#, showmeans=True)
+
+        for m in bp['medians']:
+            (xleft, y), (xright, _) = m.get_xydata()
+            plt.text((xleft+xright)/2, y, f'{y:,.1f}', ha='center', va='center',
+                    fontsize=14+args.font_size_delta,
+                    bbox={'facecolor':'white', 'edgecolor':'none', 'pad':0})
+
+        ax.set_xticklabels(args.case)
+
+        if args.extra_space:
+            ax.set_ylim(0, max([max(d) for d in data])*args.extra_space)
+    else:
+        data = [median([getValue(c, b.name) for b in benchmarks if b.name in common_benchmarks]) for c in args.case]
+        x = args.case_name if args.case_name else args.case
+        bp = ax.bar(x, data, color=[c.color for cn in args.case for c in cases if c.name == cn])
+        ax.bar_label(bp, labels=[f'{v:,.0f} %' for v in data])
+#        ax.set_xticklabels(args.case)
+
+        if args.extra_space:
+            ax.set_ylim(0, max(data)*args.extra_space)
+
+    ax.set_title(args.title, size=18+args.font_size_delta, weight='bold')
+    ax.set_ylabel('Execution time overhead' + (" (log scale)" if args.yscale=='log' else ""),
+                  size=15+args.font_size_delta)
+    ax.set_yscale(args.yscale)
+    ax.yaxis.set_major_formatter('{x:,.0f}%')
+
+    ax.tick_params(labelsize=15+args.font_size_delta)
+    #if not args.style:
+    #    ax.grid(axis='y', alpha=.3)
+    #ax.axhline(y=1, color='black', linewidth=1, alpha=.5, zorder=1) # 1x line
+    #if not hide_slipcover:
+    #    ax.legend(fontsize=15+args.font_size_delta)
+
+    fig.set_size_inches(args.figure_width, args.figure_height)
+    fig.tight_layout()
+
+    fig.savefig(args.out)
+    print(f"Plotted to {args.out}.")
+
+
+
 def latex_results(args):
     import re
 
@@ -587,3 +678,6 @@ if __name__ == "__main__":
 
     elif args.cmd == 'plot':
         plot_results(args)
+
+    elif args.cmd == 'plot-summary':
+        plot_summary_results(args)
