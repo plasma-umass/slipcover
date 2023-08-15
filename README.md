@@ -6,7 +6,7 @@ at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
 
 [![license](https://img.shields.io/github/license/plasma-umass/slipcover?color=blue)](LICENSE)
 [![pypi](https://img.shields.io/pypi/v/slipcover?color=blue)](https://pypi.org/project/slipcover/)
-[![Downloads](https://pepy.tech/badge/slipcover)](https://pepy.tech/project/slipcover)
+[![Downloads](https://static.pepy.tech/badge/slipcover)](https://pepy.tech/project/slipcover)
 ![pyversions](https://img.shields.io/pypi/pyversions/slipcover)
 ![tests](https://github.com/jaltmayerpizzorno/slipcover/workflows/tests/badge.svg)
 
