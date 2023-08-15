@@ -251,8 +251,9 @@ def test_instrument_exception(stats):
     else:
         assert [2, 3, 4, 5, 7, 8, 10, 12] == [l-base_line for l in cov['executed_lines']]
 
-    if PYTHON_VERSION >= (3,10):
-        # #6 is unreachable and is omitted from the code
+    all_lines = {l-base_line for offset, l in dis.findlinestarts(foo.__code__)}
+
+    if 6 not in all_lines: # 6 is unreachable and may be omitted from the code
         assert [] == [l-base_line for l in cov['missing_lines']]
     else:
         assert [6] == [l-base_line for l in cov['missing_lines']]
