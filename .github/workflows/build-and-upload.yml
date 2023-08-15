@@ -75,7 +75,7 @@ jobs:
 
       - name: build wheel
         run: |
-            python3 -m build -wheel
+            python3 -m build --wheel
 
       - name: run auditwheel for manylinux
         if: matrix.os == 'ubuntu-latest'
