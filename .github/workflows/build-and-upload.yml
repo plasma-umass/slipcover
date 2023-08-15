@@ -71,17 +71,11 @@ jobs:
 
       - name: install dependencies
         run: |
-          python3 -m pip install setuptools wheel twine
+          python3 -m pip install setuptools wheel twine build virtualenv
 
-      - name: build wheel (MacOS)
-        if: matrix.os == 'macos-latest'
+      - name: build wheel
         run: |
-            python3 setup.py bdist_wheel --plat-name `python3 -c 'import pkg_resources as pr; p=pr.get_build_platform(); print(p[:p.rindex("-")] + "-universal2")'`
-
-      - name: build wheel (non-MacOS)
-        if: matrix.os != 'macos-latest'
-        run: |
-            python3 setup.py bdist_wheel
+            python3 -m build -wheel
 
       - name: run auditwheel for manylinux
         if: matrix.os == 'ubuntu-latest'
@@ -92,7 +86,7 @@ jobs:
 
       - name: build source dist
         if: matrix.upload_source
-        run: python3 setup.py sdist
+        run: python3 -m build --sdist
 
       - name: Non-release (dev) upload
         if: github.event_name != 'release'
