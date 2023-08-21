@@ -29,11 +29,10 @@ def ast_parse(s):
     return ast.parse(inspect.cleandoc(s))
 
 
-@pytest.mark.parametrize("stats", [False, True])
-def test_probe_signal(stats):
+def test_probe_signal():
     from slipcover import probe
 
-    sci = sc.Slipcover(collect_stats=stats)
+    sci = sc.Slipcover()
 
     t_123 = probe.new(sci, "/foo/bar.py", 123, -1)
     probe.signal(t_123)
@@ -53,17 +52,11 @@ def test_probe_signal(stats):
     assert [123] == sorted(list(d["/foo/bar.py"]))
     assert [42, 314] == sorted(list(d["/foo2/baz.py"]))
 
-    assert ("/foo2/baz.py", 42, 1, 0, 2) == probe.get_stats(t_42)
-    assert ("/foo2/baz.py", 314, 0, 0, 1) == probe.get_stats(t_314)
 
-    assert ("/foo/beast.py", 666, 0, 0, 0) == probe.get_stats(t_666)
-
-
-@pytest.mark.parametrize("stats", [False, True])
-def test_probe_deinstrument(stats):
+def test_probe_deinstrument():
     from slipcover import probe
 
-    sci = sc.Slipcover(collect_stats=stats)
+    sci = sc.Slipcover()
 
     t = probe.new(sci, "/foo/bar.py", 123, 3)
     probe.signal(t)
@@ -77,14 +70,8 @@ def test_probe_deinstrument(stats):
     probe.mark_removed(t) # fake it since sci didn't instrument it
     probe.signal(t)   # u-miss
 
-    probe.no_signal(t)
-
     assert [] == sorted(sci.newly_seen.keys())
     assert ["/foo/bar.py"] == sorted(sci.all_seen.keys())
-
-    assert ("/foo/bar.py", 123, 3, 1, 6) == probe.get_stats(t)
-
-
 
 
 def test_pathsimplifier_not_relative():
@@ -132,9 +119,8 @@ def check_line_probes(code):
             check_line_probes(const)
 
 
-@pytest.mark.parametrize("stats", [False, True])
-def test_instrument(stats):
-    sci = sc.Slipcover(collect_stats=stats)
+def test_instrument():
+    sci = sc.Slipcover()
 
     base_line = current_line()
     def foo(n): #1
@@ -167,9 +153,8 @@ def test_instrument(stats):
     assert [3] == [l-base_line for l in cov['missing_lines']]
 
 
-@pytest.mark.parametrize("stats", [False, True])
-def test_instrument_generators(stats):
-    sci = sc.Slipcover(collect_stats=stats)
+def test_instrument_generators():
+    sci = sc.Slipcover()
 
     base_line = current_line()
     def foo(n):
@@ -208,9 +193,8 @@ def test_instrument_generators(stats):
     assert [] == cov['missing_lines']
 
 
-@pytest.mark.parametrize("stats", [False, True])
-def test_instrument_exception(stats):
-    sci = sc.Slipcover(collect_stats=stats)
+def test_instrument_exception():
+    sci = sc.Slipcover()
 
     base_line = current_line()
     def foo(n): #1
@@ -601,8 +585,7 @@ def test_instrument_long_jump(N):
     assert [] == cov['missing_lines']
 
 
-@pytest.mark.parametrize("stats", [False, True])
-def test_deinstrument(stats):
+def test_deinstrument():
     base_line = current_line()
     def foo(n):
         def bar(n):
@@ -613,7 +596,7 @@ def test_deinstrument(stats):
         return x
     last_line = current_line()
 
-    sci = sc.Slipcover(collect_stats=stats)
+    sci = sc.Slipcover()
     assert not sci.get_coverage()['files'].keys()
 
     sci.instrument(foo)
@@ -624,8 +607,7 @@ def test_deinstrument(stats):
 
 
 @pytest.mark.skipif(platform.python_implementation() == 'PyPy', reason="Immediate de-instrumentation does not work with PyPy")
-@pytest.mark.parametrize("stats", [False, True])
-def test_deinstrument_immediately(stats):
+def test_deinstrument_immediately():
     base_line = current_line()
     def foo(n):
         def bar(n):
@@ -636,7 +618,7 @@ def test_deinstrument_immediately(stats):
         return x
     last_line = current_line()
 
-    sci = sc.Slipcover(collect_stats=stats, immediate=True)
+    sci = sc.Slipcover(immediate=True)
     assert not sci.get_coverage()['files'].keys()
 
     sci.instrument(foo)
@@ -650,9 +632,8 @@ def test_deinstrument_immediately(stats):
         assert foo.__code__.co_code[off] == bc.op_JUMP_FORWARD
 
 
-@pytest.mark.parametrize("stats", [False, True])
-def test_deinstrument_with_many_consts(stats):
-    sci = sc.Slipcover(collect_stats=stats)
+def test_deinstrument_with_many_consts():
+    sci = sc.Slipcover()
 
     N = 1024
     src = 'x=0\n' + ''.join([f'x = {i}\n' for i in range(1, N)])
@@ -676,9 +657,8 @@ def test_deinstrument_with_many_consts(stats):
     assert [*range(1,N)] == cov['missing_lines']
 
 
-@pytest.mark.parametrize("stats", [False, True])
-def test_deinstrument_some(stats):
-    sci = sc.Slipcover(collect_stats=stats)
+def test_deinstrument_some():
+    sci = sc.Slipcover()
 
     base_line = current_line()
     def foo(n):
@@ -703,7 +683,7 @@ def test_deinstrument_some(stats):
 
 @pytest.mark.parametrize("do_branch", [False, True])
 def test_deinstrument_seen_upon_d_miss_threshold(do_branch):
-    from slipcover import probe as tr
+    from slipcover import probe as pr
 
     t = ast_parse("""
         def foo(n):
@@ -727,12 +707,7 @@ def test_deinstrument_seen_upon_d_miss_threshold(do_branch):
     foo(0)
 
     assert old_code != foo.__code__, "Code never de-instrumented"
-
-    # skip probes with d_miss == 0, as these may not have been de-instrumented
-    probes = [t for t in old_code.co_consts if type(t).__name__ == 'PyCapsule' and tr.get_stats(t)[2] > 0]
-    assert len(probes) > 0
-    for t in probes:
-        assert tr.was_removed(t), f"probe still instrumented: {tr.get_stats(t)}"
+    assert sum(pr.was_removed(t) for t in old_code.co_consts if type(t).__name__ == 'PyCapsule') > 0
 
     cov = sci.get_coverage()['files']['foo']
     if PYTHON_VERSION >= (3,11):
@@ -863,9 +838,8 @@ def test_format_missing():
     assert "2, 4" == fm([2,4], [1,3,5], [(2,3), (3,4)])
 
 
-@pytest.mark.parametrize("stats", [False, True])
-def test_print_coverage(stats, capsys):
-    sci = sc.Slipcover(collect_stats=stats)
+def test_print_coverage(capsys):
+    sci = sc.Slipcover()
 
     base_line = current_line()
     def foo(n):
@@ -890,9 +864,6 @@ def test_print_coverage(stats, capsys):
     print(output)
     output = output.splitlines()
     assert re.match(f'^tests[/\\\\]slipcover_test\\.py + {total} + {missd} +{round(100*execd/total)} +' + str(base_line+3), output[3])
-
-    if stats:
-        assert re.match('^tests[/\\\\]slipcover_test\\.py +[\\d.]+ +0', output[8])
 
 
 def test_print_coverage_branch(capsys):
@@ -934,9 +905,8 @@ def test_print_coverage_branch(capsys):
     assert re.match(f'^foo\\.py +{total_l} +{miss_l} +{total_b} +{miss_b} +{pct}', output[3])
 
 
-@pytest.mark.parametrize("do_stats", [False, True])
 @pytest.mark.parametrize("do_branch", [True, False])
-def test_print_coverage_zero_lines(do_branch, do_stats, capsys):
+def test_print_coverage_zero_lines(do_branch, capsys):
     t = ast_parse("")
     if do_branch:
         t = br.preinstrument(t)

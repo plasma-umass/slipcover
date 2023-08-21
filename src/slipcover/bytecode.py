@@ -590,35 +590,6 @@ class Editor:
         self.patch[offset] = op_JUMP_FORWARD
 
 
-    def replace_inserted_function(self, offset, new_func_index):
-        """Replaces an inserted function by another function."""
-
-        assert not self.finished
-
-        if self.patch is None:
-            self.patch = bytearray(self.orig_code.co_code)
-
-        assert self.patch[offset] == op_NOP
-
-        it = iter(unpack_opargs(self.patch[offset:]))
-        next(it) # NOP
-        op_offset, op_len, op, op_arg = next(it)
-        if op == op_PUSH_NULL:
-            op_offset, op_len, op, op_arg = next(it)
-
-        assert op == op_LOAD_CONST
-
-        # FIXME to create a same-length replacement, we need to use the same number
-        # of EXTENDED_ARG opcodes used to encode op_arg; but arg_ext_needed gives us
-        # how many are needed at a minimum, not how many were actually used.
-        # Usually these are the same, but it's possible that unnecessary ones were used.
-        replacement = opcode_arg(op, new_func_index, arg_ext_needed(op_arg))
-        assert len(replacement) == op_len
-
-        op_offset += offset # we unpacked from co.co_code[offset:]
-        self.patch[op_offset:op_offset+op_len] = replacement
-
-
     def replace_global_with_const(self, global_name, const_index):
         """Replaces a global name lookup by a constant load."""
         assert not self.finished

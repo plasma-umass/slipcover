@@ -34,10 +34,9 @@ class PathSimplifier:
 
 
 class Slipcover:
-    def __init__(self, collect_stats: bool = False, immediate: bool = False,
+    def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False, skip_covered: bool = False,
                  disassemble: bool = False):
-        self.collect_stats = collect_stats
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
@@ -65,7 +64,6 @@ class Slipcover:
         self._get_newly_seen()
 
         self.modules = []
-        self.all_probes = []
 
     def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
@@ -102,7 +100,6 @@ class Slipcover:
             if isinstance(c, types.CodeType):
                 ed.set_const(i, self.instrument(c, co))
 
-        ed.add_const(probe.no_signal)   # used during de-instrumentation
         probe_signal_index = ed.add_const(probe.signal)
 
         off_list = list(dis.findlinestarts(co))
@@ -156,9 +153,6 @@ class Slipcover:
         if self.disassemble:
             dis.dis(new_code)
 
-        if self.collect_stats:
-            self.all_probes.extend(probes)
-
         if self.immediate:
             for tr, off in zip(probes, ed.get_inserts()):
                 probe.set_immediate(tr, new_code.co_code, off)
@@ -210,15 +204,7 @@ class Slipcover:
                 func_index, func_arg_index, *_ = func
                 if co_consts[func_index] == probe.signal:
                     probe.mark_removed(co_consts[func_arg_index])
-
-                    if self.collect_stats:
-                        # If collecting stats, rather than disabling the probe, we switch to
-                        # calling the 'probe.no_signal' function on it (which we conveniently added
-                        # to the consts before probe.signal, during instrumentation), so that
-                        # we have the total execution count needed for the reports.
-                        ed.replace_inserted_function(offset, func_index-1)
-                    else:
-                        ed.disable_inserted_function(offset)
+                    ed.disable_inserted_function(offset)
 
         new_code = ed.finish()
         if new_code is co:
@@ -248,16 +234,6 @@ class Slipcover:
                 self.all_seen[file].update(lines)
 
             simp = PathSimplifier()
-
-            if self.collect_stats:
-                d_misses = defaultdict(Counter)
-                u_misses = defaultdict(Counter)
-                totals = defaultdict(Counter)
-                for p in self.all_probes:
-                    filename, lineno, d_miss_count, u_miss_count, total_count = probe.get_stats(p)
-                    if d_miss_count: d_misses[filename].update({lineno: d_miss_count})
-                    if u_miss_count: u_misses[filename].update({lineno: u_miss_count})
-                    totals[filename].update({lineno: total_count})
 
             files = dict()
             for f, f_code_lines in self.code_lines.items():
@@ -291,21 +267,6 @@ class Slipcover:
 
                 # the check for den == 0 is just defensive programming... there's always at least 1 line
                 summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
-
-                if self.collect_stats:
-                    # Once a line reports in, it's available for deinstrumentation.
-                    # Each time it reports in after that, we consider it a miss (like a cache miss).
-                    # We differentiate between (de-instrument) "D misses", where a line
-                    # reports in after it _could_ have been de-instrumented and (use) "U misses"
-                    # and where a line reports in after it _has_ been de-instrumented, but
-                    # didn't use the code object where it's deinstrumented.
-                    f_files['stats'] = {
-                        'd_misses_pct': round(d_misses[f].total()/totals[f].total()*100, 1),
-                        'u_misses_pct': round(u_misses[f].total()/totals[f].total()*100, 1),
-                        'top_d_misses': [f"{it[0]}:{it[1]}" for it in d_misses[f].most_common(5)],
-                        'top_u_misses': [f"{it[0]}:{it[1]}" for it in u_misses[f].most_common(5)],
-                        'top_lines': [f"{it[0]}:{it[1]}" for it in totals[f].most_common(5)],
-                    }
 
                 files[simp.simplify(f)] = f_files
 
@@ -406,22 +367,6 @@ class Slipcover:
         headers = ["File", "#lines", "#l.miss", *(["#br.", "#br.miss"] if self.branch else []), "Cover%", "Missing"]
         maxcolwidths = [None] * (len(headers)-1) + [missing_width]
         print(tabulate(table(cov['files']), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
-
-        def stats_table(files):
-            for f, f_info in sorted(files.items()):
-                stats = f_info['stats']
-
-                yield (f, stats['d_misses_pct'], stats['u_misses_pct'],
-                       " ".join(stats['top_d_misses'][:4]),
-                       " ".join(stats['top_u_misses'][:4]),
-                       " ".join(stats['top_lines'][:4])
-                )
-
-        if self.collect_stats:
-            print("\n", file=outfile)
-            print(tabulate(stats_table(cov['files']),
-                           headers=["File", "D miss%", "U miss%", "Top D", "Top U", "Top lines"]),
-                  file=outfile)
 
 
     @staticmethod

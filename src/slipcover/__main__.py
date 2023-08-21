@@ -35,7 +35,6 @@ ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="
 # intended for slipcover development only
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--dis', action='store_true', help=argparse.SUPPRESS)
-ap.add_argument('--stats', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--dont-wrap-pytest', action='store_true', help=argparse.SUPPRESS)
 
@@ -68,7 +67,7 @@ if args.omit:
         file_matcher.addOmit(o)
 
 
-sci = sc.Slipcover(collect_stats=args.stats, immediate=args.immediate,
+sci = sc.Slipcover(immediate=args.immediate,
                    d_miss_threshold=args.threshold, branch=args.branch,
                    skip_covered=args.skip_covered, disassemble=args.dis)
 
