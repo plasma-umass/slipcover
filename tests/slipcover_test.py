@@ -87,6 +87,9 @@ def check_line_probes(code):
     for (offset, line) in dis.findlinestarts(code):
         if line:
             print(f"checking {code.co_name} line {line}")
+            if bc.op_RESUME == code.co_code[offset]:
+                continue
+
             assert bc.op_NOP == code.co_code[offset], f"NOP missing at offset {offset}"
             probe_len = bc.branch2offset(code.co_code[offset+1])
             it = iter(bc.unpack_opargs(code.co_code[offset+2:offset+2+probe_len]))
@@ -146,10 +149,7 @@ def test_instrument():
     assert {simple_current_file()} == cov['files'].keys()
 
     cov = cov['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [1, 2, 4, 5, 6, 7] == [l-base_line for l in cov['executed_lines']]
-    else:
-        assert [2, 4, 5, 6, 7] == [l-base_line for l in cov['executed_lines']]
+    assert [2, 4, 5, 6, 7] == [l-base_line for l in cov['executed_lines']]
     assert [3] == [l-base_line for l in cov['missing_lines']]
 
 
@@ -174,9 +174,7 @@ def test_instrument_generators():
     assert foo.__code__.co_stacksize >= bc.calc_max_stack(foo.__code__.co_code)
     assert '__slipcover__' in foo.__code__.co_consts
 
-    # Are all lines where we expect?
-    for (offset, _) in dis.findlinestarts(foo.__code__):
-        assert bc.op_NOP == foo.__code__.co_code[offset]
+    check_line_probes(foo.__code__)
 
 #    dis.dis(foo)
     assert X == foo(123)
@@ -185,10 +183,7 @@ def test_instrument_generators():
     assert {simple_current_file()} == cov['files'].keys()
 
     cov = cov['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [1, 2, 3, 4, 5, 6, 7, 8] == [l-base_line for l in cov['executed_lines']]
-    else:
-        assert [2, 3, 4, 5, 6, 7, 8] == [l-base_line for l in cov['executed_lines']]
+    assert [2, 3, 4, 5, 6, 7, 8] == [l-base_line for l in cov['executed_lines']]
 
     assert [] == cov['missing_lines']
 
@@ -219,9 +214,7 @@ def test_instrument_exception():
     assert foo.__code__.co_stacksize >= orig_code.co_stacksize
     assert '__slipcover__' in foo.__code__.co_consts
 
-    # Are all lines where we expect?
-    for (offset, _) in dis.findlinestarts(foo.__code__):
-        assert bc.op_NOP == foo.__code__.co_code[offset]
+    check_line_probes(foo.__code__)
 
     dis.dis(foo)
     assert X == foo(42)
@@ -230,10 +223,7 @@ def test_instrument_exception():
     assert {simple_current_file()} == cov['files'].keys()
 
     cov = cov['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [1, 2, 3, 4, 5, 7, 8, 10, 12] == [l-base_line for l in cov['executed_lines']]
-    else:
-        assert [2, 3, 4, 5, 7, 8, 10, 12] == [l-base_line for l in cov['executed_lines']]
+    assert [2, 3, 4, 5, 7, 8, 10, 12] == [l-base_line for l in cov['executed_lines']]
 
     all_lines = {l-base_line for offset, l in dis.findlinestarts(foo.__code__)}
 
@@ -304,10 +294,7 @@ def test_instrument_threads():
     assert {simple_current_file()} == cov['files'].keys()
 
     cov = cov['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [1, 3, 4, 5, 6] == [l-base_line for l in cov['executed_lines']]
-    else:
-        assert [3, 4, 5, 6] == [l-base_line for l in cov['executed_lines']]
+    assert [3, 4, 5, 6] == [l-base_line for l in cov['executed_lines']]
     assert [] == cov['missing_lines']
 
 
@@ -526,10 +513,7 @@ def test_get_coverage_detects_lines():
     assert {simple_current_file()} == cov['files'].keys()
 
     cov = cov['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [1, 6, 8, 9, 12, 13, 15] == [l-base_line for l in cov['missing_lines']]
-    else:
-        assert [6, 8, 9, 12, 13, 15] == [l-base_line for l in cov['missing_lines']]
+    assert [6, 8, 9, 12, 13, 15] == [l-base_line for l in cov['missing_lines']]
     assert [] == cov['executed_lines']
 
 
@@ -623,12 +607,13 @@ def test_deinstrument_immediately():
 
     sci.instrument(foo)
 
-    for off, *_ in dis.findlinestarts(foo.__code__):
-        assert foo.__code__.co_code[off] == bc.op_NOP
+    check_line_probes(foo.__code__)
 
     assert 6 == foo(3)
 
     for off, *_ in dis.findlinestarts(foo.__code__):
+        if bc.op_RESUME == foo.__code__.co_code[off]:
+            continue
         assert foo.__code__.co_code[off] == bc.op_JUMP_FORWARD
 
 
@@ -674,10 +659,7 @@ def test_deinstrument_some():
 
     assert 6 == foo(3)
     cov = sci.get_coverage()['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [1, 2, 5] == [l-base_line for l in cov['executed_lines']]
-    else:
-        assert [2, 5] == [l-base_line for l in cov['executed_lines']]
+    assert [2, 5] == [l-base_line for l in cov['executed_lines']]
     assert [3, 4] == [l-base_line for l in cov['missing_lines']]
 
 
@@ -710,10 +692,7 @@ def test_deinstrument_seen_upon_d_miss_threshold(do_branch):
     assert sum(pr.was_removed(t) for t in old_code.co_consts if type(t).__name__ == 'PyCapsule') > 0
 
     cov = sci.get_coverage()['files']['foo']
-    if PYTHON_VERSION >= (3,11):
-        assert [1,2,3,4,5] == cov['executed_lines']
-    else:
-        assert [2,3,4,5] == cov['executed_lines']
+    assert [2,3,4,5] == cov['executed_lines']
     assert [] == cov['missing_lines']
     if do_branch:
         assert [(3,4),(3,5)] == cov['executed_branches']
@@ -749,10 +728,7 @@ def test_deinstrument_seen_upon_d_miss_threshold_doesnt_count_while_deinstrument
     foo(1)
 
     cov = sci.get_coverage()['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [1, 2, 3, 5, 6, 7, 8, 9, 10] == [l-base_line for l in cov['executed_lines']]
-    else:
-        assert [2, 3, 5, 6, 7, 8, 9, 10] == [l-base_line for l in cov['executed_lines']]
+    assert [2, 3, 5, 6, 7, 8, 9, 10] == [l-base_line for l in cov['executed_lines']]
     assert [4] == [l-base_line for l in cov['missing_lines']]
 
 
@@ -784,10 +760,7 @@ def test_deinstrument_seen_descriptor_not_invoked():
     foo(1)
 
     cov = sci.get_coverage()['files'][simple_current_file()]
-    if PYTHON_VERSION >= (3,11):
-        assert [1, 2, 3, 5, 6, 7, 8, 9, 10] == [l-base_line for l in cov['executed_lines']]
-    else:
-        assert [2, 3, 5, 6, 7, 8, 9, 10] == [l-base_line for l in cov['executed_lines']]
+    assert [2, 3, 5, 6, 7, 8, 9, 10] == [l-base_line for l in cov['executed_lines']]
     assert [4] == [l-base_line for l in cov['missing_lines']]
 
 

@@ -118,7 +118,8 @@ class Slipcover:
         for off_item in off_list:
             if len(off_item) == 2: # from findlinestarts
                 offset, lineno = off_item
-                if lineno == 0: continue    # Python 3.11.0b4 generates a 0th line
+                if lineno == 0 or co.co_code[offset] == bc.op_RESUME:
+                    continue
 
                 # Can't insert between an EXTENDED_ARG and the final opcode
                 if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
@@ -160,8 +161,9 @@ class Slipcover:
             index = list(zip(ed.get_inserts(), insert_labels))
 
         with self.lock:
-            # Python 3.11.0b4 generates a 0th line
-            self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co) if line[1] != 0)
+            # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
+            self.code_lines[co.co_filename].update(line for off, line in dis.findlinestarts(co) \
+                                                   if line != 0 and co.co_code[off] != bc.op_RESUME)
             self.code_branches[co.co_filename].update(branch_set)
 
             if not parent:

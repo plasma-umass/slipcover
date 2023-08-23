@@ -31,12 +31,14 @@ op_LOAD_CONST = dis.opmap["LOAD_CONST"]
 op_LOAD_GLOBAL = dis.opmap["LOAD_GLOBAL"]
 
 if PYTHON_VERSION >= (3,11):
+    op_RESUME = dis.opmap["RESUME"]
     op_PUSH_NULL = dis.opmap["PUSH_NULL"]
     op_PRECALL = dis.opmap["PRECALL"]
     op_CALL = dis.opmap["CALL"]
     op_CACHE = dis.opmap["CACHE"]
     is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])
 else:
+    op_RESUME = None
     op_PUSH_NULL = None
     op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
 
