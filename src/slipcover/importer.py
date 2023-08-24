@@ -1,7 +1,6 @@
 from typing import Any
 from .slipcover import Slipcover, VERSION
 from . import branch as br
-from . import bytecode as bc
 from pathlib import Path
 import sys
 
@@ -93,12 +92,14 @@ class FileMatcher:
 
         return self.cwd in filename.parents
 
+
 class MatchEverything:
     def __init__(self):
         pass
 
     def matches(self, filename : Path):
         return True
+
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
     def __init__(self, sci, file_matcher, debug=False):
@@ -156,6 +157,8 @@ class ImportManager:
 
 
 def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
+    from . import bytecode as bc
+
     def exec_wrapper(obj, g):
         if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
             obj = sci.instrument(obj)
