@@ -104,6 +104,11 @@ setuptools.setup(
     install_requires=[
         "tabulate"
     ],
+    entry_points={
+        "console_scripts": [
+            "slipcover=slipcover.__main__:main",
+        ],
+    },
     classifiers=[
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
