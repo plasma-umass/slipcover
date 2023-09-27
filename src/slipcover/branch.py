@@ -1,8 +1,8 @@
 import ast
 import sys
+from typing import List, Union
 
 BRANCH_NAME = "_slipcover_branches"
-PYTHON_VERSION = sys.version_info[0:2]
 
 def preinstrument(tree: ast.AST) -> ast.AST:
     """Prepares an AST for Slipcover instrumentation, inserting assignments indicating where branches happen."""
@@ -11,17 +11,17 @@ def preinstrument(tree: ast.AST) -> ast.AST:
         def __init__(self):
             pass
 
-        def _mark_branch(self, from_line: int, to_line: int) -> ast.AST:
+        def _mark_branch(self, from_line: int, to_line: int) -> List[ast.stmt]:
             mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
                                ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
 
             for node in ast.walk(mark):
                 # we ignore line 0, so this avoids generating extra line probes
-                node.lineno = 0 if PYTHON_VERSION >= (3,11) else from_line
+                node.lineno = 0 if sys.version_info >= (3,11) else from_line
 
             return [mark]
 
-        def visit_FunctionDef(self, node: ast.AST) -> ast.AST:
+        def visit_FunctionDef(self, node: Union[ast.AsyncFunctionDef, ast.FunctionDef]) -> ast.AST:
             # Mark BRANCH_NAME global, so that our assignment are easier to find (only STORE_NAME/STORE_GLOBAL,
             # but not STORE_FAST, etc.)
             has_docstring = ast.get_docstring(node, clean=False) is not None
@@ -29,7 +29,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             super().generic_visit(node)
             return node
 
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
             return self.visit_FunctionDef(node)
 
         def _mark_branches(self, node: ast.AST) -> ast.AST:
@@ -44,19 +44,19 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             super().generic_visit(node)
             return node
 
-        def visit_If(self, node: ast.If) -> ast.If:
+        def visit_If(self, node: ast.If) -> ast.AST:
             return self._mark_branches(node)
 
-        def visit_For(self, node: ast.For) -> ast.For:
+        def visit_For(self, node: ast.For) -> ast.AST:
             return self._mark_branches(node)
 
-        def visit_AsyncFor(self, node: ast.AsyncFor) -> ast.AsyncFor:
+        def visit_AsyncFor(self, node: ast.AsyncFor) -> ast.AST:
             return self._mark_branches(node)
 
-        def visit_While(self, node: ast.While) -> ast.While:
+        def visit_While(self, node: ast.While) -> ast.AST:
             return self._mark_branches(node)
 
-        if PYTHON_VERSION >= (3,10): # new in Python 3.10
+        if sys.version_info >= (3,10): # new in Python 3.10
             def visit_Match(self, node: ast.Match) -> ast.Match:
                 for case in node.cases:
                     case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
@@ -72,7 +72,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                 super().generic_visit(node)
                 return node
 
-    if PYTHON_VERSION >= (3,10):
+    if sys.version_info >= (3,10):
         def is_Match(node: ast.AST) -> bool:
             return isinstance(node, ast.Match)
     else:
