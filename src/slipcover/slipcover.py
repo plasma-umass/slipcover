@@ -305,14 +305,15 @@ class Slipcover:
     @staticmethod
     def format_missing(missing_lines: List[int], executed_lines: List[int],
                        missing_branches: List[tuple]) -> List[str]:
+        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
+           between missed ones"""
+
         missing_set = set(missing_lines)
         missing_branches = [(a,b) for a,b in missing_branches if a not in missing_set and b not in missing_set]
 
         def format_branch(br):
             return f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
 
-        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
-           between missed ones"""
         def find_ranges():
             executed = set(executed_lines)
             it = iter(missing_lines)    # assumed sorted
