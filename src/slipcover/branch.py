@@ -10,8 +10,8 @@ if sys.version_info[0:2] >= (3,12):
 
     def encode_branch(from_line, to_line):
         # FIXME anything bigger, and we get an overflow... encode to_line as relative number?
-        assert from_line <= 0x7FFF
-        assert to_line <= 0x7FFF
+        assert from_line <= 0x7FFF, f"Line number {from_line} too high, unable to add branch tracking"
+        assert to_line <= 0x7FFF, f"Line number {to_line} too high, unable to add branch tracking"
         return (1<<30)|((from_line & 0x7FFF)<<15)|(to_line&0x7FFF)
 
     def decode_branch(line):
