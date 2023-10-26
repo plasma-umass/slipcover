@@ -535,8 +535,8 @@ class Editor:
         return bytes_added
 
 
-    def find_const_assignments(self, var_prefix, start=0, end=None):
-        """Finds STORE_NAME assignments to variables with the given prefix,
+    def find_const_assignments(self, var_name, start=0, end=None):
+        """Finds STORE_NAME assignments to the given variable,
            coming from an immediately preceding LOAD_CONST.
         """
         load_off = None
@@ -547,7 +547,7 @@ class Editor:
 
             elif load_off is not None:
                 if op in [op_STORE_NAME, op_STORE_GLOBAL] \
-                   and self.orig_code.co_names[arg].startswith(var_prefix):
+                   and self.orig_code.co_names[arg] == var_name:
                     yield (load_off, op_off+start+op_len, const_arg)
 
                 load_off = None
