@@ -36,8 +36,7 @@ ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="
 ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--dis', action='store_true', help=argparse.SUPPRESS)
 ap.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
-if sys.version_info[0:2] < (3,12):
-    ap.add_argument('--dont-wrap-pytest', action='store_true', help=argparse.SUPPRESS)
+ap.add_argument('--dont-wrap-pytest', action='store_true', help=argparse.SUPPRESS)
 
 g = ap.add_mutually_exclusive_group(required=True)
 g.add_argument('-m', dest='module', nargs=1, help="run given module as __main__")
@@ -73,7 +72,7 @@ sci = sc.Slipcover(immediate=args.immediate,
                    skip_covered=args.skip_covered, disassemble=args.dis)
 
 
-if sys.version_info[0:2] < (3,12) and not args.dont_wrap_pytest:
+if not args.dont_wrap_pytest:
     sc.wrap_pytest(sci, file_matcher)
 
 

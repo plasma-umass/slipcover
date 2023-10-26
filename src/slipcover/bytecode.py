@@ -592,56 +592,6 @@ class Editor:
         self.patch[offset] = op_JUMP_FORWARD
 
 
-    def replace_global_with_const(self, global_name, const_index):
-        """Replaces a global name lookup by a constant load."""
-        assert not self.finished
-
-        if self.patch is None:
-            self.patch = bytearray(self.orig_code.co_code)
-
-        if self.branches is None:
-            self.branches = Branch.from_code(self.orig_code)
-            self.ex_table = ExceptionTableEntry.from_code(self.orig_code)
-            self.lines = LineEntry.from_code(self.orig_code)
-
-        if global_name in self.orig_code.co_names:
-            name_index = self.orig_code.co_names.index(global_name)
-
-            def find_load_globals():
-                for op_off, op_len, op, op_arg in unpack_opargs(self.patch):
-                    if op == op_LOAD_GLOBAL:
-                        if PYTHON_VERSION >= (3,11):
-                            if (op_arg>>1) == name_index:
-                                yield (op_off, op_len, op, op_arg)
-                        else:
-                            if op_arg == name_index:
-                                yield (op_off, op_len, op, op_arg)
-
-            delta = 0
-            # read from pre-computed list() below so we can modify on the fly
-            for op_off, op_len, op, op_arg in list(find_load_globals()):
-                repl = bytearray()
-                if sys.version_info[0:2] >= (3,11) and op_arg&1:
-                    repl.extend(opcode_arg(dis.opmap['PUSH_NULL'], 0))
-                repl.extend(opcode_arg(op_LOAD_CONST, const_index))
-
-                op_off += delta     # adjust for any other changes
-                self.patch[op_off:op_off+op_len] = repl
-
-                change = len(repl) - op_len
-                if change:
-                    for l in self.lines:
-                        l.adjust(op_off, change)
-
-                    for b in self.branches:
-                        b.adjust(op_off, change)
-
-                    for e in self.ex_table:
-                        e.adjust(op_off, change)
-
-                delta += change
-
-
     def _finish(self):
         if not self.finished:
             self.finished = True

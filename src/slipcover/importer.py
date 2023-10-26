@@ -157,24 +157,59 @@ class ImportManager:
 
 
 def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
-    from . import bytecode as bc
+    def redirect_calls(module, funcName, funcWrapperName):
+        """Redirects calls to the given function to a wrapper function in the same module."""
+        import ast
+        import types
 
-    def exec_wrapper(obj, g):
-        if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
-            obj = sci.instrument(obj)
-        exec(obj, g)
+        assert funcWrapperName not in module.__dict__, f"function {funcWrapperName} name already defined"
+
+        with open(module.__file__) as f:
+            t = ast.parse(f.read())
+
+        funcNames = set() # names of the functions we modified
+        for n in ast.walk(t):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for s in ast.walk(n):
+                    if isinstance(s, ast.Call) and isinstance(s.func, ast.Name) and s.func.id == funcName:
+                        s.func.id = funcWrapperName
+                        funcNames.add(n.name)
+
+        code = compile(t, module.__file__, "exec")
+
+        # It's tempting to just exec(code, module.__dict__) here, but the code often times has side effects...
+        # So instead of we find the new code object(s) and replace them in the loaded module.
+
+        replacement = dict() # replacement code objects
+        def find_replacements(co):
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    if c.co_name in funcNames:
+                        replacement[c.co_name] = c
+                    find_replacements(c)
+
+        find_replacements(code)
+
+        visited = set()
+        for f in Slipcover.find_functions(module.__dict__.values(), visited):
+            if (repl := replacement.get(f.__code__.co_name, None)):
+                assert f.__code__.co_firstlineno == repl.co_firstlineno # sanity check
+                f.__code__ = repl
+
 
     try:
         import _pytest.assertion.rewrite as pyrewrite
     except ModuleNotFoundError:
         return
 
-    for f in Slipcover.find_functions(pyrewrite.__dict__.values(), set()):
-        if 'exec' in f.__code__.co_names:
-            ed = bc.Editor(f.__code__)
-            wrapper_index = ed.add_const(exec_wrapper)
-            ed.replace_global_with_const('exec', wrapper_index)
-            f.__code__ = ed.finish()
+    redirect_calls(pyrewrite, "exec", "_Slipcover_exec_wrapper")
+
+    def exec_wrapper(obj, g):
+        if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
+            obj = sci.instrument(obj)
+        exec(obj, g)
+
+    pyrewrite._Slipcover_exec_wrapper = exec_wrapper
 
     if sci.branch:
         import inspect
