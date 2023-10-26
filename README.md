@@ -32,6 +32,10 @@ inserting instructions that let it keep track the lines executed by the program.
 As the program executes, SlipCover gradually removes instrumentation that
 is no longer needed, allowing those parts to run at full speed.
 Care is taken throughout SlipCover to keep things as efficient as possible.
+On Python 3.12, rather than rewrite bytecode, SlipCover uses the new
+[`sys.monitoring`](https://docs.python.org/3.12/library/sys.monitoring.html) API
+to collect coverage information.
+
 
 ### Performance
 <img src="benchmarks/cpython.png?raw=True" align="right" width="65%"/>
