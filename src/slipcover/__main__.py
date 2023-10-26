@@ -19,7 +19,7 @@ import platform
 import argparse
 
 def main():
-    ap = argparse.ArgumentParser(prog='slipcover')
+    ap = argparse.ArgumentParser(prog='SlipCover')
     ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
     ap.add_argument('--json', action='store_true', help="select JSON output")
     ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
@@ -39,6 +39,8 @@ def main():
     ap.add_argument('--dis', action='store_true', help=argparse.SUPPRESS)
     ap.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
     ap.add_argument('--dont-wrap-pytest', action='store_true', help=argparse.SUPPRESS)
+    ap.add_argument('--version', action='version',
+                    version=f"%(prog)s v{sc.VERSION} (Python {'.'.join(map(str, sys.version_info[:3]))})")
 
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument('-m', dest='module', nargs=1, help="run given module as __main__")
