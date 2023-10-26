@@ -130,8 +130,8 @@ Our GitHub workflows run the automated test suite on Linux, MacOS and Windows, b
 really it should work anywhere where CPython/PyPy does.
 
 ## Contributing
-SlipCover is alpha software, and under active development.
-Please feel free to [create a new issue](https://github.com/jaltmayerpizzorno/slipcover/issues/new)
+SlipCover is under active development; contributions are welcome!
+Please also feel free to [create a new issue](https://github.com/jaltmayerpizzorno/slipcover/issues/new)
 with any suggestions or issues you may encounter.
 
 ## Technical Information
