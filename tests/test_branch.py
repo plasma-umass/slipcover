@@ -13,8 +13,8 @@ def ast_parse(s):
 
 def get_branches(code):
     """Extracts a list of all branches marked up in bytecode."""
-    import slipcover.bytecode as bc
     import types
+    import dis
 
     branches = []
 
@@ -23,9 +23,17 @@ def get_branches(code):
         if isinstance(c, types.CodeType):
             branches.extend(get_branches(c))
 
-    ed = bc.Editor(code)
-    for _, _, br_index in ed.find_const_assignments(br.BRANCH_NAME):
-        branches.append(code.co_consts[br_index])
+    const = None
+
+    for inst in dis.get_instructions(code):
+        if inst.opname == 'LOAD_CONST':
+            const = inst.argval
+
+        elif const is not None:
+            if inst.opname in ('STORE_NAME', 'STORE_GLOBAL') and inst.argval == br.BRANCH_NAME:
+                branches.append(const)
+
+            const = None
 
     return sorted(branches)
 

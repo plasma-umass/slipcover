@@ -1,6 +1,5 @@
 import pytest
 import slipcover.slipcover as sc
-import slipcover.bytecode as bc
 import slipcover.branch as br
 import types
 import dis

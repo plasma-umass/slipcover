@@ -5,10 +5,13 @@ import types
 from typing import Dict, Set, List
 from collections import defaultdict, Counter
 import threading
-from . import probe
-from . import bytecode as bc
-from . import branch as br
+
+if sys.version_info[0:2] < (3,12):
+    from . import probe
+    from . import bytecode as bc
+
 from pathlib import Path
+from . import branch as br
 
 VERSION = "0.3.2"
 
@@ -32,7 +35,6 @@ class PathSimplifier:
         except ValueError:
             return path 
 
-
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False, skip_covered: bool = False,
@@ -46,22 +48,35 @@ class Slipcover:
         # mutex protecting this state
         self.lock = threading.RLock()
 
-        # maps to guide CodeType replacements
-        self.replace_map: Dict[types.CodeType, types.CodeType] = dict()
-        self.instrumented: Dict[str, set] = defaultdict(set)
-
         # notes which code lines have been instrumented
         self.code_lines: Dict[str, set] = defaultdict(set)
         self.code_branches: Dict[str, set] = defaultdict(set)
-
-        # provides an index (line_or_branch -> offset) for each code object
-        self.code2index: Dict[types.CodeType, list] = dict()
 
         # notes which lines and branches have been seen.
         self.all_seen: Dict[str, set] = defaultdict(set)
 
         # notes lines/branches seen since last de-instrumentation
         self._get_newly_seen()
+
+        if sys.version_info[0:2] >= (3,12):
+            def handle_line(code, line):
+                if br.is_branch(line):
+                    self.newly_seen[code.co_filename].add(br.decode_branch(line))
+                elif line:
+                    self.newly_seen[code.co_filename].add(line)
+                return sys.monitoring.DISABLE
+
+            if sys.monitoring.get_tool(sys.monitoring.COVERAGE_ID) != "SlipCover":
+                sys.monitoring.use_tool_id(sys.monitoring.COVERAGE_ID, "SlipCover") # FIXME add free_tool_id
+            sys.monitoring.register_callback(sys.monitoring.COVERAGE_ID,
+                                             sys.monitoring.events.LINE, handle_line)
+        else:
+            # maps to guide CodeType replacements
+            self.replace_map: Dict[types.CodeType, types.CodeType] = dict()
+            self.instrumented: Dict[str, set] = defaultdict(set)
+
+            # provides an index (line_or_branch -> offset) for each code object
+            self.code2index: Dict[types.CodeType, list] = dict()
 
         self.modules = []
 
@@ -80,99 +95,132 @@ class Slipcover:
         return newly_seen
 
 
-    def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
-        """Instruments a code object for coverage detection.
+    if sys.version_info[0:2] >= (3,12):
+        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+            """Instruments a code object for coverage detection.
 
-        If invoked on a function, instruments its code.
-        """
+            If invoked on a function, instruments its code.
+            """
 
-        if isinstance(co, types.FunctionType):
-            co.__code__ = self.instrument(co.__code__)
-            return co.__code__
+            if isinstance(co, types.FunctionType):
+                co = co.__code__
 
-        assert isinstance(co, types.CodeType)
-        # print(f"instrumenting {co.co_name}")
+            assert isinstance(co, types.CodeType)
+            # print(f"instrumenting {co.co_name}")
 
-        ed = bc.Editor(co)
+            sys.monitoring.set_local_events(sys.monitoring.COVERAGE_ID, co, sys.monitoring.events.LINE)
 
-        # handle functions-within-functions
-        for i, c in enumerate(co.co_consts):
-            if isinstance(c, types.CodeType):
-                ed.set_const(i, self.instrument(c, co))
+            # handle functions-within-functions
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    self.instrument(c, co)
 
-        probe_signal_index = ed.add_const(probe.signal)
+            op_RESUME = dis.opmap["RESUME"]
 
-        off_list = list(dis.findlinestarts(co))
-        if self.branch:
-            off_list.extend(list(ed.find_const_assignments(br.BRANCH_NAME)))
-            # sort line probes (2-tuples) before branch probes (3-tuples) because
-            # line probes don't overwrite bytecode like branch probes do, so if there
-            # are two being inserted at the same offset, the accumulated offset 'delta' applies
-            off_list.sort(key = lambda x: (x[0], len(x)))
+            with self.lock:
+                # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
+                self.code_lines[co.co_filename].update(line for off, line in dis.findlinestarts(co) \
+                                                       if line != 0 and not br.is_branch(line) \
+                                                          and co.co_code[off] != op_RESUME)
 
-        branch_set = set()
-        insert_labels = []
-        probes = []
+                self.code_branches[co.co_filename].update(br.decode_branch(line) for off, line in dis.findlinestarts(co) \
+                                                          if br.is_branch(line) and co.co_code[off] != op_RESUME)
+            return co
 
-        delta = 0
-        for off_item in off_list:
-            if len(off_item) == 2: # from findlinestarts
-                offset, lineno = off_item
-                if lineno == 0 or co.co_code[offset] == bc.op_RESUME:
-                    continue
+    else:
+        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+            """Instruments a code object for coverage detection.
 
-                # Can't insert between an EXTENDED_ARG and the final opcode
-                if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
-                    while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
-                        offset += 2 # TODO will we overtake the next offset from findlinestarts?
+            If invoked on a function, instruments its code.
+            """
 
-                insert_labels.append(lineno)
+            if isinstance(co, types.FunctionType):
+                co.__code__ = self.instrument(co.__code__)
+                return co.__code__
 
-                tr = probe.new(self, co.co_filename, lineno, self.d_miss_threshold)
-                probes.append(tr)
-                tr_index = ed.add_const(tr)
+            assert isinstance(co, types.CodeType)
+            # print(f"instrumenting {co.co_name}")
 
-                delta += ed.insert_function_call(offset+delta, probe_signal_index, (tr_index,))
+            ed = bc.Editor(co)
 
-            else: # from find_const_assignments
-                begin_off, end_off, branch_index = off_item
-                branch = co.co_consts[branch_index]
+            # handle functions-within-functions
+            for i, c in enumerate(co.co_consts):
+                if isinstance(c, types.CodeType):
+                    ed.set_const(i, self.instrument(c, co))
 
-                branch_set.add(branch)
-                insert_labels.append(branch)
+            probe_signal_index = ed.add_const(probe.signal)
 
-                tr = probe.new(self, co.co_filename, branch, self.d_miss_threshold)
-                probes.append(tr)
-                ed.set_const(branch_index, tr)
+            off_list = list(dis.findlinestarts(co))
+            if self.branch:
+                off_list.extend(list(ed.find_const_assignments(br.BRANCH_NAME)))
+                # sort line probes (2-tuples) before branch probes (3-tuples) because
+                # line probes don't overwrite bytecode like branch probes do, so if there
+                # are two being inserted at the same offset, the accumulated offset 'delta' applies
+                off_list.sort(key = lambda x: (x[0], len(x)))
 
-                delta += ed.insert_function_call(begin_off+delta, probe_signal_index, (branch_index,),
-                                                 repl_length = end_off-begin_off)
+            branch_set = set()
+            insert_labels = []
+            probes = []
 
-        ed.add_const('__slipcover__')  # mark instrumented
-        new_code = ed.finish()
+            delta = 0
+            for off_item in off_list:
+                if len(off_item) == 2: # from findlinestarts
+                    offset, lineno = off_item
+                    if lineno == 0 or co.co_code[offset] == bc.op_RESUME:
+                        continue
 
-        if self.disassemble:
-            dis.dis(new_code)
+                    # Can't insert between an EXTENDED_ARG and the final opcode
+                    if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                        while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                            offset += 2 # TODO will we overtake the next offset from findlinestarts?
 
-        if self.immediate:
-            for tr, off in zip(probes, ed.get_inserts()):
-                probe.set_immediate(tr, new_code.co_code, off)
-        else:
-            index = list(zip(ed.get_inserts(), insert_labels))
+                    insert_labels.append(lineno)
 
-        with self.lock:
-            # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
-            self.code_lines[co.co_filename].update(line for off, line in dis.findlinestarts(co) \
-                                                   if line != 0 and co.co_code[off] != bc.op_RESUME)
-            self.code_branches[co.co_filename].update(branch_set)
+                    tr = probe.new(self, co.co_filename, lineno, self.d_miss_threshold)
+                    probes.append(tr)
+                    tr_index = ed.add_const(tr)
 
-            if not parent:
-                self.instrumented[co.co_filename].add(new_code)
+                    delta += ed.insert_function_call(offset+delta, probe_signal_index, (tr_index,))
 
-            if not self.immediate:
-                self.code2index[new_code] = index
+                else: # from find_const_assignments
+                    begin_off, end_off, branch_index = off_item
+                    branch = co.co_consts[branch_index]
 
-        return new_code
+                    branch_set.add(branch)
+                    insert_labels.append(branch)
+
+                    tr = probe.new(self, co.co_filename, branch, self.d_miss_threshold)
+                    probes.append(tr)
+                    ed.set_const(branch_index, tr)
+
+                    delta += ed.insert_function_call(begin_off+delta, probe_signal_index, (branch_index,),
+                                                     repl_length = end_off-begin_off)
+
+            ed.add_const('__slipcover__')  # mark instrumented
+            new_code = ed.finish()
+
+            if self.disassemble:
+                dis.dis(new_code)
+
+            if self.immediate:
+                for tr, off in zip(probes, ed.get_inserts()):
+                    probe.set_immediate(tr, new_code.co_code, off)
+            else:
+                index = list(zip(ed.get_inserts(), insert_labels))
+
+            with self.lock:
+                # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
+                self.code_lines[co.co_filename].update(line for off, line in dis.findlinestarts(co) \
+                                                       if line != 0 and co.co_code[off] != bc.op_RESUME)
+                self.code_branches[co.co_filename].update(branch_set)
+
+                if not parent:
+                    self.instrumented[co.co_filename].add(new_code)
+
+                if not self.immediate:
+                    self.code2index[new_code] = index
+
+            return new_code
 
 
     def deinstrument(self, co, lines: set) -> types.CodeType:

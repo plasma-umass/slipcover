@@ -100,7 +100,7 @@ setuptools.setup(
     packages=['slipcover'],
     package_dir={'': 'src'},
     ext_modules=([probe]),
-    python_requires=">=3.8,<3.12",
+    python_requires=">=3.8,<3.13",
     install_requires=[
         "tabulate"
     ],

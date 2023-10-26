@@ -4,6 +4,20 @@ from typing import List, Union
 
 BRANCH_NAME = "_slipcover_branches"
 
+if sys.version_info[0:2] >= (3,12):
+    def is_branch(line):
+        return (line & (1<<30)) != 0
+
+    def encode_branch(from_line, to_line):
+        # FIXME anything bigger, and we get an overflow... encode to_line as relative number?
+        assert from_line <= 0x7FFF, f"Line number {from_line} too high, unable to add branch tracking"
+        assert to_line <= 0x7FFF, f"Line number {to_line} too high, unable to add branch tracking"
+        return (1<<30)|((from_line & 0x7FFF)<<15)|(to_line&0x7FFF)
+
+    def decode_branch(line):
+        return ((line>>15)&0x7FFF, line&0x7FFF)
+
+
 def preinstrument(tree: ast.AST) -> ast.AST:
     """Prepares an AST for Slipcover instrumentation, inserting assignments indicating where branches happen."""
 
@@ -15,9 +29,15 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
                                ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
 
-            for node in ast.walk(mark):
-                # we ignore line 0, so this avoids generating extra line probes
-                node.lineno = 0 if sys.version_info >= (3,11) else from_line
+            if sys.version_info[0:2] == (3,12):
+                for node in ast.walk(mark):
+                    node.lineno = node.end_lineno = encode_branch(from_line, to_line)
+            elif sys.version_info[0:2] == (3,11):
+                for node in ast.walk(mark):
+                    node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
+            else:
+                for node in ast.walk(mark):
+                    node.lineno = from_line
 
             return [mark]
 

@@ -1,12 +1,15 @@
 import pytest
+import sys
+
+PYTHON_VERSION = sys.version_info[0:2]
+
+if PYTHON_VERSION >= (3,12):
+    pytest.skip(allow_module_level=True)
+
 import slipcover.bytecode as bc
 import types
 import dis
-import sys
 import inspect
-
-
-PYTHON_VERSION = sys.version_info[0:2]
 
 def current_line():
     import inspect as i
