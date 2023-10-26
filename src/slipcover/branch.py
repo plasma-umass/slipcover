@@ -26,18 +26,22 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             pass
 
         def _mark_branch(self, from_line: int, to_line: int) -> List[ast.stmt]:
-            mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
-                               ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
 
             if sys.version_info[0:2] == (3,12):
+                mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())], ast.Constant(0))
                 for node in ast.walk(mark):
                     node.lineno = node.end_lineno = encode_branch(from_line, to_line)
-            elif sys.version_info[0:2] == (3,11):
-                for node in ast.walk(mark):
-                    node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
+
             else:
-                for node in ast.walk(mark):
-                    node.lineno = from_line
+                mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
+                                   ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
+
+                if sys.version_info[0:2] == (3,11):
+                    for node in ast.walk(mark):
+                        node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
+                else:
+                    for node in ast.walk(mark):
+                        node.lineno = from_line
 
             return [mark]
 

@@ -31,7 +31,10 @@ def get_branches(code):
 
         elif const is not None:
             if inst.opname in ('STORE_NAME', 'STORE_GLOBAL') and inst.argval == br.BRANCH_NAME:
-                branches.append(const)
+                if PYTHON_VERSION >= (3,12) and br.is_branch(inst.positions.lineno):
+                    branches.append(br.decode_branch(inst.positions.lineno))
+                else:
+                    branches.append(const)
 
             const = None
 
@@ -47,10 +50,16 @@ def assign2append(tree: ast.AST):
         def visit_Assign(self, node: ast.Assign) -> ast.Assign:
             if node.targets and isinstance(node.targets[0], ast.Name) \
                and node.targets[0].id == br.BRANCH_NAME:
+                if PYTHON_VERSION >= (3,12) and br.is_branch(node.lineno):
+                    branch = br.decode_branch(node.lineno)
+                    value = ast.Tuple([ast.Constant(branch[0]), ast.Constant(branch[1])], ast.Load())
+                    value.lineno, value.end_lineno = node.lineno, node.end_lineno
+                else:
+                    value = node.value
                 return ast.AugAssign(
                         target=node.targets[0],
                         op=ast.Add(),
-                        value=ast.List(elts=[node.value], ctx=ast.Load()),
+                        value=ast.List(elts=[value], ctx=ast.Load()),
                         ctx=ast.Load())
 
             return node
