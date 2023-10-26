@@ -162,7 +162,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
         import ast
         import types
 
-        assert funcWrapperName not in module.__dict__, f"function {funcWrapperName} name already defined"
+        assert funcWrapperName not in module.__dict__, f"function {funcWrapperName} already defined"
 
         with open(module.__file__) as f:
             t = ast.parse(f.read())
