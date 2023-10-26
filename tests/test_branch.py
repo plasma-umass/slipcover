@@ -12,30 +12,8 @@ def ast_parse(s):
 
 
 def get_branches(code):
-    """Extracts a list of all branches marked up in bytecode."""
-    import types
-    import dis
-
-    branches = []
-
-    # handle functions-within-functions
-    for c in code.co_consts:
-        if isinstance(c, types.CodeType):
-            branches.extend(get_branches(c))
-
-    const = None
-
-    for inst in dis.get_instructions(code):
-        if inst.opname == 'LOAD_CONST':
-            const = inst.argval
-
-        elif const is not None:
-            if inst.opname in ('STORE_NAME', 'STORE_GLOBAL') and inst.argval == br.BRANCH_NAME:
-                branches.append(const)
-
-            const = None
-
-    return sorted(branches)
+    from slipcover.slipcover import Slipcover
+    return sorted(Slipcover.branches_from_code(code))
 
 
 def assign2append(tree: ast.AST):

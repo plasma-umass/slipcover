@@ -2,7 +2,7 @@ from __future__ import annotations
 import sys
 import dis
 import types
-from typing import Dict, Set, List
+from typing import Dict, Set, List, Tuple
 from collections import defaultdict, Counter
 import threading
 
@@ -24,6 +24,10 @@ if sys.version_info[0:2] < (3,10):
     setattr(Counter, 'total', counter_total)
 
 
+if sys.version_info[0:2] >= (3,12):
+    _op_RESUME = dis.opmap["RESUME"]
+
+
 class PathSimplifier:
     def __init__(self):
         self.cwd = Path.cwd()
@@ -34,6 +38,7 @@ class PathSimplifier:
             return str(f.relative_to(self.cwd))
         except ValueError:
             return path 
+
 
 class Slipcover:
     def __init__(self, immediate: bool = False,
@@ -68,6 +73,7 @@ class Slipcover:
 
             if sys.monitoring.get_tool(sys.monitoring.COVERAGE_ID) != "SlipCover":
                 sys.monitoring.use_tool_id(sys.monitoring.COVERAGE_ID, "SlipCover") # FIXME add free_tool_id
+
             sys.monitoring.register_callback(sys.monitoring.COVERAGE_ID,
                                              sys.monitoring.events.LINE, handle_line)
         else:
@@ -96,6 +102,48 @@ class Slipcover:
 
 
     if sys.version_info[0:2] >= (3,12):
+        @staticmethod
+        def lines_from_code(co: types.CodeType) -> Iterator[int]:
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    yield from Slipcover.lines_from_code(c)
+
+            # Python 3.11+ generates a line just for RESUME
+            yield from (line for off, line in dis.findlinestarts(co)
+                        if not br.is_branch(line) and co.co_code[off] != _op_RESUME)
+
+
+        @staticmethod
+        def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    yield from Slipcover.branches_from_code(c)
+
+            yield from (br.decode_branch(line) for off, line in dis.findlinestarts(co) if br.is_branch(line))
+
+    else:
+        @staticmethod
+        def lines_from_code(co: types.CodeType) -> Iterator[int]:
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    yield from Slipcover.lines_from_code(c)
+
+            # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
+            yield from (line for off, line in dis.findlinestarts(co) if line != 0 and co.co_code[off] != bc.op_RESUME)
+
+
+        @staticmethod
+        def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    yield from Slipcover.branches_from_code(c)
+
+            ed = bc.Editor(co)
+            for _, _, br_index in ed.find_const_assignments(br.BRANCH_NAME):
+                yield co.co_consts[br_index]
+
+
+    if sys.version_info[0:2] >= (3,12):
         def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
@@ -115,16 +163,11 @@ class Slipcover:
                 if isinstance(c, types.CodeType):
                     self.instrument(c, co)
 
-            op_RESUME = dis.opmap["RESUME"]
+            if not parent:
+                with self.lock:
+                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co))
+                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co))
 
-            with self.lock:
-                # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
-                self.code_lines[co.co_filename].update(line for off, line in dis.findlinestarts(co) \
-                                                       if line != 0 and not br.is_branch(line) \
-                                                          and co.co_code[off] != op_RESUME)
-
-                self.code_branches[co.co_filename].update(br.decode_branch(line) for off, line in dis.findlinestarts(co) \
-                                                          if br.is_branch(line) and co.co_code[off] != op_RESUME)
             return co
 
     else:
@@ -158,7 +201,6 @@ class Slipcover:
                 # are two being inserted at the same offset, the accumulated offset 'delta' applies
                 off_list.sort(key = lambda x: (x[0], len(x)))
 
-            branch_set = set()
             insert_labels = []
             probes = []
 
@@ -186,7 +228,6 @@ class Slipcover:
                     begin_off, end_off, branch_index = off_item
                     branch = co.co_consts[branch_index]
 
-                    branch_set.add(branch)
                     insert_labels.append(branch)
 
                     tr = probe.new(self, co.co_filename, branch, self.d_miss_threshold)
@@ -209,12 +250,10 @@ class Slipcover:
                 index = list(zip(ed.get_inserts(), insert_labels))
 
             with self.lock:
-                # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
-                self.code_lines[co.co_filename].update(line for off, line in dis.findlinestarts(co) \
-                                                       if line != 0 and co.co_code[off] != bc.op_RESUME)
-                self.code_branches[co.co_filename].update(branch_set)
-
                 if not parent:
+                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co))
+                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co))
+
                     self.instrumented[co.co_filename].add(new_code)
 
                 if not self.immediate:
