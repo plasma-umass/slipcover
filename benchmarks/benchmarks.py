@@ -147,11 +147,11 @@ def parse_args():
 
     for p in [run, show, plot, plot_summary, latex]:
         p.add_argument('--case', choices=[c.name for c in cases] + ['all'],
-                       action='append', help='select case(s) to run/plot')
-        p.add_argument('--omit-case', action='append', help='select case(s) to omit from run/plot')
+                       action='extend', nargs='+', help='select case(s) to run/plot')
+        p.add_argument('--omit-case', action='extend', nargs='+', help='select case(s) to omit from run/plot')
         p.add_argument('--bench', choices=[b.name for b in benchmarks],
-                       action='append', help='select benchmark(s) to run/plot')
-        p.add_argument('--omit-bench', action='append', help='select benchmark(s) to omit from run/plot')
+                       action='extend', nargs='+', help='select benchmark(s) to run/plot')
+        p.add_argument('--omit-bench', action='extend', nargs='+', help='select benchmark(s) to omit from run/plot')
 
     plot_summary.add_argument('--boxplot', action='store_true', help='output a boxplot')
     plot_summary.add_argument('--case-name', action='append', help='rename cases')
