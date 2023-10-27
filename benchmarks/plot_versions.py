@@ -71,10 +71,10 @@ def load_data():
     assert common_cases == set(v2r[python_versions[0]].keys())
 
     # check that requested benchmark is available everywhere
-    benchmarks = set.intersection(*(set(b.keys()) for r in v2r.values() for b in r.values()))
-    if args.bench not in benchmarks:
-        print(f"Benchmark {args.bench} not in common benchmarks {benchmarks}")
-        sys.exit(1)
+    for v, b in ((v, b) for v in v2r for b in v2r[v].values()):
+        if args.bench not in b:
+            print(f"Benchmark {args.bench} not available for {v}")
+            sys.exit(1)
 
     # compute the median
     from statistics import median
