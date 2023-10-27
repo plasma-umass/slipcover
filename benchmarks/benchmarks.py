@@ -120,7 +120,7 @@ def load_benchmarks():
     def path2bench(p: Path) -> str:
         import re
 
-        match = re.search('^(bm_)?(.*?)\.py$', p.name)
+        match = re.search('^(bm_)?(.*?)\\.py$', p.name)
         bench_name = match.group(2) if match else p.name
 
         return Benchmark(bench_name, p, {'coveragepy_opts': f'--include={p}',
