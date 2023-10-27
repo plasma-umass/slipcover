@@ -61,7 +61,8 @@ def main():
     file_matcher = sc.FileMatcher()
 
     if args.source:
-        for s in args.source.split(','):
+        args.source = args.source.split(',')
+        for s in args.source:
             file_matcher.addSource(s)
     elif args.script:
         file_matcher.addSource(Path(args.script).resolve().parent)
@@ -72,8 +73,9 @@ def main():
 
 
     sci = sc.Slipcover(immediate=args.immediate,
-                    d_miss_threshold=args.threshold, branch=args.branch,
-                    skip_covered=args.skip_covered, disassemble=args.dis)
+                       d_miss_threshold=args.threshold, branch=args.branch,
+                       skip_covered=args.skip_covered, disassemble=args.dis,
+                       source=args.source)
 
 
     if not args.dont_wrap_pytest:
