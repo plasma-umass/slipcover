@@ -43,12 +43,13 @@ class PathSimplifier:
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False, skip_covered: bool = False,
-                 disassemble: bool = False):
+                 disassemble: bool = False, source: List[str] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.skip_covered = skip_covered
         self.disassemble = disassemble
+        self.source = source
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -312,6 +313,34 @@ class Slipcover:
         return new_code
 
 
+    def _add_unseen_source_files(self):
+        import ast
+
+        dirs = [Path(d) for d in self.source]
+
+        while dirs:
+            p = dirs.pop()
+            for file in p.iterdir():
+                if file.is_dir():
+                    dirs.append(file)   # walk this directory, too
+
+                elif file.is_file() and file.suffix.lower() == '.py':
+                    file = file.absolute()
+                    filename = str(file)
+                    try:
+                        if filename not in self.code_lines:
+                            t = ast.parse(file.read_text())
+                            if self.branch:
+                                t = br.preinstrument(t)
+                            code = compile(t, filename, "exec")
+                            self.code_lines[filename] = set(Slipcover.lines_from_code(code))
+                            if self.branch:
+                                self.code_branches[filename] = set(Slipcover.branches_from_code(code))
+
+                    except Exception as e: # for SyntaxError and such... FIXME curate list and catch only those
+                        print(f"Warning: unable to include {filename}: {e}")
+
+
     def get_coverage(self):
         """Returns coverage information collected."""
 
@@ -321,6 +350,9 @@ class Slipcover:
 
             for file, lines in newly_seen.items():
                 self.all_seen[file].update(lines)
+
+            if self.source:
+                self._add_unseen_source_files()
 
             simp = PathSimplifier()
 
