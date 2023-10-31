@@ -465,8 +465,8 @@ class Slipcover:
 
         from tabulate import tabulate
 
-        def table(files):
-            for f, f_info in sorted(files.items()):
+        def table():
+            for f, f_info in sorted(cov['files'].items()):
                 exec_l = len(f_info['executed_lines'])
                 miss_l = len(f_info['missing_lines'])
 
@@ -485,10 +485,20 @@ class Slipcover:
                        Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'],
                                                 f_info['missing_branches'] if 'missing_branches' in f_info else [])]
 
+            if len(cov['files']) > 1:
+                yield []
+
+                s = cov['summary']
+                yield ['(summary)', s['covered_lines']+s['missing_lines'], s['missing_lines'],
+                       *([s['covered_branches']+s['missing_branches'], s['missing_branches']] if self.branch else []),
+                       round(s['percent_covered']), '']
+
+
+
         print("", file=outfile)
         headers = ["File", "#lines", "#l.miss", *(["#br.", "#br.miss"] if self.branch else []), "Cover%", "Missing"]
         maxcolwidths = [None] * (len(headers)-1) + [missing_width]
-        print(tabulate(table(cov['files']), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
+        print(tabulate(table(), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
 
 
     @staticmethod
