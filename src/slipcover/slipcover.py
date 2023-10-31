@@ -486,7 +486,7 @@ class Slipcover:
                                                 f_info['missing_branches'] if 'missing_branches' in f_info else [])]
 
             if len(cov['files']) > 1:
-                yield []
+                yield ['---'] + [''] * (6 if self.branch else 4)
 
                 s = cov['summary']
                 yield ['(summary)', s['covered_lines']+s['missing_lines'], s['missing_lines'],
