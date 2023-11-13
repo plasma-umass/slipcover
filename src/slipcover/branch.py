@@ -92,12 +92,9 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                 super().generic_visit(node)
                 return node
 
-    if sys.version_info >= (3,10):
-        def is_Match(node: ast.AST) -> bool:
-            return isinstance(node, ast.Match)
-    else:
-        def is_Match(node: ast.AST) -> bool:
-            return False
+
+    match_type = ast.Match if sys.version_info >= (3,10) else tuple() # empty tuple matches nothing
+    try_type = (ast.Try, ast.TryStar) if sys.version_info >= (3,11) else ast.Try
 
     # Compute the "next" statement in case a branch flows control out of a node.
     # We need a parent node's "next" computed before its siblings, so we compute it here, in BFS;
@@ -112,7 +109,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             if isinstance(field, ast.AST):
                 # if a field is just a node, any execution continues after our node
                 field.next_node = node.next_node
-            elif is_Match(node) and name == 'cases':
+            elif isinstance(node, match_type) and name == 'cases':
                 # each case continues after the 'match'
                 for item in field:
                     item.next_node = node.next_node
@@ -124,9 +121,17 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                         if prev:
                             prev.next_node = item
                         prev = item
+
                 if prev:
                     if isinstance(node, (ast.For, ast.While)):
                         prev.next_node = node   # loops back
+                    elif isinstance(node, try_type) and (name in ('body', 'orelse')):
+                        if name == 'body' and node.orelse:
+                            prev.next_node = node.orelse[0]
+                        elif node.finalbody:
+                            prev.next_node = node.finalbody[0]
+                        else:
+                            prev.next_node = node.next_node
                     else:
                         prev.next_node = node.next_node
 

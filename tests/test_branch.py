@@ -613,3 +613,82 @@ def test_branch_after_case_with_next():
     exec(code, g, g)
     assert 1 == g['x']
     assert [(2,4), (4,9)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+def test_try_except(star):
+    t = ast_parse(f"""
+        def foo(x):
+            try:
+                y = x + 1
+                if y < 0:
+                    y = 0
+            except{star} RuntimeException:
+                y = 0
+            return 2*y
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(4,5), (4,8)] == get_branches(code)
+
+
+def test_try_finally():
+    t = ast_parse("""
+        def foo(x):
+            try:
+                y = x + 1
+                if y < 0:
+                    y = 0
+            finally:
+                y = 2*y
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(4,5), (4,7)] == get_branches(code)
+
+
+@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+def test_try_else(star):
+    t = ast_parse(f"""
+        def foo(x):
+            try:
+                y = x + 1
+                if y < 0:
+                    y = 0
+            except{star} RuntimeException:
+                y = -1
+            else:
+                y = 2*y
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(4,5), (4,9)] == get_branches(code)
+
+
+@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+def test_try_else_finally(star):
+    t = ast_parse(f"""
+        def foo(x):
+            try:
+                y = x + 1
+                if y < 0:
+                    y = 0
+            except{star} RuntimeException:
+                y = -1
+            else:
+                if y > 5:
+                    y = 42
+            finally:
+                y = 2*y
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(4,5), (4,9), (9,10), (9,12)] == get_branches(code)
