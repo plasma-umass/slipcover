@@ -113,6 +113,10 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                 # each case continues after the 'match'
                 for item in field:
                     item.next_node = node.next_node
+            elif isinstance(node, try_type) and name == 'handlers':
+                # each 'except' continues either in 'finally', or after the 'try'
+                for h in field:
+                    h.next_node = node.finalbody[0] if node.finalbody else node.next_node
             elif isinstance(field, list):
                 # if a field is a list, each item but the last one continues with the next item
                 prev = None

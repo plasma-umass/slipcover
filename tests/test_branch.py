@@ -624,14 +624,19 @@ def test_try_except(star):
                 if y < 0:
                     y = 0
             except{star} RuntimeException:
-                y = 0
+                if y < 2:
+                    y = 0
+            except{star} FileNotFoundError:
+                if y < 2:
+                    y = 0
+
             return 2*y
     """)
 
 
     t = br.preinstrument(t)
     code = compile(t, "foo", "exec")
-    assert [(4,5), (4,8)] == get_branches(code)
+    assert [(4,5), (4,13), (7,8), (7,13), (10,11), (10,13)] == get_branches(code)
 
 
 def test_try_finally():
@@ -660,7 +665,8 @@ def test_try_else(star):
                 if y < 0:
                     y = 0
             except{star} RuntimeException:
-                y = -1
+                if y < 2:
+                    y = -1
             else:
                 y = 2*y
     """)
@@ -668,7 +674,7 @@ def test_try_else(star):
 
     t = br.preinstrument(t)
     code = compile(t, "foo", "exec")
-    assert [(4,5), (4,9)] == get_branches(code)
+    assert [(4,5), (4,10), (7,0), (7,8)] == get_branches(code)
 
 
 @pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
@@ -680,7 +686,8 @@ def test_try_else_finally(star):
                 if y < 0:
                     y = 0
             except{star} RuntimeException:
-                y = -1
+                if y < 2:
+                    y = -1
             else:
                 if y > 5:
                     y = 42
@@ -691,4 +698,4 @@ def test_try_else_finally(star):
 
     t = br.preinstrument(t)
     code = compile(t, "foo", "exec")
-    assert [(4,5), (4,9), (9,10), (9,12)] == get_branches(code)
+    assert [(4,5), (4,10), (7,8), (7,13), (10,11), (10,13)] == get_branches(code)
