@@ -104,7 +104,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
     # note that visit() doesn't guarantee any specific order.
     tree.next_node = None
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # no next node, yields (..., 0), i.e., "->exit" branch
             node.next_node = None
 
@@ -125,7 +125,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                             prev.next_node = item
                         prev = item
                 if prev:
-                    if isinstance(node, ast.For) or isinstance(node, ast.While):
+                    if isinstance(node, (ast.For, ast.While)):
                         prev.next_node = node   # loops back
                     else:
                         prev.next_node = node.next_node
