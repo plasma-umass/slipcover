@@ -473,6 +473,7 @@ class Slipcover:
                 if self.branch:
                     exec_b = len(f_info['executed_branches'])
                     miss_b = len(f_info['missing_branches'])
+                    pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
 
                 pct = f_info['summary']['percent_covered']
 
@@ -480,7 +481,7 @@ class Slipcover:
                     continue
 
                 yield [f, exec_l+miss_l, miss_l,
-                       *([exec_b+miss_b, miss_b] if self.branch else []),
+                       *([exec_b+miss_b, miss_b, round(pct_b)] if self.branch else []),
                        round(pct),
                        Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'],
                                                 f_info['missing_branches'] if 'missing_branches' in f_info else [])]
@@ -489,14 +490,20 @@ class Slipcover:
                 yield ['---'] + [''] * (6 if self.branch else 4)
 
                 s = cov['summary']
+
+                if self.branch:
+                    exec_b = s['covered_branches']
+                    miss_b = s['missing_branches']
+                    pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
+
                 yield ['(summary)', s['covered_lines']+s['missing_lines'], s['missing_lines'],
-                       *([s['covered_branches']+s['missing_branches'], s['missing_branches']] if self.branch else []),
+                       *([exec_b+miss_b, miss_b, round(pct_b)] if self.branch else []),
                        round(s['percent_covered']), '']
 
 
 
         print("", file=outfile)
-        headers = ["File", "#lines", "#l.miss", *(["#br.", "#br.miss"] if self.branch else []), "Cover%", "Missing"]
+        headers = ["File", "#lines", "#l.miss", *(["#br.", "#br.miss", "brCov%", "totCov%"] if self.branch else ["Cover%"]), "Missing"]
         maxcolwidths = [None] * (len(headers)-1) + [missing_width]
         print(tabulate(table(), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
 

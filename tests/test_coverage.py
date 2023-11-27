@@ -387,12 +387,13 @@ def test_print_coverage_branch(capsys):
     total_b = exec_b + miss_b
 
     pct = round(100*(exec_l+exec_b)/(total_l+total_b))
+    pct_b = round(100*exec_b/total_b)
 
     # TODO test more cases (multiple files, etc.)
     output = capsys.readouterr()[0]
     print(output)
     output = output.splitlines()
-    assert re.match(f'^foo\\.py +{total_l} +{miss_l} +{total_b} +{miss_b} +{pct}', output[3])
+    assert re.match(f'^foo\\.py +{total_l} +{miss_l} +{total_b} +{miss_b} +{pct_b} +{pct}', output[3])
 
 
 @pytest.mark.parametrize("do_branch", [True, False])
@@ -411,7 +412,7 @@ def test_print_coverage_zero_lines(do_branch, capsys):
     sci.print_coverage(sys.stdout)
     output = capsys.readouterr()[0]
     output = output.splitlines()
-    assert re.match(f'^foo\\.py +{"1" if PYTHON_VERSION < (3,11) else "0"} +0{" +0 +0" if do_branch else ""} +100', output[3])
+    assert re.match(f'^foo\\.py +{"1" if PYTHON_VERSION < (3,11) else "0"} +0{" +0 +0 +0" if do_branch else ""} +100', output[3])
 
 
 def test_print_coverage_skip_covered():
