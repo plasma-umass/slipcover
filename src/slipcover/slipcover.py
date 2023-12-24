@@ -415,6 +415,7 @@ class Slipcover:
                         'version': VERSION,
                         'timestamp': datetime.datetime.now().isoformat(),
                         'branch_coverage': self.branch,
+                        'show_contexts': False,
                     },
                     'files': files,
                     'summary': summary
