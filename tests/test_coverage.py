@@ -271,6 +271,7 @@ def test_meta_in_results(do_branch):
     assert sc.VERSION == meta['version']
     assert 'timestamp' in meta
     assert do_branch == meta['branch_coverage']
+    assert meta['show_contexts'] is False
 
 
 def test_get_coverage_detects_lines():
