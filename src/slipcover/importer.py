@@ -31,7 +31,7 @@ class SlipcoverLoader(Loader):
         import ast
         # branch coverage requires pre-instrumentation from source
         if self.sci.branch and isinstance(self.orig_loader, machinery.SourceFileLoader) and self.origin.exists():
-            t = br.preinstrument(ast.parse(self.origin.read_text()))
+            t = br.preinstrument(ast.parse(self.origin.read_bytes()))
             code = compile(t, str(self.origin), "exec")
         else:
             code = self.orig_loader.get_code(module.__name__)
