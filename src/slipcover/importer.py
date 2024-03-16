@@ -1,8 +1,9 @@
-from typing import Any
+from typing import Any, Optional
 from .slipcover import Slipcover, VERSION
 from . import branch as br
 from pathlib import Path
 import sys
+import sysconfig
 
 from importlib.abc import MetaPathFinder, Loader
 from importlib import machinery
@@ -43,15 +44,13 @@ class SlipcoverLoader(Loader):
 
 class FileMatcher:
     def __init__(self):
-        self.cwd = Path.cwd()
+        self.cwd = Path.cwd().resolve()
         self.sources = []
         self.omit = []
-
-        import inspect  # usually in Python lib
-        # pip is usually in site-packages; importing it causes warnings
-
-        self.pylib_paths = [Path(inspect.__file__).parent] + \
-                           [Path(p) for p in sys.path if (Path(p) / "pip").exists()]
+        self.pylib_paths = (
+            Path(sysconfig.get_path("stdlib")).resolve(),
+            Path(sysconfig.get_path("purelib")).resolve(),
+        )
 
     def addSource(self, source : Path):
         if isinstance(source, str):
@@ -66,7 +65,7 @@ class FileMatcher:
 
         self.omit.append(omit)
 
-    def matches(self, filename : Path):
+    def matches(self, filename : Optional[Path]):
         if filename is None:
             return False
 
@@ -74,10 +73,9 @@ class FileMatcher:
             if filename == 'built-in': return False     # can't instrument
             filename = Path(filename)
 
-        if filename.suffix in ('.pyd', '.so'): return False  # can't instrument DLLs
+        filename = filename.resolve()
 
-        if not filename.is_absolute():
-            filename = self.cwd / filename
+        if filename.suffix in ('.pyd', '.so'): return False  # can't instrument DLLs
 
         if self.omit:
             from fnmatch import fnmatch
@@ -85,12 +83,12 @@ class FileMatcher:
                 return False
 
         if self.sources:
-            return any(s in filename.parents for s in self.sources)
+            return any(filename.is_relative_to(s) for s in self.sources)
 
-        if any(p in self.pylib_paths for p in filename.parents):
+        if any(filename.is_relative_to(p) for p in self.pylib_paths):
             return False
 
-        return self.cwd in filename.parents
+        return filename.is_relative_to(self.cwd)
 
 
 class MatchEverything:
