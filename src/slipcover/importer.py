@@ -64,9 +64,7 @@ class FileMatcher:
     def addSource(self, source : Path):
         if isinstance(source, str):
             source = Path(source)
-        if not source.is_absolute():
-            source = self.cwd / source
-        self.sources.append(source)
+        self.sources.append(source.resolve())
 
     def addOmit(self, omit):
         if not omit.startswith('*'):

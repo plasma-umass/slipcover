@@ -62,6 +62,7 @@ def test_filematcher_defaults_from_root(return_to_dir):
     site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
     assert not fm.matches(site_packages / 'foo.py')
 
+
 def test_filematcher_source():
     from pathlib import Path
     cwd = str(Path.cwd())
@@ -92,6 +93,17 @@ def test_filematcher_source():
     # pip is usually in site-packages, but importing it causes warnings
     site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
     assert not fm.matches(site_packages / 'foo.py')
+
+
+def test_filematcher_source_resolved(monkeypatch):
+    from pathlib import Path
+    monkeypatch.chdir('tests')
+
+    fm = im.FileMatcher()
+    fm.addSource('../src/')
+
+    p = (Path.cwd() / '..' / 'src' / 'foo.py').resolve()
+    assert fm.matches(p)
 
 
 def test_filematcher_omit_pattern():
