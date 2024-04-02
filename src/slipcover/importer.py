@@ -8,6 +8,15 @@ import sysconfig
 from importlib.abc import MetaPathFinder, Loader
 from importlib import machinery
 
+
+if sys.version_info[0:2] < (3,9):
+    # Path.is_relative_to is new in Python 3.9
+    def is_relative_to(self: Path, other: str) -> bool:
+        other = Path(other)
+        return other == self or other in self.parents
+    setattr(Path, 'is_relative_to', is_relative_to)
+
+
 class SlipcoverLoader(Loader):
     def __init__(self, sci: Slipcover, orig_loader: Loader, origin: str):
         self.sci = sci                  # Slipcover object measuring coverage
