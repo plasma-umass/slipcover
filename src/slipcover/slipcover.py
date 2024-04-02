@@ -341,6 +341,44 @@ class Slipcover:
                         print(f"Warning: unable to include {filename}: {e}")
 
 
+    @staticmethod
+    def add_summaries(cov: dict) -> None:
+        """Adds (or updates) 'summary' entries in coverage information."""
+        # global summary
+        g_summary = defaultdict(int)
+        g_nom = g_den = 0
+
+        if 'files' in cov:
+            for f_cov in cov['files'].values():
+                summary = { # per-file summary
+                    'covered_lines': len(f_cov['executed_lines']),
+                    'missing_lines': len(f_cov['missing_lines']),
+                }
+
+                nom = summary['covered_lines']
+                den = nom + summary['missing_lines']
+
+                if 'executed_branches' in f_cov:
+                    summary.update({
+                        'covered_branches': len(f_cov['executed_branches']),
+                        'missing_branches': len(f_cov['missing_branches'])
+                    })
+
+                    nom += summary['covered_branches']
+                    den += summary['covered_branches'] + summary['missing_branches']
+
+                summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
+                f_cov['summary'] = summary
+
+                for k in summary:
+                    g_summary[k] += summary[k]
+                g_nom += nom
+                g_den += den
+
+        g_summary['percent_covered'] = 100.0 if g_den == 0 else 100*g_nom/g_den
+        cov['summary'] = g_summary
+
+
     def get_coverage(self):
         """Returns coverage information collected."""
 
@@ -369,57 +407,27 @@ class Slipcover:
                     'missing_lines': sorted(f_code_lines - lines_seen),
                 }
 
-                summary = f_files['summary'] = {
-                    'covered_lines': len(f_files['executed_lines']),
-                    'missing_lines': len(f_files['missing_lines']),
-                }
-
-                nom = summary['covered_lines']
-                den = nom + summary['missing_lines']
-
                 if self.branch:
                     f_files['executed_branches'] = sorted(branches_seen)
                     f_files['missing_branches'] = sorted(self.code_branches[f] - branches_seen)
-                    summary['covered_branches'] = len(f_files['executed_branches'])
-                    summary['missing_branches'] = len(f_files['missing_branches'])
-
-                    nom += summary['covered_branches']
-                    den += summary['covered_branches'] + summary['missing_branches']
-
-                # the check for den == 0 is just defensive programming... there's always at least 1 line
-                summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
 
                 files[simp.simplify(f)] = f_files
 
-            summary = {
-                'covered_lines': sum(files[fn]['summary']['covered_lines'] for fn in files),
-                'missing_lines': sum(files[fn]['summary']['missing_lines'] for fn in files)
-            }
-
-            nom = summary['covered_lines']
-            den = nom + summary['missing_lines']
-
-            if self.branch:
-                summary['covered_branches'] = sum(files[fn]['summary']['covered_branches'] for fn in files)
-                summary['missing_branches'] = sum(files[fn]['summary']['missing_branches'] for fn in files)
-
-                nom += summary['covered_branches']
-                den += summary['covered_branches'] + summary['missing_branches']
-
-            summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
-
             import datetime
 
-            return {'meta': {
-                        'software': 'slipcover',
-                        'version': VERSION,
-                        'timestamp': datetime.datetime.now().isoformat(),
-                        'branch_coverage': self.branch,
-                        'show_contexts': False,
-                    },
-                    'files': files,
-                    'summary': summary
+            cov = {
+                'meta': {
+                    'software': 'slipcover',
+                    'version': VERSION,
+                    'timestamp': datetime.datetime.now().isoformat(),
+                    'branch_coverage': self.branch,
+                    'show_contexts': False,
+                },
+                'files': files
             }
+
+            Slipcover.add_summaries(cov)
+            return cov
 
 
     @staticmethod
