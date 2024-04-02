@@ -689,3 +689,39 @@ def test_reports_on_other_sources(tmp_path):
     assert [1] == cov['files'][baz_file]['missing_lines']
     assert [] == cov['files'][baz_file]['executed_branches']
     assert [] == cov['files'][baz_file]['missing_branches']
+
+
+def test_resolves_other_sources(tmp_path):
+    from pathlib import Path
+    import subprocess
+    import json
+
+    out_file = tmp_path / "out.json"
+
+    subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {out_file} " +\
+                    f"--source tests/../tests/imported tests/importer.py").split(),
+                   check=True)
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    init_file = str(Path('tests') / 'imported' / '__init__.py')
+    foo_file = str(Path('tests') / 'imported' / 'foo.py')
+    baz_file = str(Path('tests') / 'imported' / 'subdir' / 'baz.PY')
+
+    assert init_file in cov['files']
+    assert [1,2,3,4,5,6,8] == cov['files'][init_file]['executed_lines']
+    assert [9] == cov['files'][init_file]['missing_lines']
+    assert [[3,4], [4,5], [4,6]] == cov['files'][init_file]['executed_branches']
+    assert [[3,6]] == cov['files'][init_file]['missing_branches']
+
+    assert foo_file in cov['files']
+    assert [] == cov['files'][foo_file]['executed_lines']
+    assert [1, 2, 3, 4, 5] == cov['files'][foo_file]['missing_lines']
+    assert [] == cov['files'][foo_file]['executed_branches']
+    assert [[3,4], [3,5]] == cov['files'][foo_file]['missing_branches']
+
+    assert baz_file in cov['files']
+    assert [] == cov['files'][baz_file]['executed_lines']
+    assert [1] == cov['files'][baz_file]['missing_lines']
+    assert [] == cov['files'][baz_file]['executed_branches']
+    assert [] == cov['files'][baz_file]['missing_branches']

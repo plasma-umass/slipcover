@@ -316,7 +316,7 @@ class Slipcover:
     def _add_unseen_source_files(self):
         import ast
 
-        dirs = [Path(d) for d in self.source]
+        dirs = [Path(d).resolve() for d in self.source]
 
         while dirs:
             p = dirs.pop()
