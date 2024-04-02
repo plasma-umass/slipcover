@@ -82,9 +82,9 @@ class FileMatcher:
             if filename == 'built-in': return False     # can't instrument
             filename = Path(filename)
 
-        filename = filename.resolve()
-
         if filename.suffix in ('.pyd', '.so'): return False  # can't instrument DLLs
+
+        filename = filename.resolve()
 
         if self.omit:
             from fnmatch import fnmatch
