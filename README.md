@@ -1,17 +1,17 @@
 ![slipcover](https://github.com/plasma-umass/slipcover/raw/main/docs/slipcover-logo.png)
 
-# Slipcover: Near Zero-Overhead Python Code Coverage
+# SlipCover: Near Zero-Overhead Python Code Coverage
 by [Juan Altmayer Pizzorno](https://jaltmayerpizzorno.github.io) and [Emery Berger](https://emeryberger.com)
 at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
 
 [![license](https://img.shields.io/github/license/plasma-umass/slipcover?color=blue)](LICENSE)
 [![pypi](https://img.shields.io/pypi/v/slipcover?color=blue)](https://pypi.org/project/slipcover/)
-[![Downloads](https://pepy.tech/badge/slipcover)](https://pepy.tech/project/slipcover)
+[![Downloads](https://static.pepy.tech/badge/slipcover)](https://pepy.tech/project/slipcover)
 ![pyversions](https://img.shields.io/pypi/pyversions/slipcover)
 ![tests](https://github.com/jaltmayerpizzorno/slipcover/workflows/tests/badge.svg)
 
 ## About Slipcover
-Slipcover is a fast [code coverage](https://en.wikipedia.org/wiki/Code_coverage) tool.
+SlipCover is a fast [code coverage](https://en.wikipedia.org/wiki/Code_coverage) tool.
 It tracks a Python program as it runs and reports on the parts that executed and
 those that didn't.
 That can help guide your testing (showing code that isn't being tested), debugging,
@@ -19,26 +19,30 @@ That can help guide your testing (showing code that isn't being tested), debuggi
 
 Past code coverage tools can make programs significantly slower;
 it is not uncommon for them to take twice as long to execute.
-Slipcover aims to provide the same information with **near-zero overhead**, often 
+SlipCover aims to provide the same information with **near-zero overhead**, often 
 almost as fast as running the original Python program.
 
 ### How it works
 Previous coverage tools like [Coverage.py](https://github.com/nedbat/coveragepy) rely on 
 [Python's tracing facilities](https://docs.python.org/3/library/sys.html?highlight=settrace#sys.settrace),
 which add significant overhead.
-Instead, Slipcover uses just-in-time instrumentation and de-instrumentation.
-When Slipcover gathers coverage information, it modifies the program's Python byte codes,
+Instead, SlipCover uses just-in-time instrumentation and de-instrumentation.
+When SlipCover gathers coverage information, it modifies the program's Python byte codes,
 inserting instructions that let it keep track the lines executed by the program.
-As the program executes, Slipcover gradually removes instrumentation that
+As the program executes, SlipCover gradually removes instrumentation that
 is no longer needed, allowing those parts to run at full speed.
-Care is taken throughout Slipcover to keep things as efficient as possible.
+Care is taken throughout SlipCover to keep things as efficient as possible.
+On Python 3.12, rather than rewrite bytecode, SlipCover uses the new
+[`sys.monitoring`](https://docs.python.org/3.12/library/sys.monitoring.html) API
+to collect coverage information.
+
 
 ### Performance
 <img src="benchmarks/cpython.png?raw=True" align="right" width="65%"/>
 <img src="benchmarks/pypy.png?raw=True" align="right" width="65%"/>
 
 [//]: # (CPython-range)
-The first image on the right shows Slipcover's [speedup](https://en.wikipedia.org/wiki/Speedup),
+The first image on the right shows SlipCover's [speedup](https://en.wikipedia.org/wiki/Speedup),
 ranging from 1.1x to 3.4x, in relation to [Coverage.py](https://github.com/nedbat/coveragepy), running on
 [CPython 3.10.5](https://github.com/python/cpython).
 
@@ -51,7 +55,7 @@ while the others were derived from the
 More "Python-intensive" programs such as sudoku and those from the benchmark
 suite (with a larger proportion of execution time spent in Python, rather than in native code)
 generate more tracing events, causing more overhead in Coverage.py.
-While each program's structure can affect Slipcover's ability to de-instrument,
+While each program's structure can affect SlipCover's ability to de-instrument,
 its running time stays relatively close to the original.
 
 [//]: # (PyPy-range)
@@ -59,15 +63,15 @@ On [PyPy 3.9](https://pypy.org), the speedup ranges from 2.1x to 104.9x.
 Since it is so high for some of the benchmarks, we plot it on a logarithmic scale (see the second image on the right).
 
 In a proof-of-concept integration with a property-based testing package,
-Slipcover sped up coverage-based testing 22x.
+SlipCover sped up coverage-based testing 22x.
 
 ### Accuracy
-We verified Slipcover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
+We verified SlipCover's accuracy against [Coverage.py](https://github.com/nedbat/coveragepy)
 and against a [simple script](tools/oracle.py) of our own that collects coverage using Python tracing.
-We found Slipcover's results to be accurate, in fact, in certain cases [more accurate](https://github.com/nedbat/coveragepy/issues/1358).
+We found SlipCover's results to be accurate, in fact, in certain cases [more accurate](https://github.com/nedbat/coveragepy/issues/1358).
 
 ## Getting started
-Slipcover is available from [PyPI](https://pypi.org/project/slipcover).
+SlipCover is available from [PyPI](https://pypi.org/project/slipcover).
 You can install it like any other Python module with
 ```console
 pip3 install slipcover
@@ -79,7 +83,7 @@ python3 -m slipcover myscript.py
 ```
 
 ### Using it with a test harness
-Slipcover can also execute a Python module, as in:
+SlipCover can also execute a Python module, as in:
 ```console
 python3 -m slipcover -m pytest -x -v
 ```
@@ -126,9 +130,12 @@ Our GitHub workflows run the automated test suite on Linux, MacOS and Windows, b
 really it should work anywhere where CPython/PyPy does.
 
 ## Contributing
-Slipcover is alpha software, and under active development.
-Please feel free to [create a new issue](https://github.com/jaltmayerpizzorno/slipcover/issues/new)
+SlipCover is under active development; contributions are welcome!
+Please also feel free to [create a new issue](https://github.com/jaltmayerpizzorno/slipcover/issues/new)
 with any suggestions or issues you may encounter.
+
+## Technical Information
+For more details about how SlipCover works please see the following paper, published at [ISSTA'23](https://conf.researchr.org/home/issta-2023): [SlipCover: Near Zero-Overhead Code Coverage for Python](https://arxiv.org/pdf/2305.02886).
 
 # Acknowledgements
 

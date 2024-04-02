@@ -17,8 +17,6 @@ class Probe {
     bool _signalled;
     bool _removed;
     int _d_miss_count;
-    int _u_miss_count;
-    int _no_signal_count;
     int _d_miss_threshold;
     std::byte* _code;
 
@@ -27,7 +25,7 @@ public:
         _sci(PyPtr<>::borrowed(sci)), _filename(PyPtr<>::borrowed(filename)),
         _lineno_or_branch(PyPtr<>::borrowed(lineno_or_branch)),
         _signalled(false), _removed(false),
-        _d_miss_count(-1), _u_miss_count(0), _no_signal_count(0),
+        _d_miss_count(-1),
         _d_miss_threshold(PyLong_AsLong(d_miss_threshold)), _code(nullptr) {}
 
 
@@ -84,15 +82,9 @@ public:
             }
         }
         else {
-            ++_u_miss_count;
+            // U miss
         }
 
-        Py_RETURN_NONE;
-    }
-
-
-    PyObject* no_signal() {
-        ++_no_signal_count;
         Py_RETURN_NONE;
     }
 
@@ -107,15 +99,6 @@ public:
             Py_RETURN_TRUE;
         }
         Py_RETURN_FALSE;
-    }
-
-    PyObject* get_stats() {
-        PyPtr<> d_miss_count = PyLong_FromLong(std::max(_d_miss_count, 0));
-        PyPtr<> u_miss_count = PyLong_FromLong(_u_miss_count);
-        PyPtr<> total_count = PyLong_FromLong(1 + _d_miss_count + _u_miss_count + _no_signal_count);
-        return PyTuple_Pack(5, (PyObject*)_filename, (PyObject*)_lineno_or_branch,
-                            (PyObject*)d_miss_count, (PyObject*)u_miss_count,
-                            (PyObject*)total_count);
     }
 
     PyObject* set_immediate(PyObject* code_bytes, PyObject* offset) {
@@ -168,20 +151,16 @@ probe_set_immediate(PyObject* self, PyObject* const* args, Py_ssize_t nargs) {
     }
 
 METHOD_WRAPPER(signal);
-METHOD_WRAPPER(no_signal);
 METHOD_WRAPPER(mark_removed);
 METHOD_WRAPPER(was_removed);
-METHOD_WRAPPER(get_stats);
 
 
 static PyMethodDef methods[] = {
     {"new", (PyCFunction)probe_new, METH_FASTCALL, "creates a new probe"},
     {"set_immediate", (PyCFunction)probe_set_immediate, METH_FASTCALL, "sets up for immediate removal"},
     {"signal", (PyCFunction)probe_signal, METH_FASTCALL, "signals this probe's line or branch was reached"},
-    {"no_signal", (PyCFunction)probe_no_signal, METH_FASTCALL, "like signal, but called only after this probe is removed"},
     {"mark_removed", (PyCFunction)probe_mark_removed, METH_FASTCALL, "marks a probe removed (de-instrumented)"},
     {"was_removed", (PyCFunction)probe_was_removed, METH_FASTCALL, "returns whether probe was removed"},
-    {"get_stats", (PyCFunction)probe_get_stats, METH_FASTCALL, "returns probe stats"},
     {NULL, NULL, 0, NULL}
 };
 

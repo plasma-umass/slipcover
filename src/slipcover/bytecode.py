@@ -2,15 +2,13 @@ from __future__ import annotations
 import sys
 import dis
 import types
-from typing import List
-
-PYTHON_VERSION = sys.version_info[0:2]
+from typing import List, Tuple
 
 # FIXME provide __all__
 
 # Python 3.10a7 changed branch opcodes' argument to mean instruction
 # (word) offset, rather than bytecode offset.
-if PYTHON_VERSION >= (3,10):
+if sys.version_info >= (3,10):
     def offset2branch(offset: int) -> int:
         assert offset % 2 == 0
         return offset//2
@@ -30,13 +28,15 @@ is_EXTENDED_ARG = [op_EXTENDED_ARG]
 op_LOAD_CONST = dis.opmap["LOAD_CONST"]
 op_LOAD_GLOBAL = dis.opmap["LOAD_GLOBAL"]
 
-if PYTHON_VERSION >= (3,11):
+if sys.version_info >= (3,11):
+    op_RESUME = dis.opmap["RESUME"]
     op_PUSH_NULL = dis.opmap["PUSH_NULL"]
     op_PRECALL = dis.opmap["PRECALL"]
     op_CALL = dis.opmap["CALL"]
     op_CACHE = dis.opmap["CACHE"]
     is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])
 else:
+    op_RESUME = None
     op_PUSH_NULL = None
     op_CALL_FUNCTION = dis.opmap["CALL_FUNCTION"]
 
@@ -62,12 +62,12 @@ def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
             [op_EXTENDED_ARG, (arg >> (ext - i) * 8) & 0xFF]
         )
     bytecode.extend([opcode, arg & 0xFF])
-    if PYTHON_VERSION >= (3,11):
+    if sys.version_info >= (3,11):
         bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])
     return bytecode
 
 
-def unpack_opargs(code: bytes) -> List[(int, int, int, int)]:
+def unpack_opargs(code: bytes) -> Tuple[int, int, int, int]:
     """Unpacks opcodes and their arguments, returning:
 
     - the beginning offset, including that of the first EXTENDED_ARG, if any
@@ -84,7 +84,7 @@ def unpack_opargs(code: bytes) -> List[(int, int, int, int)]:
             ext_arg = (ext_arg | code[off+1]) << 8
         else:
             arg = (ext_arg | code[off+1])
-            if PYTHON_VERSION >= (3,11):
+            if sys.version_info >= (3,11):
                 while off+2 < len(code) and code[off+2] == op_CACHE:
                     off += 2
             yield (next_off, off+2-next_off, op, arg)
@@ -153,7 +153,7 @@ class Branch:
 
         return change
 
-    def code(self) -> bytes:
+    def code(self) -> List[int]:
         """Emits this branch's code."""
         assert self.length >= 2 + 2*arg_ext_needed(self.arg())
         return opcode_arg(self.opcode, self.arg(), (self.length-2)//2)
@@ -237,7 +237,7 @@ class ExceptionTableEntry:
     def from_code(code: types.CodeType) -> List[ExceptionTableEntry]:
         """Returns a list of exception table entries from a code object."""
 
-        if PYTHON_VERSION < (3,11): return []
+        if sys.version_info < (3,11): return []
 
         entries = []
         it = iter(code.co_exceptiontable)
@@ -343,7 +343,7 @@ class LineEntry:
         return bytes(lnotab)
 
 
-    if PYTHON_VERSION == (3,10):
+    if sys.version_info >= (3,9) and sys.version_info < (3,11): # 3.10
         @staticmethod
         def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
             """Generates the line number table used by Python 3.10 to map offsets to line numbers."""
@@ -391,7 +391,7 @@ class LineEntry:
             return bytes(linetable)
 
 
-    if PYTHON_VERSION >= (3,11):
+    if sys.version_info >= (3,11):
         @staticmethod
         def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
             """Generates the positions table used by Python 3.11+ to map offsets to line numbers."""
@@ -488,7 +488,7 @@ class Editor:
 
         insert = bytearray()
 
-        if PYTHON_VERSION >= (3,11):
+        if sys.version_info >= (3,11):
             insert.extend([op_NOP, 0,    # for disabling
                            op_PUSH_NULL, 0] +
                           opcode_arg(op_LOAD_CONST, function))
@@ -535,8 +535,8 @@ class Editor:
         return bytes_added
 
 
-    def find_const_assignments(self, var_prefix, start=0, end=None):
-        """Finds STORE_NAME assignments to variables with the given prefix,
+    def find_const_assignments(self, var_name, start=0, end=None):
+        """Finds STORE_NAME assignments to the given variable,
            coming from an immediately preceding LOAD_CONST.
         """
         load_off = None
@@ -547,7 +547,7 @@ class Editor:
 
             elif load_off is not None:
                 if op in [op_STORE_NAME, op_STORE_GLOBAL] \
-                   and self.orig_code.co_names[arg].startswith(var_prefix):
+                   and self.orig_code.co_names[arg] == var_name:
                     yield (load_off, op_off+start+op_len, const_arg)
 
                 load_off = None
@@ -588,85 +588,6 @@ class Editor:
 
         assert self.patch[offset] == op_NOP
         self.patch[offset] = op_JUMP_FORWARD
-
-
-    def replace_inserted_function(self, offset, new_func_index):
-        """Replaces an inserted function by another function."""
-
-        assert not self.finished
-
-        if self.patch is None:
-            self.patch = bytearray(self.orig_code.co_code)
-
-        assert self.patch[offset] == op_NOP
-
-        it = iter(unpack_opargs(self.patch[offset:]))
-        next(it) # NOP
-        op_offset, op_len, op, op_arg = next(it)
-        if op == op_PUSH_NULL:
-            op_offset, op_len, op, op_arg = next(it)
-
-        assert op == op_LOAD_CONST
-
-        # FIXME to create a same-length replacement, we need to use the same number
-        # of EXTENDED_ARG opcodes used to encode op_arg; but arg_ext_needed gives us
-        # how many are needed at a minimum, not how many were actually used.
-        # Usually these are the same, but it's possible that unnecessary ones were used.
-        replacement = opcode_arg(op, new_func_index, arg_ext_needed(op_arg))
-        assert len(replacement) == op_len
-
-        op_offset += offset # we unpacked from co.co_code[offset:]
-        self.patch[op_offset:op_offset+op_len] = replacement
-
-
-    def replace_global_with_const(self, global_name, const_index):
-        """Replaces a global name lookup by a constant load."""
-        assert not self.finished
-
-        if self.patch is None:
-            self.patch = bytearray(self.orig_code.co_code)
-
-        if self.branches is None:
-            self.branches = Branch.from_code(self.orig_code)
-            self.ex_table = ExceptionTableEntry.from_code(self.orig_code)
-            self.lines = LineEntry.from_code(self.orig_code)
-
-        if global_name in self.orig_code.co_names:
-            name_index = self.orig_code.co_names.index(global_name)
-
-            def find_load_globals():
-                for op_off, op_len, op, op_arg in unpack_opargs(self.patch):
-                    if op == op_LOAD_GLOBAL:
-                        if PYTHON_VERSION >= (3,11):
-                            if (op_arg>>1) == name_index:
-                                yield (op_off, op_len, op, op_arg)
-                        else:
-                            if op_arg == name_index:
-                                yield (op_off, op_len, op, op_arg)
-
-            delta = 0
-            # read from pre-computed list() below so we can modify on the fly
-            for op_off, op_len, op, op_arg in list(find_load_globals()):
-                repl = bytearray()
-                if sys.version_info[0:2] >= (3,11) and op_arg&1:
-                    repl.extend(opcode_arg(dis.opmap['PUSH_NULL'], 0))
-                repl.extend(opcode_arg(op_LOAD_CONST, const_index))
-
-                op_off += delta     # adjust for any other changes
-                self.patch[op_off:op_off+op_len] = repl
-
-                change = len(repl) - op_len
-                if change:
-                    for l in self.lines:
-                        l.adjust(op_off, change)
-
-                    for b in self.branches:
-                        b.adjust(op_off, change)
-
-                    for e in self.ex_table:
-                        e.adjust(op_off, change)
-
-                delta += change
 
 
     def _finish(self):
@@ -731,12 +652,12 @@ class Editor:
             replace["co_code"] = bytes(self.patch)
 
         if self.branches is not None:
-            if PYTHON_VERSION < (3,10):
+            if sys.version_info < (3,10):
                 replace["co_lnotab"] = LineEntry.make_lnotab(self.orig_code.co_firstlineno, self.lines)
             else:
                 replace["co_linetable"] = LineEntry.make_linetable(self.orig_code.co_firstlineno, self.lines)
 
-                if PYTHON_VERSION >= (3,11):
+                if sys.version_info >= (3,11):
                     replace["co_exceptiontable"] = ExceptionTableEntry.make_exceptiontable(self.ex_table)
 
         return self.orig_code.replace(**replace)

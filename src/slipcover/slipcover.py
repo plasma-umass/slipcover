@@ -2,15 +2,18 @@ from __future__ import annotations
 import sys
 import dis
 import types
-from typing import Dict, Set, List
+from typing import Dict, Set, List, Tuple
 from collections import defaultdict, Counter
 import threading
-from . import probe
-from . import bytecode as bc
-from . import branch as br
-from pathlib import Path
 
-VERSION = "0.3.1"
+if sys.version_info[0:2] < (3,12):
+    from . import probe
+    from . import bytecode as bc
+
+from pathlib import Path
+from . import branch as br
+
+VERSION = "1.0.3"
 
 # FIXME provide __all__
 
@@ -19,6 +22,10 @@ if sys.version_info[0:2] < (3,10):
     def counter_total(self: Counter) -> int:
         return sum([self[n] for n in self])
     setattr(Counter, 'total', counter_total)
+
+
+if sys.version_info[0:2] >= (3,12):
+    _op_RESUME = dis.opmap["RESUME"]
 
 
 class PathSimplifier:
@@ -34,29 +41,22 @@ class PathSimplifier:
 
 
 class Slipcover:
-    def __init__(self, collect_stats: bool = False, immediate: bool = False,
+    def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False, skip_covered: bool = False,
-                 disassemble: bool = False):
-        self.collect_stats = collect_stats
+                 disassemble: bool = False, source: List[str] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.skip_covered = skip_covered
         self.disassemble = disassemble
+        self.source = source
 
         # mutex protecting this state
         self.lock = threading.RLock()
 
-        # maps to guide CodeType replacements
-        self.replace_map: Dict[types.CodeType, types.CodeType] = dict()
-        self.instrumented: Dict[str, set] = defaultdict(set)
-
         # notes which code lines have been instrumented
         self.code_lines: Dict[str, set] = defaultdict(set)
         self.code_branches: Dict[str, set] = defaultdict(set)
-
-        # provides an index (line_or_branch -> offset) for each code object
-        self.code2index: Dict[types.CodeType, list] = dict()
 
         # notes which lines and branches have been seen.
         self.all_seen: Dict[str, set] = defaultdict(set)
@@ -64,8 +64,28 @@ class Slipcover:
         # notes lines/branches seen since last de-instrumentation
         self._get_newly_seen()
 
+        if sys.version_info[0:2] >= (3,12):
+            def handle_line(code, line):
+                if br.is_branch(line):
+                    self.newly_seen[code.co_filename].add(br.decode_branch(line))
+                elif line:
+                    self.newly_seen[code.co_filename].add(line)
+                return sys.monitoring.DISABLE
+
+            if sys.monitoring.get_tool(sys.monitoring.COVERAGE_ID) != "SlipCover":
+                sys.monitoring.use_tool_id(sys.monitoring.COVERAGE_ID, "SlipCover") # FIXME add free_tool_id
+
+            sys.monitoring.register_callback(sys.monitoring.COVERAGE_ID,
+                                             sys.monitoring.events.LINE, handle_line)
+        else:
+            # maps to guide CodeType replacements
+            self.replace_map: Dict[types.CodeType, types.CodeType] = dict()
+            self.instrumented: Dict[str, set] = defaultdict(set)
+
+            # provides an index (line_or_branch -> offset) for each code object
+            self.code2index: Dict[types.CodeType, list] = dict()
+
         self.modules = []
-        self.all_probes = []
 
     def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
@@ -82,101 +102,165 @@ class Slipcover:
         return newly_seen
 
 
-    def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
-        """Instruments a code object for coverage detection.
+    if sys.version_info[0:2] >= (3,12):
+        @staticmethod
+        def lines_from_code(co: types.CodeType) -> Iterator[int]:
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    yield from Slipcover.lines_from_code(c)
 
-        If invoked on a function, instruments its code.
-        """
+            # Python 3.11+ generates a line just for RESUME
+            yield from (line for off, line in dis.findlinestarts(co)
+                        if not br.is_branch(line) and co.co_code[off] != _op_RESUME)
 
-        if isinstance(co, types.FunctionType):
-            co.__code__ = self.instrument(co.__code__)
-            return co.__code__
 
-        assert isinstance(co, types.CodeType)
-        # print(f"instrumenting {co.co_name}")
+        @staticmethod
+        def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    yield from Slipcover.branches_from_code(c)
 
-        ed = bc.Editor(co)
+            yield from (br.decode_branch(line) for off, line in dis.findlinestarts(co) if br.is_branch(line))
 
-        # handle functions-within-functions
-        for i, c in enumerate(co.co_consts):
-            if isinstance(c, types.CodeType):
-                ed.set_const(i, self.instrument(c, co))
+    else:
+        @staticmethod
+        def lines_from_code(co: types.CodeType) -> Iterator[int]:
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    yield from Slipcover.lines_from_code(c)
 
-        ed.add_const(probe.no_signal)   # used during de-instrumentation
-        probe_signal_index = ed.add_const(probe.signal)
+            # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
+            yield from (line for off, line in dis.findlinestarts(co) if line != 0 and co.co_code[off] != bc.op_RESUME)
 
-        off_list = list(dis.findlinestarts(co))
-        if self.branch:
-            off_list.extend(list(ed.find_const_assignments(br.BRANCH_NAME)))
-            # sort line probes (2-tuples) before branch probes (3-tuples) because
-            # line probes don't overwrite bytecode like branch probes do, so if there
-            # are two being inserted at the same offset, the accumulated offset 'delta' applies
-            off_list.sort(key = lambda x: (x[0], len(x)))
 
-        branch_set = set()
-        insert_labels = []
-        probes = []
+        @staticmethod
+        def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    yield from Slipcover.branches_from_code(c)
 
-        delta = 0
-        for off_item in off_list:
-            if len(off_item) == 2: # from findlinestarts
-                offset, lineno = off_item
-                if lineno == 0: continue    # Python 3.11.0b4 generates a 0th line
+            ed = bc.Editor(co)
+            for _, _, br_index in ed.find_const_assignments(br.BRANCH_NAME):
+                yield co.co_consts[br_index]
 
-                # Can't insert between an EXTENDED_ARG and the final opcode
-                if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
-                    while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
-                        offset += 2 # TODO will we overtake the next offset from findlinestarts?
 
-                insert_labels.append(lineno)
+    if sys.version_info[0:2] >= (3,12):
+        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+            """Instruments a code object for coverage detection.
 
-                tr = probe.new(self, co.co_filename, lineno, self.d_miss_threshold)
-                probes.append(tr)
-                tr_index = ed.add_const(tr)
+            If invoked on a function, instruments its code.
+            """
 
-                delta += ed.insert_function_call(offset+delta, probe_signal_index, (tr_index,))
+            if isinstance(co, types.FunctionType):
+                co = co.__code__
 
-            else: # from find_const_assignments
-                begin_off, end_off, branch_index = off_item
-                branch = co.co_consts[branch_index]
+            assert isinstance(co, types.CodeType)
+            # print(f"instrumenting {co.co_name}")
 
-                branch_set.add(branch)
-                insert_labels.append(branch)
+            sys.monitoring.set_local_events(sys.monitoring.COVERAGE_ID, co, sys.monitoring.events.LINE)
 
-                tr = probe.new(self, co.co_filename, branch, self.d_miss_threshold)
-                probes.append(tr)
-                ed.set_const(branch_index, tr)
-
-                delta += ed.insert_function_call(begin_off+delta, probe_signal_index, (branch_index,),
-                                                 repl_length = end_off-begin_off)
-
-        ed.add_const('__slipcover__')  # mark instrumented
-        new_code = ed.finish()
-
-        if self.disassemble:
-            dis.dis(new_code)
-
-        if self.collect_stats:
-            self.all_probes.extend(probes)
-
-        if self.immediate:
-            for tr, off in zip(probes, ed.get_inserts()):
-                probe.set_immediate(tr, new_code.co_code, off)
-        else:
-            index = list(zip(ed.get_inserts(), insert_labels))
-
-        with self.lock:
-            # Python 3.11.0b4 generates a 0th line
-            self.code_lines[co.co_filename].update(line[1] for line in dis.findlinestarts(co) if line[1] != 0)
-            self.code_branches[co.co_filename].update(branch_set)
+            # handle functions-within-functions
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    self.instrument(c, co)
 
             if not parent:
-                self.instrumented[co.co_filename].add(new_code)
+                with self.lock:
+                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co))
+                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co))
 
-            if not self.immediate:
-                self.code2index[new_code] = index
+            return co
 
-        return new_code
+    else:
+        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+            """Instruments a code object for coverage detection.
+
+            If invoked on a function, instruments its code.
+            """
+
+            if isinstance(co, types.FunctionType):
+                co.__code__ = self.instrument(co.__code__)
+                return co.__code__
+
+            assert isinstance(co, types.CodeType)
+            # print(f"instrumenting {co.co_name}")
+
+            ed = bc.Editor(co)
+
+            # handle functions-within-functions
+            for i, c in enumerate(co.co_consts):
+                if isinstance(c, types.CodeType):
+                    ed.set_const(i, self.instrument(c, co))
+
+            probe_signal_index = ed.add_const(probe.signal)
+
+            off_list = list(dis.findlinestarts(co))
+            if self.branch:
+                off_list.extend(list(ed.find_const_assignments(br.BRANCH_NAME)))
+                # sort line probes (2-tuples) before branch probes (3-tuples) because
+                # line probes don't overwrite bytecode like branch probes do, so if there
+                # are two being inserted at the same offset, the accumulated offset 'delta' applies
+                off_list.sort(key = lambda x: (x[0], len(x)))
+
+            insert_labels = []
+            probes = []
+
+            delta = 0
+            for off_item in off_list:
+                if len(off_item) == 2: # from findlinestarts
+                    offset, lineno = off_item
+                    if lineno == 0 or co.co_code[offset] == bc.op_RESUME:
+                        continue
+
+                    # Can't insert between an EXTENDED_ARG and the final opcode
+                    if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                        while (offset < len(co.co_code) and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
+                            offset += 2 # TODO will we overtake the next offset from findlinestarts?
+
+                    insert_labels.append(lineno)
+
+                    tr = probe.new(self, co.co_filename, lineno, self.d_miss_threshold)
+                    probes.append(tr)
+                    tr_index = ed.add_const(tr)
+
+                    delta += ed.insert_function_call(offset+delta, probe_signal_index, (tr_index,))
+
+                else: # from find_const_assignments
+                    begin_off, end_off, branch_index = off_item
+                    branch = co.co_consts[branch_index]
+
+                    insert_labels.append(branch)
+
+                    tr = probe.new(self, co.co_filename, branch, self.d_miss_threshold)
+                    probes.append(tr)
+                    ed.set_const(branch_index, tr)
+
+                    delta += ed.insert_function_call(begin_off+delta, probe_signal_index, (branch_index,),
+                                                     repl_length = end_off-begin_off)
+
+            ed.add_const('__slipcover__')  # mark instrumented
+            new_code = ed.finish()
+
+            if self.disassemble:
+                dis.dis(new_code)
+
+            if self.immediate:
+                for tr, off in zip(probes, ed.get_inserts()):
+                    probe.set_immediate(tr, new_code.co_code, off)
+            else:
+                index = list(zip(ed.get_inserts(), insert_labels))
+
+            with self.lock:
+                if not parent:
+                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co))
+                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co))
+
+                    self.instrumented[co.co_filename].add(new_code)
+
+                if not self.immediate:
+                    self.code2index[new_code] = index
+
+            return new_code
 
 
     def deinstrument(self, co, lines: set) -> types.CodeType:
@@ -210,15 +294,7 @@ class Slipcover:
                 func_index, func_arg_index, *_ = func
                 if co_consts[func_index] == probe.signal:
                     probe.mark_removed(co_consts[func_arg_index])
-
-                    if self.collect_stats:
-                        # If collecting stats, rather than disabling the probe, we switch to
-                        # calling the 'probe.no_signal' function on it (which we conveniently added
-                        # to the consts before probe.signal, during instrumentation), so that
-                        # we have the total execution count needed for the reports.
-                        ed.replace_inserted_function(offset, func_index-1)
-                    else:
-                        ed.disable_inserted_function(offset)
+                    ed.disable_inserted_function(offset)
 
         new_code = ed.finish()
         if new_code is co:
@@ -237,6 +313,34 @@ class Slipcover:
         return new_code
 
 
+    def _add_unseen_source_files(self):
+        import ast
+
+        dirs = [Path(d) for d in self.source]
+
+        while dirs:
+            p = dirs.pop()
+            for file in p.iterdir():
+                if file.is_dir():
+                    dirs.append(file)   # walk this directory, too
+
+                elif file.is_file() and file.suffix.lower() == '.py':
+                    file = file.absolute()
+                    filename = str(file)
+                    try:
+                        if filename not in self.code_lines:
+                            t = ast.parse(file.read_text())
+                            if self.branch:
+                                t = br.preinstrument(t)
+                            code = compile(t, filename, "exec")
+                            self.code_lines[filename] = set(Slipcover.lines_from_code(code))
+                            if self.branch:
+                                self.code_branches[filename] = set(Slipcover.branches_from_code(code))
+
+                    except Exception as e: # for SyntaxError and such... FIXME curate list and catch only those
+                        print(f"Warning: unable to include {filename}: {e}")
+
+
     def get_coverage(self):
         """Returns coverage information collected."""
 
@@ -247,17 +351,10 @@ class Slipcover:
             for file, lines in newly_seen.items():
                 self.all_seen[file].update(lines)
 
-            simp = PathSimplifier()
+            if self.source:
+                self._add_unseen_source_files()
 
-            if self.collect_stats:
-                d_misses = defaultdict(Counter)
-                u_misses = defaultdict(Counter)
-                totals = defaultdict(Counter)
-                for p in self.all_probes:
-                    filename, lineno, d_miss_count, u_miss_count, total_count = probe.get_stats(p)
-                    if d_miss_count: d_misses[filename].update({lineno: d_miss_count})
-                    if u_miss_count: u_misses[filename].update({lineno: u_miss_count})
-                    totals[filename].update({lineno: total_count})
+            simp = PathSimplifier()
 
             files = dict()
             for f, f_code_lines in self.code_lines.items():
@@ -292,21 +389,6 @@ class Slipcover:
                 # the check for den == 0 is just defensive programming... there's always at least 1 line
                 summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
 
-                if self.collect_stats:
-                    # Once a line reports in, it's available for deinstrumentation.
-                    # Each time it reports in after that, we consider it a miss (like a cache miss).
-                    # We differentiate between (de-instrument) "D misses", where a line
-                    # reports in after it _could_ have been de-instrumented and (use) "U misses"
-                    # and where a line reports in after it _has_ been de-instrumented, but
-                    # didn't use the code object where it's deinstrumented.
-                    f_files['stats'] = {
-                        'd_misses_pct': round(d_misses[f].total()/totals[f].total()*100, 1),
-                        'u_misses_pct': round(u_misses[f].total()/totals[f].total()*100, 1),
-                        'top_d_misses': [f"{it[0]}:{it[1]}" for it in d_misses[f].most_common(5)],
-                        'top_u_misses': [f"{it[0]}:{it[1]}" for it in u_misses[f].most_common(5)],
-                        'top_lines': [f"{it[0]}:{it[1]}" for it in totals[f].most_common(5)],
-                    }
-
                 files[simp.simplify(f)] = f_files
 
             summary = {
@@ -333,6 +415,7 @@ class Slipcover:
                         'version': VERSION,
                         'timestamp': datetime.datetime.now().isoformat(),
                         'branch_coverage': self.branch,
+                        'show_contexts': False,
                     },
                     'files': files,
                     'summary': summary
@@ -342,14 +425,15 @@ class Slipcover:
     @staticmethod
     def format_missing(missing_lines: List[int], executed_lines: List[int],
                        missing_branches: List[tuple]) -> List[str]:
+        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
+           between missed ones"""
+
         missing_set = set(missing_lines)
         missing_branches = [(a,b) for a,b in missing_branches if a not in missing_set and b not in missing_set]
 
         def format_branch(br):
             return f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
 
-        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
-           between missed ones"""
         def find_ranges():
             executed = set(executed_lines)
             it = iter(missing_lines)    # assumed sorted
@@ -382,14 +466,15 @@ class Slipcover:
 
         from tabulate import tabulate
 
-        def table(files):
-            for f, f_info in sorted(files.items()):
+        def table():
+            for f, f_info in sorted(cov['files'].items()):
                 exec_l = len(f_info['executed_lines'])
                 miss_l = len(f_info['missing_lines'])
 
                 if self.branch:
                     exec_b = len(f_info['executed_branches'])
                     miss_b = len(f_info['missing_branches'])
+                    pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
 
                 pct = f_info['summary']['percent_covered']
 
@@ -397,31 +482,31 @@ class Slipcover:
                     continue
 
                 yield [f, exec_l+miss_l, miss_l,
-                       *([exec_b+miss_b, miss_b] if self.branch else []),
+                       *([exec_b+miss_b, miss_b, round(pct_b)] if self.branch else []),
                        round(pct),
                        Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'],
                                                 f_info['missing_branches'] if 'missing_branches' in f_info else [])]
 
+            if len(cov['files']) > 1:
+                yield ['---'] + [''] * (6 if self.branch else 4)
+
+                s = cov['summary']
+
+                if self.branch:
+                    exec_b = s['covered_branches']
+                    miss_b = s['missing_branches']
+                    pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
+
+                yield ['(summary)', s['covered_lines']+s['missing_lines'], s['missing_lines'],
+                       *([exec_b+miss_b, miss_b, round(pct_b)] if self.branch else []),
+                       round(s['percent_covered']), '']
+
+
+
         print("", file=outfile)
-        headers = ["File", "#lines", "#l.miss", *(["#br.", "#br.miss"] if self.branch else []), "Cover%", "Missing"]
+        headers = ["File", "#lines", "#l.miss", *(["#br.", "#br.miss", "brCov%", "totCov%"] if self.branch else ["Cover%"]), "Missing"]
         maxcolwidths = [None] * (len(headers)-1) + [missing_width]
-        print(tabulate(table(cov['files']), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
-
-        def stats_table(files):
-            for f, f_info in sorted(files.items()):
-                stats = f_info['stats']
-
-                yield (f, stats['d_misses_pct'], stats['u_misses_pct'],
-                       " ".join(stats['top_d_misses'][:4]),
-                       " ".join(stats['top_u_misses'][:4]),
-                       " ".join(stats['top_lines'][:4])
-                )
-
-        if self.collect_stats:
-            print("\n", file=outfile)
-            print(tabulate(stats_table(cov['files']),
-                           headers=["File", "D miss%", "U miss%", "Top D", "Top U", "Top lines"]),
-                  file=outfile)
+        print(tabulate(table(), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
 
 
     @staticmethod

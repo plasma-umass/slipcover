@@ -1,12 +1,21 @@
-from typing import Any
+from typing import Any, Optional
 from .slipcover import Slipcover, VERSION
 from . import branch as br
-from . import bytecode as bc
 from pathlib import Path
 import sys
+import sysconfig
 
 from importlib.abc import MetaPathFinder, Loader
 from importlib import machinery
+
+
+if sys.version_info[0:2] < (3,9):
+    # Path.is_relative_to is new in Python 3.9
+    def is_relative_to(self: Path, other: str) -> bool:
+        other = Path(other)
+        return other == self or other in self.parents
+    setattr(Path, 'is_relative_to', is_relative_to)
+
 
 class SlipcoverLoader(Loader):
     def __init__(self, sci: Slipcover, orig_loader: Loader, origin: str):
@@ -32,7 +41,7 @@ class SlipcoverLoader(Loader):
         import ast
         # branch coverage requires pre-instrumentation from source
         if self.sci.branch and isinstance(self.orig_loader, machinery.SourceFileLoader) and self.origin.exists():
-            t = br.preinstrument(ast.parse(self.origin.read_text()))
+            t = br.preinstrument(ast.parse(self.origin.read_bytes()))
             code = compile(t, str(self.origin), "exec")
         else:
             code = self.orig_loader.get_code(module.__name__)
@@ -44,15 +53,13 @@ class SlipcoverLoader(Loader):
 
 class FileMatcher:
     def __init__(self):
-        self.cwd = Path.cwd()
+        self.cwd = Path.cwd().resolve()
         self.sources = []
         self.omit = []
-
-        import inspect  # usually in Python lib
-        # pip is usually in site-packages; importing it causes warnings
-
-        self.pylib_paths = [Path(inspect.__file__).parent] + \
-                           [Path(p) for p in sys.path if (Path(p) / "pip").exists()]
+        self.pylib_paths = (
+            Path(sysconfig.get_path("stdlib")).resolve(),
+            Path(sysconfig.get_path("purelib")).resolve(),
+        )
 
     def addSource(self, source : Path):
         if isinstance(source, str):
@@ -67,7 +74,7 @@ class FileMatcher:
 
         self.omit.append(omit)
 
-    def matches(self, filename : Path):
+    def matches(self, filename : Optional[Path]):
         if filename is None:
             return False
 
@@ -77,8 +84,7 @@ class FileMatcher:
 
         if filename.suffix in ('.pyd', '.so'): return False  # can't instrument DLLs
 
-        if not filename.is_absolute():
-            filename = self.cwd / filename
+        filename = filename.resolve()
 
         if self.omit:
             from fnmatch import fnmatch
@@ -86,12 +92,13 @@ class FileMatcher:
                 return False
 
         if self.sources:
-            return any(s in filename.parents for s in self.sources)
+            return any(filename.is_relative_to(s) for s in self.sources)
 
-        if any(p in self.pylib_paths for p in filename.parents):
+        if any(filename.is_relative_to(p) for p in self.pylib_paths):
             return False
 
-        return self.cwd in filename.parents
+        return filename.is_relative_to(self.cwd)
+
 
 class MatchEverything:
     def __init__(self):
@@ -99,6 +106,7 @@ class MatchEverything:
 
     def matches(self, filename : Path):
         return True
+
 
 class SlipcoverMetaPathFinder(MetaPathFinder):
     def __init__(self, sci, file_matcher, debug=False):
@@ -156,22 +164,59 @@ class ImportManager:
 
 
 def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
-    def exec_wrapper(obj, g):
-        if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
-            obj = sci.instrument(obj)
-        exec(obj, g)
+    def redirect_calls(module, funcName, funcWrapperName):
+        """Redirects calls to the given function to a wrapper function in the same module."""
+        import ast
+        import types
+
+        assert funcWrapperName not in module.__dict__, f"function {funcWrapperName} already defined"
+
+        with open(module.__file__) as f:
+            t = ast.parse(f.read())
+
+        funcNames = set() # names of the functions we modified
+        for n in ast.walk(t):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for s in ast.walk(n):
+                    if isinstance(s, ast.Call) and isinstance(s.func, ast.Name) and s.func.id == funcName:
+                        s.func.id = funcWrapperName
+                        funcNames.add(n.name)
+
+        code = compile(t, module.__file__, "exec")
+
+        # It's tempting to just exec(code, module.__dict__) here, but the code often times has side effects...
+        # So instead of we find the new code object(s) and replace them in the loaded module.
+
+        replacement = dict() # replacement code objects
+        def find_replacements(co):
+            for c in co.co_consts:
+                if isinstance(c, types.CodeType):
+                    if c.co_name in funcNames:
+                        replacement[c.co_name] = c
+                    find_replacements(c)
+
+        find_replacements(code)
+
+        visited = set()
+        for f in Slipcover.find_functions(module.__dict__.values(), visited):
+            if (repl := replacement.get(f.__code__.co_name, None)):
+                assert f.__code__.co_firstlineno == repl.co_firstlineno # sanity check
+                f.__code__ = repl
+
 
     try:
         import _pytest.assertion.rewrite as pyrewrite
     except ModuleNotFoundError:
         return
 
-    for f in Slipcover.find_functions(pyrewrite.__dict__.values(), set()):
-        if 'exec' in f.__code__.co_names:
-            ed = bc.Editor(f.__code__)
-            wrapper_index = ed.add_const(exec_wrapper)
-            ed.replace_global_with_const('exec', wrapper_index)
-            f.__code__ = ed.finish()
+    redirect_calls(pyrewrite, "exec", "_Slipcover_exec_wrapper")
+
+    def exec_wrapper(obj, g):
+        if hasattr(obj, 'co_filename') and file_matcher.matches(obj.co_filename):
+            obj = sci.instrument(obj)
+        exec(obj, g)
+
+    pyrewrite._Slipcover_exec_wrapper = exec_wrapper
 
     if sci.branch:
         import inspect

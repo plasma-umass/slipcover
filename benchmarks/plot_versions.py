@@ -11,8 +11,8 @@ def parse_args():
 
     ap.add_argument('--os', type=str, default='Linux', help='select OS name')
     ap.add_argument('--case', choices=[c.name for c in cases],
-                       action='append', help='select case(s) to run/plot')
-    ap.add_argument('--bench', type=str, default='raytrace', help='select benchmark to plot')
+                       action='extend', nargs='+', help='select case(s) to run/plot')
+    ap.add_argument('--bench', action='extend', nargs='+', help='select benchmark(s) to plot')
     ap.add_argument('--title', type=str, default='Overhead by Python version', help='set plot title')
     ap.add_argument('--out', type=Path, default=Path("benchmarks/versions.png"), help='set plot output file')
     ap.add_argument('--latex', type=Path, help='also output LaTeX table to given file')
@@ -24,11 +24,17 @@ def parse_args():
     ap.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
     ap.add_argument('--skip-version', default=[], action='append', help='omit given Python version')
     ap.add_argument('--absolute', action='store_true', help='emit absolute numbers in LaTeX')
+    ap.add_argument('--yscale', type=str, default="linear", help='set matplotlib Y scale')
+
+    ap.add_argument('--use-tex', type=str, help='Selects to use (La)TeX fonts and specifies the font family to use')
 
     args = ap.parse_args()
 
     if not args.case:
         args.case = ['coveragepy', 'coveragepy-branch', 'slipcover', 'slipcover-branch']
+
+    if not args.bench:
+        args.bench = ['raytrace']
 
     return args
 
@@ -68,11 +74,18 @@ def load_data():
     print("common cases: ", common_cases)
     assert common_cases == set(v2r[python_versions[0]].keys())
 
-    # check that requested benchmark is available everywhere
-    benchmarks = set.intersection(*(set(b.keys()) for r in v2r.values() for b in r.values()))
-    if args.bench not in benchmarks:
-        print(f"Benchmark {args.bench} not in common benchmarks {benchmarks}")
-        sys.exit(1)
+    if 'all' in args.bench:
+        common_benchmarks = set.intersection(*(set(b.keys()) for r in v2r.values() for b in r.values()))
+        print("common benchmarks: ", common_benchmarks)
+        args.bench.remove('all')
+        args.bench.extend(sorted(common_benchmarks))
+
+    # check that requested benchmark(s) are available everywhere
+    for v, b in ((v, b) for v in v2r for b in v2r[v].values()):
+        for bench in args.bench:
+            if bench not in b:
+                print(f"Benchmark {bench} not available for {v}")
+                sys.exit(1)
 
     # compute the median
     from statistics import median
@@ -90,6 +103,8 @@ v2r, python_versions = load_data()
 def latex_results(args):
     selected_cases = [c for c in cases if c.name in args.case]
     nonbase_cases = [c for c in selected_cases if c.name != 'base']
+
+    assert len(args.bench) == 1, "Only one benchmark at a time supported."
 
     def latex_escape(s):
         repl = {
@@ -132,22 +147,22 @@ def latex_results(args):
         for version in python_versions:
             line = f"{texttt(latex_escape(version))}"
 
-            base_result = v2r[version]['base'][args.bench]['median']
+            base_result = v2r[version]['base'][args.bench[0]]['median']
 
             if args.absolute:
-                line += f" & {base_result:.1f}s"
+                line += f" & \\SI{{{base_result:.1f}}}{{s}}"
 
             for case in nonbase_cases:
                 if args.absolute:
-                    r = v2r[version][case.name][args.bench]['median']
-                    line += f" & {r:.1f}s"
+                    r = v2r[version][case.name][args.bench[0]]['median']
+                    line += f" & \\SI{{{r:.1f}}}{{s}}"
                 else:
-                    r = v2r[version][case.name][args.bench]['median'] / base_result
+                    r = v2r[version][case.name][args.bench[0]]['median'] / base_result
                     line += f" & {r:.2f}$\\times$"
             line += " \\\\"
             print(line, file=out)
 
-#        print("\\hline", file=out)
+        print("\\hline", file=out)
         print("\\end{tabular}", file=out)
 
     print(f"Wrote to {args.latex}.")
@@ -159,29 +174,51 @@ nonbase_cases = [c for c in cases if c.name != 'base' and c.name in args.case]
 import matplotlib.pyplot as plt
 import numpy as np
 
-x = np.arange(len(python_versions))
-n_bars = len(nonbase_cases)
-width = .70 # of all bars
-bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
-
-plt.rcParams.update({'font.weight': 'bold'})
+plt.rcParams.update({
+    'font.weight': 'bold',
+    'pdf.fonttype': 42  # output TrueType; bigger but scalable
+})
+if args.use_tex:
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": args.use_tex
+    })
 plt.rc('ytick', labelsize=12+args.font_size_delta)
 
 if args.style:
     plt.style.use(args.style)
 
+x = np.arange(len(python_versions))
+
 fig, ax = plt.subplots()
-for case, bar_x in zip(nonbase_cases, bars_x):
-    r = [v2r[v][case.name][args.bench]['median'] / v2r[v]['base'][args.bench]['median'] for v in python_versions]
 
-    case_label = case.label
-    if args.rename_slipcover:
-        case_label = re.sub('[Ss]lip[Cc]over', args.rename_slipcover, case_label)
+ax.set_yscale(args.yscale)
+if args.yscale == 'log':
+    from matplotlib.ticker import ScalarFormatter
+    ax.yaxis.set_major_formatter(ScalarFormatter())
 
-    rects = ax.bar(x + bar_x, r, width/n_bars, label=case_label, color=case.color, zorder=2)
+if len(args.bench) == 1: # do a bar plot
+    n_bars = len(nonbase_cases)
+    width = .70 # of all bars
+    bars_x = np.arange(width/n_bars/2, width, width/n_bars) - width/2
 
-    if args.bar_labels:
-        ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8+args.font_size_delta)
+    for case, bar_x in zip(nonbase_cases, bars_x):
+        r = [v2r[v][case.name][args.bench[0]]['median'] / v2r[v]['base'][args.bench[0]]['median'] for v in python_versions]
+
+        case_label = case.label
+        if args.rename_slipcover:
+            case_label = re.sub('[Ss]lip[Cc]over', args.rename_slipcover, case_label)
+
+        rects = ax.bar(x + bar_x, r, width/n_bars, label=case_label, color=case.color, zorder=2)
+
+        if args.bar_labels:
+            ax.bar_label(rects, padding=3, labels=[f'{v:.1f}x' for v in r], fontsize=8+args.font_size_delta)
+
+else: # do a box plot
+    for bench, case in ((bench, case) for bench in args.bench for case in nonbase_cases):
+        r = [v2r[v][case.name][bench]['median'] / v2r[v]['base'][bench]['median'] for v in python_versions]
+
+        ax.plot(r, label=f"{bench} {case.name}")
 
 ax.set_title(args.title, size=18+args.font_size_delta, weight='bold')
 ax.set_ylabel('Normalized execution time', size=15+args.font_size_delta)

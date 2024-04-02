@@ -12,22 +12,8 @@ def ast_parse(s):
 
 
 def get_branches(code):
-    """Extracts a list of all branches marked up in bytecode."""
-    import slipcover.bytecode as bc
-    import types
-
-    branches = []
-
-    # handle functions-within-functions
-    for c in code.co_consts:
-        if isinstance(c, types.CodeType):
-            branches.extend(get_branches(c))
-
-    ed = bc.Editor(code)
-    for _, _, br_index in ed.find_const_assignments(br.BRANCH_NAME):
-        branches.append(code.co_consts[br_index])
-
-    return sorted(branches)
+    from slipcover.slipcover import Slipcover
+    return sorted(Slipcover.branches_from_code(code))
 
 
 def assign2append(tree: ast.AST):
@@ -627,3 +613,89 @@ def test_branch_after_case_with_next():
     exec(code, g, g)
     assert 1 == g['x']
     assert [(2,4), (4,9)] == g[br.BRANCH_NAME]
+
+
+@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+def test_try_except(star):
+    t = ast_parse(f"""
+        def foo(x):
+            try:
+                y = x + 1
+                if y < 0:
+                    y = 0
+            except{star} RuntimeException:
+                if y < 2:
+                    y = 0
+            except{star} FileNotFoundError:
+                if y < 2:
+                    y = 0
+
+            return 2*y
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(4,5), (4,13), (7,8), (7,13), (10,11), (10,13)] == get_branches(code)
+
+
+def test_try_finally():
+    t = ast_parse("""
+        def foo(x):
+            try:
+                y = x + 1
+                if y < 0:
+                    y = 0
+            finally:
+                y = 2*y
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(4,5), (4,7)] == get_branches(code)
+
+
+@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+def test_try_else(star):
+    t = ast_parse(f"""
+        def foo(x):
+            try:
+                y = x + 1
+                if y < 0:
+                    y = 0
+            except{star} RuntimeException:
+                if y < 2:
+                    y = -1
+            else:
+                y = 2*y
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(4,5), (4,10), (7,0), (7,8)] == get_branches(code)
+
+
+@pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
+def test_try_else_finally(star):
+    t = ast_parse(f"""
+        def foo(x):
+            try:
+                y = x + 1
+                if y < 0:
+                    y = 0
+            except{star} RuntimeException:
+                if y < 2:
+                    y = -1
+            else:
+                if y > 5:
+                    y = 42
+            finally:
+                y = 2*y
+    """)
+
+
+    t = br.preinstrument(t)
+    code = compile(t, "foo", "exec")
+    assert [(4,5), (4,10), (7,8), (7,13), (10,11), (10,13)] == get_branches(code)

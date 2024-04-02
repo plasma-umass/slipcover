@@ -65,7 +65,6 @@ def limited_api_args():
     #    return ['-DPy_LIMITED_API=0x030a0000']
     return []
 
-
 probe = setuptools.extension.Extension(
     'slipcover.probe',
     sources=['src/probe.cxx'],
@@ -75,6 +74,17 @@ probe = setuptools.extension.Extension(
     language='c++',
 )
 
+if sys.argv[1].startswith('bdist') and sys.platform == 'darwin' and \
+   sum(arg == '-arch' for arg in platform_compile_args()) > 1:
+    # Build universal wheels on MacOS.
+    # ---
+    # On MacOS >= 11, all builds are compatible for a major MacOS version, so Python "floors"
+    # all minor versions to 0, leading to tags like like "macosx_11_0_universal2". If you use
+    # the actual (non-0) minor name in the build platform, pip doesn't install it.
+    import platform as p
+    v = p.mac_ver()[0].split(".")
+    v = f"{v[0]}.0" if int(v[0]) >= 11 else ".".join(v)
+    sys.argv.extend(['--plat-name', f"macosx-{v}-universal2"])
 
 setuptools.setup(
     name="slipcover",
@@ -90,15 +100,21 @@ setuptools.setup(
     packages=['slipcover'],
     package_dir={'': 'src'},
     ext_modules=([probe]),
-    python_requires=">=3.8,<3.12",
+    python_requires=">=3.8,<3.13",
     install_requires=[
         "tabulate"
     ],
+    entry_points={
+        "console_scripts": [
+            "slipcover=slipcover.__main__:main",
+        ],
+    },
     classifiers=[
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS :: MacOS X",
