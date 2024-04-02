@@ -155,6 +155,7 @@ def test_filematcher_omit_nonpattern():
     assert not fm.matches(str(Path.cwd().parent) + '/other.py')
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError in Documents and Settings')
 def test_loader_supports_resources(tmp_path):
     import subprocess
 
@@ -175,6 +176,7 @@ def test():
     assert p.returncode == 0
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError in Documents and Settings')
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_import_manager_instruments(tmp_path, do_branch):
     import subprocess
@@ -202,6 +204,7 @@ def test():
     assert p.returncode == 0
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError in Documents and Settings')
 def test_import_manager_removed(tmp_path):
     import subprocess
 
@@ -230,6 +233,7 @@ def test():
     assert p.returncode == 0
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError in Documents and Settings')
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_import_manager_instruments_everything(tmp_path, do_branch):
     import subprocess
