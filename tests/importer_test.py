@@ -14,10 +14,10 @@ def test_filematcher_defaults():
     assert not fm.matches('built-in')
     assert not fm.matches('myscript.pyd')
     assert not fm.matches('myscript.so')
-    assert fm.matches('./myscript.py')
-    assert fm.matches('mymodule/mymodule.py')
-    assert fm.matches('./mymodule/mymodule.py')
-    assert fm.matches('./other/other.py')
+    assert fm.matches(Path('.') / 'myscript.py')
+    assert fm.matches(Path('mymodule') / 'mymodule.py')
+    assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
+    assert fm.matches(Path('.') / 'other' / 'other.py')
     assert fm.matches(cwd / 'myscript.py')
     assert fm.matches(cwd / 'mymodule' / 'mymodule.py')
     assert not fm.matches(Path.cwd().parent / 'other.py')
@@ -65,27 +65,26 @@ def test_filematcher_defaults_from_root(return_to_dir):
 
 def test_filematcher_source():
     from pathlib import Path
-    cwd = str(Path.cwd())
 
     fm = im.FileMatcher()
     fm.addSource('mymodule')
     fm.addSource('prereq')
 
     assert not fm.matches('myscript.py')
-    assert not fm.matches('./myscript.py')
+    assert not fm.matches(Path('.') / 'myscript.py')
     assert not fm.matches('built-in')
     assert not fm.matches('myscript.pyd')
     assert not fm.matches('myscript.so')
-    assert fm.matches('mymodule/mymodule.py')
-    assert fm.matches('mymodule/foo.py')
-    assert not fm.matches('mymodule/myscript.pyd')
-    assert not fm.matches('mymodule/myscript.so')
-    assert fm.matches('./mymodule/mymodule.py')
-    assert fm.matches('prereq/__main__.py')
-    assert not fm.matches('./other/other.py')
-    assert not fm.matches(cwd + '/myscript.py')
-    assert fm.matches(cwd + '/mymodule/mymodule.py')
-    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
+    assert fm.matches(Path('mymodule') / 'mymodule.py')
+    assert fm.matches(Path('mymodule') / 'foo.py')
+    assert not fm.matches(Path('mymodule') / 'myscript.pyd')
+    assert not fm.matches(Path('mymodule') / 'myscript.so')
+    assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
+    assert fm.matches(Path('prereq') / '__main__.py')
+    assert not fm.matches(Path('.') / 'other' / 'other.py')
+    assert not fm.matches(Path.cwd() / 'myscript.py')
+    assert fm.matches(Path.cwd() / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(Path.cwd().parent / 'other.py')
 
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
@@ -108,22 +107,21 @@ def test_filematcher_source_resolved(monkeypatch):
 
 def test_filematcher_omit_pattern():
     from pathlib import Path
-    cwd = str(Path.cwd())
 
     fm = im.FileMatcher()
     fm.addSource('mymodule')
     fm.addOmit('*/foo.py')
 
     assert not fm.matches('myscript.py')
-    assert not fm.matches('./myscript.py')
-    assert fm.matches('mymodule/mymodule.py')
-    assert not fm.matches('mymodule/foo.py')
-    assert not fm.matches('mymodule/1/2/3/foo.py')
-    assert fm.matches('./mymodule/mymodule.py')
-    assert not fm.matches('./other/other.py')
-    assert not fm.matches(cwd + '/myscript.py')
-    assert fm.matches(cwd + '/mymodule/mymodule.py')
-    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
+    assert not fm.matches(Path('.') / 'myscript.py')
+    assert fm.matches(Path('mymodule') / 'mymodule.py')
+    assert not fm.matches(Path('mymodule') / 'foo.py')
+    assert not fm.matches(Path('mymodule') / '1' / '2' / '3' / 'foo.py')
+    assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(Path('.') / 'other' / 'other.py')
+    assert not fm.matches(Path.cwd() / 'myscript.py')
+    assert fm.matches(Path.cwd() / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(Path.cwd().parent / 'other.py')
 
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
@@ -137,22 +135,21 @@ def test_filematcher_omit_pattern():
 
 def test_filematcher_omit_nonpattern():
     from pathlib import Path
-    cwd = str(Path.cwd())
 
     fm = im.FileMatcher()
     fm.addSource('mymodule')
     fm.addOmit('mymodule/foo.py')
 
     assert not fm.matches('myscript.py')
-    assert not fm.matches('./myscript.py')
-    assert fm.matches('mymodule/mymodule.py')
-    assert not fm.matches('mymodule/foo.py')
-    assert fm.matches('mymodule/1/2/3/foo.py')
-    assert fm.matches('./mymodule/mymodule.py')
-    assert not fm.matches('./other/other.py')
-    assert not fm.matches(cwd + '/myscript.py')
-    assert fm.matches(cwd + '/mymodule/mymodule.py')
-    assert not fm.matches(str(Path.cwd().parent) + '/other.py')
+    assert not fm.matches(Path('.') / 'myscript.py')
+    assert fm.matches(Path('mymodule') / 'mymodule.py')
+    assert not fm.matches(Path('mymodule') / 'foo.py')
+    assert fm.matches(Path('mymodule') / '1' / '2' / '3' / 'foo.py')
+    assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(Path('.') / 'other' / 'other.py')
+    assert not fm.matches(Path.cwd() / 'myscript.py')
+    assert fm.matches(Path.cwd() / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(Path.cwd().parent / 'other.py')
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError in Documents and Settings')
