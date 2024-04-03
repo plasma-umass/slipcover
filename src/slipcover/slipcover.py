@@ -40,14 +40,102 @@ class PathSimplifier:
             return path 
 
 
+def format_missing(missing_lines: List[int], executed_lines: List[int],
+                   missing_branches: List[tuple]) -> List[str]:
+    """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
+       between missed ones"""
+
+    missing_set = set(missing_lines)
+    missing_branches = [(a,b) for a,b in missing_branches if a not in missing_set and b not in missing_set]
+
+    def format_branch(br):
+        return f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
+
+    def find_ranges():
+        executed = set(executed_lines)
+        it = iter(missing_lines)    # assumed sorted
+        a = next(it, None)
+        while a is not None:
+            while missing_branches and missing_branches[0][0] < a:
+                yield format_branch(missing_branches.pop(0))
+
+            b = a
+            n = next(it, None)
+            while n is not None:
+                if any(l in executed for l in range(b+1, n+1)):
+                    break
+
+                b = n
+                n = next(it, None)
+
+            yield str(a) if a == b else f"{a}-{b}"
+
+            a = n
+
+        while missing_branches:
+            yield format_branch(missing_branches.pop(0))
+
+    return ", ".join(find_ranges())
+
+
+def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_covered=False) -> None:
+    """Prints coverage information for human consumption."""
+    from tabulate import tabulate
+
+    branch_coverage = coverage.get('meta', {}).get('branch_coverage', False)
+
+    def table():
+        for f, f_info in sorted(coverage['files'].items()):
+            exec_l = len(f_info['executed_lines'])
+            miss_l = len(f_info['missing_lines'])
+
+            if branch_coverage:
+                exec_b = len(f_info['executed_branches'])
+                miss_b = len(f_info['missing_branches'])
+                pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
+
+            pct = f_info['summary']['percent_covered']
+
+            if skip_covered and pct == 100.0:
+                continue
+
+            yield [f, exec_l+miss_l, miss_l,
+                   *([exec_b+miss_b, miss_b, round(pct_b)] if branch_coverage else []),
+                   round(pct),
+                   format_missing(f_info['missing_lines'], f_info['executed_lines'],
+                                  f_info['missing_branches'] if 'missing_branches' in f_info else [])]
+
+        if len(coverage['files']) > 1:
+            yield ['---'] + [''] * (6 if branch_coverage else 4)
+
+            s = coverage['summary']
+
+            if branch_coverage:
+                exec_b = s['covered_branches']
+                miss_b = s['missing_branches']
+                pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
+
+            yield ['(summary)', s['covered_lines']+s['missing_lines'], s['missing_lines'],
+                   *([exec_b+miss_b, miss_b, round(pct_b)] if branch_coverage else []),
+                   round(s['percent_covered']), '']
+
+
+
+    print("", file=outfile)
+    headers = ["File", "#lines", "#l.miss",
+               *(["#br.", "#br.miss", "brCov%", "totCov%"] if branch_coverage else ["Cover%"]),
+               "Missing"]
+    maxcolwidths = [None] * (len(headers)-1) + [missing_width]
+    print(tabulate(table(), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
+
+
 class Slipcover:
     def __init__(self, immediate: bool = False,
-                 d_miss_threshold: int = 50, branch: bool = False, skip_covered: bool = False,
+                 d_miss_threshold: int = 50, branch: bool = False,
                  disassemble: bool = False, source: List[str] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
-        self.skip_covered = skip_covered
         self.disassemble = disassemble
         self.source = source
 
@@ -478,91 +566,10 @@ class Slipcover:
             return cov
 
 
-    @staticmethod
-    def format_missing(missing_lines: List[int], executed_lines: List[int],
-                       missing_branches: List[tuple]) -> List[str]:
-        """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
-           between missed ones"""
-
-        missing_set = set(missing_lines)
-        missing_branches = [(a,b) for a,b in missing_branches if a not in missing_set and b not in missing_set]
-
-        def format_branch(br):
-            return f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
-
-        def find_ranges():
-            executed = set(executed_lines)
-            it = iter(missing_lines)    # assumed sorted
-            a = next(it, None)
-            while a is not None:
-                while missing_branches and missing_branches[0][0] < a:
-                    yield format_branch(missing_branches.pop(0))
-
-                b = a
-                n = next(it, None)
-                while n is not None:
-                    if any(l in executed for l in range(b+1, n+1)):
-                        break
-
-                    b = n
-                    n = next(it, None)
-
-                yield str(a) if a == b else f"{a}-{b}"
-
-                a = n
-
-            while missing_branches:
-                yield format_branch(missing_branches.pop(0))
-
-        return ", ".join(find_ranges())
-
-
+    # @deprecated
     def print_coverage(self, outfile=sys.stdout, *, missing_width=None) -> None:
-        cov = self.get_coverage()
-
-        from tabulate import tabulate
-
-        def table():
-            for f, f_info in sorted(cov['files'].items()):
-                exec_l = len(f_info['executed_lines'])
-                miss_l = len(f_info['missing_lines'])
-
-                if self.branch:
-                    exec_b = len(f_info['executed_branches'])
-                    miss_b = len(f_info['missing_branches'])
-                    pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
-
-                pct = f_info['summary']['percent_covered']
-
-                if self.skip_covered and pct == 100.0:
-                    continue
-
-                yield [f, exec_l+miss_l, miss_l,
-                       *([exec_b+miss_b, miss_b, round(pct_b)] if self.branch else []),
-                       round(pct),
-                       Slipcover.format_missing(f_info['missing_lines'], f_info['executed_lines'],
-                                                f_info['missing_branches'] if 'missing_branches' in f_info else [])]
-
-            if len(cov['files']) > 1:
-                yield ['---'] + [''] * (6 if self.branch else 4)
-
-                s = cov['summary']
-
-                if self.branch:
-                    exec_b = s['covered_branches']
-                    miss_b = s['missing_branches']
-                    pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
-
-                yield ['(summary)', s['covered_lines']+s['missing_lines'], s['missing_lines'],
-                       *([exec_b+miss_b, miss_b, round(pct_b)] if self.branch else []),
-                       round(s['percent_covered']), '']
-
-
-
-        print("", file=outfile)
-        headers = ["File", "#lines", "#l.miss", *(["#br.", "#br.miss", "brCov%", "totCov%"] if self.branch else ["Cover%"]), "Missing"]
-        maxcolwidths = [None] * (len(headers)-1) + [missing_width]
-        print(tabulate(table(), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
+        """Prints the coveage collected by this Slipcover."""
+        print_coverage(self.get_coverage(), outfile=outfile, missing_width=missing_width)
 
 
     @staticmethod

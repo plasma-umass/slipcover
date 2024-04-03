@@ -6,19 +6,93 @@ import slipcover.branch as br
 import ast
 import atexit
 import platform
+import functools
+import os
+import tempfile
+import json
+
+# Used for fork() support
+input_tmpfiles = []
+output_tmpfile = None
 
 
-#
-# The intended usage is:
-#
-#   slipcover.py [options] (script | -m module [module_args...])
-#
-# but argparse doesn't seem to support this.  We work around that by only
-# showing it what we need.
-#
-import argparse
+def fork_shim():
+    """Shims os.fork(), preparing the child to write its coverage to a temporary file
+       and the parent to read from that file, so as to report the full coverage obtained.
+    """
+    original_fork = os.fork
+
+    @functools.wraps(original_fork)
+    def wrapper(*pargs, **kwargs):
+        global input_tmpfiles, output_tmpfile
+
+        tmp_file = tempfile.NamedTemporaryFile(mode="r+", encoding="utf-8", delete=False)
+
+        if (pid := original_fork(*pargs, **kwargs)):
+            input_tmpfiles.append(tmp_file)
+        else:
+            output_tmpfile = tmp_file
+
+        return pid
+
+    return wrapper
+
+
+def get_coverage(sci):
+    """Combines this process' coverage with that of any previously forked children."""
+    global input_tmpfiles, output_tmpfile
+
+    cov = sci.get_coverage()
+    if input_tmpfiles:
+        for f in input_tmpfiles:
+            try:
+                fname = f.name
+                f.seek(0)
+                cov = sc.Slipcover.merge_coverage(cov, json.load(f))
+            except json.JSONDecodeError as e:
+                print(f"Error reading {fname}: {e}")
+            finally:
+                f.close()
+                try:
+                    os.remove(fname)
+                except FileNotFoundError:
+                    pass
+
+        sc.Slipcover.add_summaries(cov)
+
+    return cov
+
+
+def exit_shim(args, sci):
+    """Shims os._exit(), so a previously forked child process writes its coverage to
+       a temporary file read by the parent.
+    """
+    original_exit = os._exit
+
+    @functools.wraps(original_exit)
+    def wrapper(*pargs, **kwargs):
+        global output_tmpfile
+
+        if output_tmpfile:
+            json.dump(get_coverage(sci), output_tmpfile)
+            output_tmpfile.flush()
+
+        original_exit(*pargs, **kwargs)
+
+    return wrapper
+
 
 def main():
+    import argparse
+
+    #
+    # The intended usage is:
+    #
+    #   slipcover.py [options] (script | -m module [module_args...])
+    #
+    # but argparse doesn't seem to support this.  We work around that by only
+    # showing it what we need.
+    #
     ap = argparse.ArgumentParser(prog='SlipCover')
     ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
     ap.add_argument('--json', action='store_true', help="select JSON output")
@@ -74,34 +148,35 @@ def main():
 
     sci = sc.Slipcover(immediate=args.immediate,
                        d_miss_threshold=args.threshold, branch=args.branch,
-                       skip_covered=args.skip_covered, disassemble=args.dis,
-                       source=args.source)
+                       disassemble=args.dis, source=args.source)
 
 
     if not args.dont_wrap_pytest:
         sc.wrap_pytest(sci, file_matcher)
 
 
-
-    def print_coverage(outfile):
-        if args.json:
-            import json
-            print(json.dumps(sci.get_coverage(), indent=(4 if args.pretty_print else None)),
-                file=outfile)
-        else:
-            sci.print_coverage(missing_width=args.missing_width, outfile=outfile)
-
+    os.fork = fork_shim()
+    os._exit = exit_shim(args, sci)
 
     def sci_atexit():
-        if args.out:
-            with open(args.out, "w") as outfile:
-                print_coverage(outfile)
-        else:
-            print_coverage(sys.stdout)
+        global output_tmpfile
 
-    if not args.silent:
-        atexit.register(sci_atexit)
+        def printit(coverage, outfile):
+            if args.json:
+                print(json.dumps(coverage, indent=(4 if args.pretty_print else None)), file=outfile)
+            else:
+                sc.print_coverage(coverage, outfile=outfile, skip_covered=args.skip_covered,
+                                  missing_width=args.missing_width)
 
+        if not args.silent:
+            coverage = get_coverage(sci)
+            if args.out:
+                with open(args.out, "w") as outfile:
+                    printit(coverage, outfile)
+            else:
+                printit(coverage, sys.stdout)
+
+    atexit.register(sci_atexit)
 
     if args.script:
         # python 'globals' for the script being executed

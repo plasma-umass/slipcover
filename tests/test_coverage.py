@@ -304,7 +304,7 @@ def test_get_coverage_detects_lines():
 
 
 def test_format_missing():
-    fm = sc.Slipcover.format_missing
+    fm = sc.format_missing
 
     assert "" == fm([],[],[])
     assert "" == fm([], [1,2,3], [])
@@ -417,8 +417,10 @@ def test_print_coverage_zero_lines(do_branch, capsys):
 
 
 def test_print_coverage_skip_covered():
-    p = subprocess.run(f"{sys.executable} -m slipcover --skip-covered tests/importer.py".split(), check=True, capture_output=True)
+    p = subprocess.run(f"{sys.executable} -m slipcover --skip-covered tests/importer.py".split(),
+                       check=True, capture_output=True)
     output = str(p.stdout)
+    print(output)
     assert '__init__.py' in output
     assert 'importer.py' not in output
 
@@ -809,7 +811,6 @@ print("all done!")      # 11
     assert 'missing_branches' not in cov['files']['t.py']
 
 
-@pytest.mark.skip("not yet implemented")
 def test_pytest_forked(tmp_path):
     out = tmp_path / "out.json"
     test_file = str(Path('tests') / 'pyt.py')
