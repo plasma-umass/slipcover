@@ -30,7 +30,7 @@ jobs:
 
     - name: install dependencies
       run: |
-        python3 -m pip install pytest
+        python3 -m pip install pytest pytest-forked
         python3 -m pip install -e .
 
     - name: run tests
