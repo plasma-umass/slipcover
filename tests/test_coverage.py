@@ -811,6 +811,7 @@ print("all done!")      # 11
     assert 'missing_branches' not in cov['files']['t.py']
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='pytest-forked is Unix-specific')
 def test_pytest_forked(tmp_path):
     out = tmp_path / "out.json"
     test_file = str(Path('tests') / 'pyt.py')
