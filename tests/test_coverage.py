@@ -6,6 +6,9 @@ import dis
 import sys
 import platform
 import re
+import subprocess
+from pathlib import Path
+import json
 
 
 PYTHON_VERSION = sys.version_info[0:2]
@@ -30,10 +33,7 @@ def ast_parse(s):
 
 
 def test_pathsimplifier_not_relative():
-    from pathlib import Path
-
     ps = sc.PathSimplifier()
-
     assert ".." == ps.simplify("..")
 
 
@@ -417,8 +417,6 @@ def test_print_coverage_zero_lines(do_branch, capsys):
 
 
 def test_print_coverage_skip_covered():
-    import subprocess
-
     p = subprocess.run(f"{sys.executable} -m slipcover --skip-covered tests/importer.py".split(), check=True, capture_output=True)
     output = str(p.stdout)
     assert '__init__.py' in output
@@ -428,10 +426,6 @@ def test_print_coverage_skip_covered():
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_interpose_on_module_load(tmp_path, do_branch):
     # TODO include in coverage info
-    from pathlib import Path
-    import subprocess
-    import json
-
     out_file = tmp_path / "out.json"
 
     subprocess.run(f"{sys.executable} -m slipcover {'--branch ' if do_branch else ''}--json --out {out_file} tests/importer.py".split(),
@@ -454,10 +448,6 @@ def test_interpose_on_module_load(tmp_path, do_branch):
 
 def test_pytest_interpose(tmp_path):
     # TODO include in coverage info
-    from pathlib import Path
-    import subprocess
-    import json
-
     out_file = tmp_path / "out.json"
 
     test_file = str(Path('tests') / 'pyt.py')
@@ -476,10 +466,6 @@ def test_pytest_interpose(tmp_path):
 
 def test_pytest_interpose_branch(tmp_path):
     # TODO include in coverage info
-    from pathlib import Path
-    import subprocess
-    import json
-
     test_file = str(Path('tests') / 'pyt.py')
     def cache_files():
         return list(Path("tests/__pycache__").glob(f"pyt*{sys.implementation.cache_tag}-pytest*.pyc"))
@@ -517,8 +503,6 @@ def test_pytest_interpose_branch(tmp_path):
 
 
 def test_pytest_plugins_visible():
-    import subprocess
-
     def pytest_plugins():
         from importlib import metadata
         return [dist.metadata['Name'] for dist in metadata.distributions() \
@@ -536,10 +520,6 @@ def test_pytest_plugins_visible():
 @pytest.mark.parametrize("do_branch", [True, False])
 def test_summary_in_output(tmp_path, do_branch):
     # TODO include in coverage info
-    from pathlib import Path
-    import subprocess
-    import json
-
     out_file = tmp_path / "out.json"
 
     subprocess.run(f"{sys.executable} -m slipcover {'--branch ' if do_branch else ''}--json --out {out_file} tests/importer.py".split(),
@@ -643,8 +623,6 @@ def test_summary_in_output_zero_lines(do_branch):
 
 @pytest.mark.parametrize("json_flag", ["", "--json"])
 def test_fail_under(json_flag):
-    import subprocess
-
     p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --fail-under 100 tests/branch.py".split(), check=False)
     assert 0 == p.returncode
 
@@ -656,10 +634,6 @@ def test_fail_under(json_flag):
 
 
 def test_reports_on_other_sources(tmp_path):
-    from pathlib import Path
-    import subprocess
-    import json
-
     out_file = tmp_path / "out.json"
 
     subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {out_file} " +\
@@ -692,10 +666,6 @@ def test_reports_on_other_sources(tmp_path):
 
 
 def test_resolves_other_sources(tmp_path):
-    from pathlib import Path
-    import subprocess
-    import json
-
     out_file = tmp_path / "out.json"
 
     subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {out_file} " +\
@@ -725,3 +695,133 @@ def test_resolves_other_sources(tmp_path):
     assert [1] == cov['files'][baz_file]['missing_lines']
     assert [] == cov['files'][baz_file]['executed_branches']
     assert [] == cov['files'][baz_file]['missing_branches']
+
+
+@pytest.mark.parametrize("do_branch", [True, False, None])
+def test_merge_coverage(tmp_path, monkeypatch, do_branch):
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "t.py").write_text("""\
+import sys
+
+if len(sys.argv) < 2:   # 3
+    print("A branch")
+
+else:
+    import t2           # 7
+    print("B branch")
+
+if not sys.argv:        # 10
+    print("I'm unreachable!")
+
+print("all done!")      # 13
+""")
+
+    (tmp_path / "t2.py").write_text("""\
+print("in t2!")
+""")
+
+    subprocess.run([sys.executable, '-m', 'slipcover'] +\
+                   (['--branch'] if do_branch else []) +\
+                    ['--json', '--out', tmp_path / "a.json", "t.py"], check=True)
+    subprocess.run([sys.executable, '-m', 'slipcover'] +\
+                   (['--branch'] if do_branch else []) +\
+                    ['--json', '--out', tmp_path / "b.json", "t.py", "X"], check=True)
+
+    with (tmp_path / "a.json").open() as f:
+        a = json.load(f)
+    with (tmp_path / "b.json").open() as f:
+        b = json.load(f)
+
+    if do_branch is None:
+        del a['meta']
+        del b['meta']['branch_coverage']
+
+    assert 't2.py' not in a['files']
+    assert 't2.py' in b['files']
+    assert a['files']['t.py']['executed_lines'] != b['files']['t.py']['executed_lines']
+
+    cov = sc.Slipcover.merge_coverage(a, b)
+
+    assert 't.py' in cov['files']
+    assert [1, 3, 4, 7, 8, 10, 13] == cov['files']['t.py']['executed_lines']
+    assert [11] == cov['files']['t.py']['missing_lines']
+
+    if do_branch:
+        assert [[3, 4], [3, 7], [10, 13]] == cov['files']['t.py']['executed_branches']
+        assert [[10, 11]] == cov['files']['t.py']['missing_branches']
+    else:
+        assert 'executed_branches' not in cov['files']['t.py']
+        assert 'missing_branches' not in cov['files']['t.py']
+
+    assert 't2.py' in cov['files']
+    assert [1] == cov['files']['t2.py']['executed_lines']
+    assert [] == cov['files']['t2.py']['missing_lines']
+
+    if do_branch:
+        assert [] == cov['files']['t2.py']['executed_branches']
+        assert [] == cov['files']['t2.py']['missing_branches']
+    else:
+        assert 'executed_branches' not in cov['files']['t2.py']
+        assert 'missing_branches' not in cov['files']['t2.py']
+
+    assert bool(do_branch) == cov['meta']['branch_coverage']
+
+
+def test_merge_coverage_branch_coverage_disagree(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "t.py").write_text("""\
+import sys
+
+if len(sys.argv) < 2:   # 3
+    print("A branch")
+else:
+    print("B branch")   # 6
+
+if not sys.argv:        # 8
+    print("I'm unreachable!")
+
+print("all done!")      # 11
+""")
+
+    subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
+                    '--json', '--out', tmp_path / "a.json", "t.py"], check=True)
+    subprocess.run([sys.executable, '-m', 'slipcover',
+                    '--json', '--out', tmp_path / "b.json", "t.py", "X"], check=True)
+
+    with (tmp_path / "a.json").open() as f:
+        a = json.load(f)
+    with (tmp_path / "b.json").open() as f:
+        b = json.load(f)
+
+    assert [1, 3, 4, 8, 11] == a['files']['t.py']['executed_lines']
+    assert [1, 3, 6, 8, 11] == b['files']['t.py']['executed_lines']
+
+    cov = sc.Slipcover.merge_coverage(a, b)
+
+    assert False == cov['meta']['branch_coverage']
+
+    assert [1, 3, 4, 6, 8, 11] == cov['files']['t.py']['executed_lines']
+    assert [9] == cov['files']['t.py']['missing_lines']
+
+    assert 'executed_branches' not in cov['files']['t.py']
+    assert 'missing_branches' not in cov['files']['t.py']
+
+
+@pytest.mark.skip("not yet implemented")
+def test_pytest_forked(tmp_path):
+    out = tmp_path / "out.json"
+    test_file = str(Path('tests') / 'pyt.py')
+
+    subprocess.run([sys.executable, '-m', 'slipcover', '--json', '--out', str(out),
+                                    '-m', 'pytest', '--forked', test_file], check=True)
+
+    with out.open() as f:
+        cov = json.load(f)
+
+    assert test_file in cov['files']
+    assert {test_file} == set(cov['files'].keys())
+    cov = cov['files'][test_file]
+    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
+    assert [] == cov['missing_lines']

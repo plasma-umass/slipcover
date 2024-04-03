@@ -342,6 +342,62 @@ class Slipcover:
 
 
     @staticmethod
+    def _make_meta(branch_coverage: bool) -> dict:
+        import datetime
+
+        return {
+            'software': 'slipcover',
+            'version': VERSION,
+            'timestamp': datetime.datetime.now().isoformat(),
+            'branch_coverage': branch_coverage,
+            'show_contexts': False
+        }
+
+
+    @staticmethod
+    def merge_coverage(a: dict, b: dict) -> dict:
+        """Merges two coverage results dictionaries.
+           The merged coverage does NOT contain summaries: call add_summaries if you need them.
+        """
+        assert not a.get('meta', {}).get('show_contexts', False)
+        assert not b.get('meta', {}).get('show_contexts', False)
+
+        branch_coverage = a.get('meta', {}).get('branch_coverage', False) and \
+                          b.get('meta', {}).get('branch_coverage', False)
+
+        a_files = a['files']
+        b_files = b['files']
+
+        def both(f, field):
+            return (a_files[f][field] if f in a_files else []) +\
+                   (b_files[f][field] if f in b_files else [])
+
+        merge_files = {}
+        for f in (a_files.keys() | b_files.keys()):
+            executed_lines = set(both(f, 'executed_lines'))
+            missing_lines = set(both(f, 'missing_lines'))
+            missing_lines -= executed_lines
+            merge_files[f] = {
+                'executed_lines': sorted(executed_lines),
+                'missing_lines': sorted(missing_lines)
+            }
+
+            if branch_coverage:
+                executed_branches = set(tuple(br) for br in both(f, 'executed_branches'))
+                missing_branches = set(tuple(br) for br in both(f, 'missing_branches'))
+                missing_branches -= executed_branches
+                merge_files[f].update({
+                    'executed_branches': sorted(list(br) for br in executed_branches),
+                    'missing_branches': sorted(list(br) for br in missing_branches)
+                })
+
+        return {
+            'meta': Slipcover._make_meta(branch_coverage),
+            'files': merge_files
+        }
+
+
+    @staticmethod
     def add_summaries(cov: dict) -> None:
         """Adds (or updates) 'summary' entries in coverage information."""
         # global summary
@@ -413,16 +469,8 @@ class Slipcover:
 
                 files[simp.simplify(f)] = f_files
 
-            import datetime
-
             cov = {
-                'meta': {
-                    'software': 'slipcover',
-                    'version': VERSION,
-                    'timestamp': datetime.datetime.now().isoformat(),
-                    'branch_coverage': self.branch,
-                    'show_contexts': False,
-                },
+                'meta': Slipcover._make_meta(self.branch),
                 'files': files
             }
 
