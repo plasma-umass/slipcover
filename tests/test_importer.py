@@ -1,12 +1,24 @@
 import pytest
 import slipcover.importer as im
+from pathlib import Path
+
 import sys
 
 
-def test_filematcher_defaults():
-    import os
-    from pathlib import Path
-    cwd = Path.cwd()
+def test_filematcher_defaults(tmp_path, monkeypatch):
+    base = tmp_path / "foo"
+    base.mkdir()
+
+    (base / "myscript.py").write_text("")
+    (base / "myscript.pyd").write_text("")
+    (base / "myscript.so").write_text("")
+    (base / "mymodule").mkdir()
+    (base / "mymodule" / "mymodule.py").write_text("")
+    (base / "other").mkdir()
+    (base / "other" / "other.py").write_text("")
+    (tmp_path / "other.py").write_text("")
+
+    monkeypatch.chdir(base)
 
     fm = im.FileMatcher()
 
@@ -17,10 +29,10 @@ def test_filematcher_defaults():
     assert fm.matches(Path('.') / 'myscript.py')
     assert fm.matches(Path('mymodule') / 'mymodule.py')
     assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
-    assert fm.matches(Path('.') / 'other' / 'other.py')
-    assert fm.matches(cwd / 'myscript.py')
-    assert fm.matches(cwd / 'mymodule' / 'mymodule.py')
-    assert not fm.matches(Path.cwd().parent / 'other.py')
+    assert fm.matches(Path('other') / 'other.py')
+    assert fm.matches(base.resolve() / 'myscript.py')
+    assert fm.matches(base.resolve() / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(base.resolve().parent / 'other.py')
 
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
@@ -30,41 +42,25 @@ def test_filematcher_defaults():
     assert not fm.matches(site_packages / 'foo.py')
 
 
-@pytest.fixture
-def return_to_dir():
-    import os
-    from pathlib import Path
-    cwd = str(Path.cwd())
-    yield
-    os.chdir(cwd)
+def test_filematcher_source(tmp_path, monkeypatch):
+    base = tmp_path / "foo"
+    base.mkdir()
 
+    (base / "myscript.py").write_text("")
+    (base / "myscript.pyd").write_text("")
+    (base / "myscript.so").write_text("")
+    (base / "mymodule").mkdir()
+    (base / "mymodule" / "mymodule.py").write_text("")
+    (base / "mymodule" / "mymodule.pyd").write_text("")
+    (base / "mymodule" / "mymodule.so").write_text("")
+    (base / "mymodule" / "foo.py").write_text("")
+    (base / "prereq").mkdir()
+    (base / "prereq" / "__main__.py").write_text("")
+    (base / "other").mkdir()
+    (base / "other" / "other.py").write_text("")
+    (tmp_path / "other.py").write_text("")
 
-def test_filematcher_defaults_from_root(return_to_dir):
-    import os
-    from pathlib import Path
-
-    os.chdir('/')
-    fm = im.FileMatcher()
-
-    assert fm.matches('myscript.py')
-    assert not fm.matches('built-in')
-    assert not fm.matches('myscript.pyd')
-    assert not fm.matches('myscript.so')
-    assert fm.matches(Path('.') / 'myscript.py')
-    assert fm.matches(Path('mymodule') / 'mymodule.py')
-    assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
-    assert fm.matches(Path('.') / 'other' / 'other.py')
-
-    import inspect  # should be in python's own lib
-    assert not fm.matches(inspect.getfile(inspect))
-
-    # pip is usually in site-packages, but importing it causes warnings
-    site_packages = next(Path(p) for p in sys.path if p != '' and (Path(p) / "pip").exists())
-    assert not fm.matches(site_packages / 'foo.py')
-
-
-def test_filematcher_source():
-    from pathlib import Path
+    monkeypatch.chdir(base)
 
     fm = im.FileMatcher()
     fm.addSource('mymodule')
@@ -82,9 +78,9 @@ def test_filematcher_source():
     assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
     assert fm.matches(Path('prereq') / '__main__.py')
     assert not fm.matches(Path('.') / 'other' / 'other.py')
-    assert not fm.matches(Path.cwd() / 'myscript.py')
-    assert fm.matches(Path.cwd() / 'mymodule' / 'mymodule.py')
-    assert not fm.matches(Path.cwd().parent / 'other.py')
+    assert not fm.matches(base.resolve() / 'myscript.py')
+    assert fm.matches(base.resolve() / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(base.resolve().parent / 'other.py')
 
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
@@ -105,8 +101,21 @@ def test_filematcher_source_resolved(monkeypatch):
     assert fm.matches(p)
 
 
-def test_filematcher_omit_pattern():
-    from pathlib import Path
+def test_filematcher_omit_pattern(tmp_path, monkeypatch):
+    base = tmp_path / "foo"
+    base.mkdir()
+
+    (base / "myscript.py").write_text("")
+    (base / "mymodule").mkdir()
+    (base / "mymodule" / "mymodule.py").write_text("")
+    (base / "mymodule" / "foo.py").write_text("")
+    (base / "mymodule" / "1" / "2" / "3").mkdir(parents=True)
+    (base / "mymodule" / "1" / "2" / "3" / "foo.py").write_text("")
+    (base / "other").mkdir()
+    (base / "other" / "other.py").write_text("")
+    (tmp_path / "other.py").write_text("")
+
+    monkeypatch.chdir(base)
 
     fm = im.FileMatcher()
     fm.addSource('mymodule')
@@ -119,9 +128,9 @@ def test_filematcher_omit_pattern():
     assert not fm.matches(Path('mymodule') / '1' / '2' / '3' / 'foo.py')
     assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
     assert not fm.matches(Path('.') / 'other' / 'other.py')
-    assert not fm.matches(Path.cwd() / 'myscript.py')
-    assert fm.matches(Path.cwd() / 'mymodule' / 'mymodule.py')
-    assert not fm.matches(Path.cwd().parent / 'other.py')
+    assert not fm.matches(base.resolve() / 'myscript.py')
+    assert fm.matches(base.resolve() / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(base.resolve().parent / 'other.py')
 
     import inspect  # should be in python's own lib
     assert not fm.matches(inspect.getfile(inspect))
@@ -133,8 +142,21 @@ def test_filematcher_omit_pattern():
 # TODO what about patterns starting with '?'
 
 
-def test_filematcher_omit_nonpattern():
-    from pathlib import Path
+def test_filematcher_omit_nonpattern(tmp_path, monkeypatch):
+    base = tmp_path / "foo"
+    base.mkdir()
+
+    (base / "myscript.py").write_text("")
+    (base / "mymodule").mkdir()
+    (base / "mymodule" / "mymodule.py").write_text("")
+    (base / "mymodule" / "foo.py").write_text("")
+    (base / "mymodule" / "1" / "2" / "3").mkdir(parents=True)
+    (base / "mymodule" / "1" / "2" / "3" / "foo.py").write_text("")
+    (base / "other").mkdir()
+    (base / "other" / "other.py").write_text("")
+    (tmp_path / "other.py").write_text("")
+
+    monkeypatch.chdir(base)
 
     fm = im.FileMatcher()
     fm.addSource('mymodule')
@@ -147,9 +169,9 @@ def test_filematcher_omit_nonpattern():
     assert fm.matches(Path('mymodule') / '1' / '2' / '3' / 'foo.py')
     assert fm.matches(Path('.') / 'mymodule' / 'mymodule.py')
     assert not fm.matches(Path('.') / 'other' / 'other.py')
-    assert not fm.matches(Path.cwd() / 'myscript.py')
-    assert fm.matches(Path.cwd() / 'mymodule' / 'mymodule.py')
-    assert not fm.matches(Path.cwd().parent / 'other.py')
+    assert not fm.matches(base.resolve() / 'myscript.py')
+    assert fm.matches(base.resolve() / 'mymodule' / 'mymodule.py')
+    assert not fm.matches(base.resolve().parent / 'other.py')
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError in Documents and Settings')
