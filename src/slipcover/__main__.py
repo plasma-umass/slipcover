@@ -155,8 +155,9 @@ def main():
         sc.wrap_pytest(sci, file_matcher)
 
 
-    os.fork = fork_shim()
-    os._exit = exit_shim(args, sci)
+    if platform.system() != 'Windows':
+        os.fork = fork_shim()
+        os._exit = exit_shim(args, sci)
 
     def sci_atexit():
         global output_tmpfile
