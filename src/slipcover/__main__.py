@@ -80,6 +80,33 @@ def exit_shim(args, sci):
     return wrapper
 
 
+def merge_files(args):
+    """Merges coverage files."""
+    try:
+        with args.merge[0].open() as jf:
+            merged = json.load(jf)
+    except Exception as e:
+        print(f"Error reading in {args.merge[0]}: {e}")
+        return 1
+
+    try:
+        for f in args.merge[1:]:
+            with f.open() as jf:
+                sc.merge_coverage(merged, json.load(jf))
+    except Exception as e:
+        print(f"Error merging in {f}: {e}")
+        return 1
+
+    try:
+        with args.out.open("w", encoding='utf-8') as jf:
+            json.dump(merged, jf)
+    except Exception as e:
+        print(e)
+        return 1
+
+    return 0
+
+
 def main():
     import argparse
 
@@ -116,6 +143,7 @@ def main():
 
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument('-m', dest='module', nargs=1, help="run given module as __main__")
+    g.add_argument('--merge', nargs='+', type=Path, help="merge JSON coverage files, saving to --out")
     g.add_argument('script', nargs='?', type=Path, help="the script to run")
     ap.add_argument('script_or_module_args', nargs=argparse.REMAINDER)
 
@@ -125,6 +153,12 @@ def main():
         args.script_or_module_args = sys.argv[minus_m+2:]
     else:
         args = ap.parse_args(sys.argv[1:])
+
+
+    if args.merge:
+        if not args.out: ap.error("--out is required with --merge")
+        return merge_files(args)
+
 
     base_path = Path(args.script).resolve().parent if args.script \
                 else Path('.').resolve()

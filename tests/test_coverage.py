@@ -784,8 +784,8 @@ print("in t2!")
     check_summaries(a)
 
 
-@pytest.mark.parametrize("branch_in", ['a', 'b'])
-def test_merge_coverage_branch_coverage_disagree(tmp_path, monkeypatch, branch_in):
+@pytest.fixture
+def cov_merge_fixture(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     (tmp_path / "t.py").write_text("""\
@@ -802,16 +802,22 @@ if not sys.argv:        # 8
 print("all done!")      # 11
 """)
 
+    yield tmp_path
+
+
+
+@pytest.mark.parametrize("branch_in", ['a', 'b'])
+def test_merge_coverage_branch_coverage_disagree(cov_merge_fixture, branch_in):
     subprocess.run([sys.executable, '-m', 'slipcover'] +\
                    (['--branch'] if branch_in == 'a' else []) +\
-                    ['--json', '--out', tmp_path / "a.json", "t.py"], check=True)
+                    ['--json', '--out', "a.json", "t.py"], check=True)
     subprocess.run([sys.executable, '-m', 'slipcover'] +\
                    (['--branch'] if branch_in == 'b' else []) +\
-                    ['--json', '--out', tmp_path / "b.json", "t.py", "X"], check=True)
+                    ['--json', '--out', "b.json", "t.py", "X"], check=True)
 
-    with (tmp_path / "a.json").open() as f:
+    with Path("a.json").open() as f:
         a = json.load(f)
-    with (tmp_path / "b.json").open() as f:
+    with Path("b.json").open() as f:
         b = json.load(f)
 
     assert [1, 3, 4, 8, 11] == a['files']['t.py']['executed_lines']
@@ -852,3 +858,32 @@ def test_pytest_forked(tmp_path):
     cov = cov['files'][test_file]
     assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
     assert [] == cov['missing_lines']
+
+
+def test_merge_flag(cov_merge_fixture):
+    subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
+                    '--json', '--out', "a.json", "t.py"], check=True)
+    subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
+                    '--json', '--out', "b.json", "t.py", "X"], check=True)
+
+    subprocess.run([sys.executable, '-m', 'slipcover', '--merge',
+                    'a.json', 'b.json', '--out', 'c.json'], check=True)
+
+    with Path("c.json").open() as f:
+        c = json.load(f)
+
+    assert [1, 3, 4, 6, 8, 11] == c['files']['t.py']['executed_lines']
+    assert [9] == c['files']['t.py']['missing_lines']
+    assert True == c['meta']['branch_coverage']
+
+    check_summaries(c)
+
+
+def test_merge_flag_no_out(cov_merge_fixture):
+    subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
+                    '--json', '--out', "a.json", "t.py"], check=True)
+    subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
+                    '--json', '--out', "b.json", "t.py", "X"], check=True)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.run([sys.executable, '-m', 'slipcover', '--merge', 'a.json', 'b.json'], check=True)
