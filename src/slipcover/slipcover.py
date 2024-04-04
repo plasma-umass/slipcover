@@ -28,6 +28,10 @@ if sys.version_info[0:2] >= (3,12):
     _op_RESUME = dis.opmap["RESUME"]
 
 
+class SlipcoverError(Exception):
+    pass
+
+
 class PathSimplifier:
     def __init__(self):
         self.cwd = Path.cwd()
@@ -127,6 +131,87 @@ def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_cov
                "Missing"]
     maxcolwidths = [None] * (len(headers)-1) + [missing_width]
     print(tabulate(table(), headers=headers, maxcolwidths=maxcolwidths), file=outfile)
+
+
+def add_summaries(cov: dict) -> None:
+    """Adds (or updates) 'summary' entries in coverage information."""
+    # global summary
+    g_summary = defaultdict(int)
+    g_nom = g_den = 0
+
+    if 'files' in cov:
+        for f_cov in cov['files'].values():
+            summary = { # per-file summary
+                'covered_lines': len(f_cov['executed_lines']),
+                'missing_lines': len(f_cov['missing_lines']),
+            }
+
+            nom = summary['covered_lines']
+            den = nom + summary['missing_lines']
+
+            if 'executed_branches' in f_cov:
+                summary.update({
+                    'covered_branches': len(f_cov['executed_branches']),
+                    'missing_branches': len(f_cov['missing_branches'])
+                })
+
+                nom += summary['covered_branches']
+                den += summary['covered_branches'] + summary['missing_branches']
+
+            summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
+            f_cov['summary'] = summary
+
+            for k in summary:
+                g_summary[k] += summary[k]
+            g_nom += nom
+            g_den += den
+
+    g_summary['percent_covered'] = 100.0 if g_den == 0 else 100*g_nom/g_den
+    cov['summary'] = g_summary
+
+
+def merge_coverage(a: dict, b: dict) -> dict:
+    """Merges coverage result 'b' into 'a'."""
+
+    if a.get('meta', {}).get('software', None) != 'slipcover':
+        raise SlipcoverError('Cannot merge coverage: only SlipCover format supported.')
+
+    if a.get('meta', {}).get('show_contexts', False) or \
+       b.get('meta', {}).get('show_contexts', False):
+        raise SlipcoverError('Merging coverage with show_contexts=True unsupported')
+
+    branch_coverage = a.get('meta', {}).get('branch_coverage', False)
+    if branch_coverage and not b.get('meta', {}).get('branch_coverage', False):
+        raise SlipcoverError('Cannot merge coverage: branch coverage missing')
+
+    a_files = a['files']
+    b_files = b['files']
+
+    def both(f, field):
+        return (a_files[f][field] if f in a_files else []) + b_files[f][field]
+
+    for f in b_files:
+        executed_lines = set(both(f, 'executed_lines'))
+        missing_lines = set(both(f, 'missing_lines'))
+        missing_lines -= executed_lines
+        update = {
+            'executed_lines': sorted(executed_lines),
+            'missing_lines': sorted(missing_lines)
+        }
+
+        if branch_coverage:
+            executed_branches = set(tuple(br) for br in both(f, 'executed_branches'))
+            missing_branches = set(tuple(br) for br in both(f, 'missing_branches'))
+            missing_branches -= executed_branches
+            update.update({
+                'executed_branches': sorted(list(br) for br in executed_branches),
+                'missing_branches': sorted(list(br) for br in missing_branches)
+            })
+
+        a_files[f] = update
+
+    add_summaries(a)
+    return a
 
 
 class Slipcover:
@@ -442,87 +527,6 @@ class Slipcover:
         }
 
 
-    @staticmethod
-    def merge_coverage(a: dict, b: dict) -> dict:
-        """Merges two coverage results dictionaries.
-           The merged coverage does NOT contain summaries: call add_summaries if you need them.
-        """
-        assert not a.get('meta', {}).get('show_contexts', False)
-        assert not b.get('meta', {}).get('show_contexts', False)
-
-        branch_coverage = a.get('meta', {}).get('branch_coverage', False) and \
-                          b.get('meta', {}).get('branch_coverage', False)
-
-        a_files = a['files']
-        b_files = b['files']
-
-        def both(f, field):
-            return (a_files[f][field] if f in a_files else []) +\
-                   (b_files[f][field] if f in b_files else [])
-
-        merge_files = {}
-        for f in (a_files.keys() | b_files.keys()):
-            executed_lines = set(both(f, 'executed_lines'))
-            missing_lines = set(both(f, 'missing_lines'))
-            missing_lines -= executed_lines
-            merge_files[f] = {
-                'executed_lines': sorted(executed_lines),
-                'missing_lines': sorted(missing_lines)
-            }
-
-            if branch_coverage:
-                executed_branches = set(tuple(br) for br in both(f, 'executed_branches'))
-                missing_branches = set(tuple(br) for br in both(f, 'missing_branches'))
-                missing_branches -= executed_branches
-                merge_files[f].update({
-                    'executed_branches': sorted(list(br) for br in executed_branches),
-                    'missing_branches': sorted(list(br) for br in missing_branches)
-                })
-
-        return {
-            'meta': Slipcover._make_meta(branch_coverage),
-            'files': merge_files
-        }
-
-
-    @staticmethod
-    def add_summaries(cov: dict) -> None:
-        """Adds (or updates) 'summary' entries in coverage information."""
-        # global summary
-        g_summary = defaultdict(int)
-        g_nom = g_den = 0
-
-        if 'files' in cov:
-            for f_cov in cov['files'].values():
-                summary = { # per-file summary
-                    'covered_lines': len(f_cov['executed_lines']),
-                    'missing_lines': len(f_cov['missing_lines']),
-                }
-
-                nom = summary['covered_lines']
-                den = nom + summary['missing_lines']
-
-                if 'executed_branches' in f_cov:
-                    summary.update({
-                        'covered_branches': len(f_cov['executed_branches']),
-                        'missing_branches': len(f_cov['missing_branches'])
-                    })
-
-                    nom += summary['covered_branches']
-                    den += summary['covered_branches'] + summary['missing_branches']
-
-                summary['percent_covered'] = 100.0 if den == 0 else 100*nom/den
-                f_cov['summary'] = summary
-
-                for k in summary:
-                    g_summary[k] += summary[k]
-                g_nom += nom
-                g_den += den
-
-        g_summary['percent_covered'] = 100.0 if g_den == 0 else 100*g_nom/g_den
-        cov['summary'] = g_summary
-
-
     def get_coverage(self):
         """Returns coverage information collected."""
 
@@ -562,7 +566,7 @@ class Slipcover:
                 'files': files
             }
 
-            Slipcover.add_summaries(cov)
+            add_summaries(cov)
             return cov
 
 

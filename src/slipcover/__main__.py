@@ -48,7 +48,7 @@ def get_coverage(sci):
             try:
                 fname = f.name
                 f.seek(0)
-                cov = sc.Slipcover.merge_coverage(cov, json.load(f))
+                sc.merge_coverage(cov, json.load(f))
             except json.JSONDecodeError as e:
                 print(f"Error reading {fname}: {e}")
             finally:
@@ -57,8 +57,6 @@ def get_coverage(sci):
                     os.remove(fname)
                 except FileNotFoundError:
                     pass
-
-        sc.Slipcover.add_summaries(cov)
 
     return cov
 

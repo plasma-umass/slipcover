@@ -699,6 +699,19 @@ def test_resolves_other_sources(tmp_path):
     assert [] == cov['files'][baz_file]['missing_branches']
 
 
+def check_summaries(cov):
+    import copy
+
+    check = copy.deepcopy(cov)
+    sc.add_summaries(check)
+
+    for f in cov['files']:
+        assert 'summary' in cov['files'][f]
+        assert check['files'][f]['summary'] == cov['files'][f]['summary']
+
+    assert check['summary'] == cov['summary']
+
+
 @pytest.mark.parametrize("do_branch", [True, False, None])
 def test_merge_coverage(tmp_path, monkeypatch, do_branch):
     monkeypatch.chdir(tmp_path)
@@ -736,41 +749,43 @@ print("in t2!")
         b = json.load(f)
 
     if do_branch is None:
-        del a['meta']
         del b['meta']['branch_coverage']
 
     assert 't2.py' not in a['files']
     assert 't2.py' in b['files']
     assert a['files']['t.py']['executed_lines'] != b['files']['t.py']['executed_lines']
 
-    cov = sc.Slipcover.merge_coverage(a, b)
+    sc.merge_coverage(a, b)
 
-    assert 't.py' in cov['files']
-    assert [1, 3, 4, 7, 8, 10, 13] == cov['files']['t.py']['executed_lines']
-    assert [11] == cov['files']['t.py']['missing_lines']
-
-    if do_branch:
-        assert [[3, 4], [3, 7], [10, 13]] == cov['files']['t.py']['executed_branches']
-        assert [[10, 11]] == cov['files']['t.py']['missing_branches']
-    else:
-        assert 'executed_branches' not in cov['files']['t.py']
-        assert 'missing_branches' not in cov['files']['t.py']
-
-    assert 't2.py' in cov['files']
-    assert [1] == cov['files']['t2.py']['executed_lines']
-    assert [] == cov['files']['t2.py']['missing_lines']
+    assert 't.py' in a['files']
+    assert [1, 3, 4, 7, 8, 10, 13] == a['files']['t.py']['executed_lines']
+    assert [11] == a['files']['t.py']['missing_lines']
 
     if do_branch:
-        assert [] == cov['files']['t2.py']['executed_branches']
-        assert [] == cov['files']['t2.py']['missing_branches']
+        assert [[3, 4], [3, 7], [10, 13]] == a['files']['t.py']['executed_branches']
+        assert [[10, 11]] == a['files']['t.py']['missing_branches']
     else:
-        assert 'executed_branches' not in cov['files']['t2.py']
-        assert 'missing_branches' not in cov['files']['t2.py']
+        assert 'executed_branches' not in a['files']['t.py']
+        assert 'missing_branches' not in a['files']['t.py']
 
-    assert bool(do_branch) == cov['meta']['branch_coverage']
+    assert 't2.py' in a['files']
+    assert [1] == a['files']['t2.py']['executed_lines']
+    assert [] == a['files']['t2.py']['missing_lines']
+
+    if do_branch:
+        assert [] == a['files']['t2.py']['executed_branches']
+        assert [] == a['files']['t2.py']['missing_branches']
+    else:
+        assert 'executed_branches' not in a['files']['t2.py']
+        assert 'missing_branches' not in a['files']['t2.py']
+
+    assert bool(do_branch) == a['meta']['branch_coverage']
+
+    check_summaries(a)
 
 
-def test_merge_coverage_branch_coverage_disagree(tmp_path, monkeypatch):
+@pytest.mark.parametrize("branch_in", ['a', 'b'])
+def test_merge_coverage_branch_coverage_disagree(tmp_path, monkeypatch, branch_in):
     monkeypatch.chdir(tmp_path)
 
     (tmp_path / "t.py").write_text("""\
@@ -787,10 +802,12 @@ if not sys.argv:        # 8
 print("all done!")      # 11
 """)
 
-    subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
-                    '--json', '--out', tmp_path / "a.json", "t.py"], check=True)
-    subprocess.run([sys.executable, '-m', 'slipcover',
-                    '--json', '--out', tmp_path / "b.json", "t.py", "X"], check=True)
+    subprocess.run([sys.executable, '-m', 'slipcover'] +\
+                   (['--branch'] if branch_in == 'a' else []) +\
+                    ['--json', '--out', tmp_path / "a.json", "t.py"], check=True)
+    subprocess.run([sys.executable, '-m', 'slipcover'] +\
+                   (['--branch'] if branch_in == 'b' else []) +\
+                    ['--json', '--out', tmp_path / "b.json", "t.py", "X"], check=True)
 
     with (tmp_path / "a.json").open() as f:
         a = json.load(f)
@@ -800,15 +817,21 @@ print("all done!")      # 11
     assert [1, 3, 4, 8, 11] == a['files']['t.py']['executed_lines']
     assert [1, 3, 6, 8, 11] == b['files']['t.py']['executed_lines']
 
-    cov = sc.Slipcover.merge_coverage(a, b)
+    if branch_in == 'a':
+        with pytest.raises(sc.SlipcoverError):
+            sc.merge_coverage(a, b)
 
-    assert False == cov['meta']['branch_coverage']
+    else:
+        sc.merge_coverage(a, b)
+        assert False == a['meta']['branch_coverage']
 
-    assert [1, 3, 4, 6, 8, 11] == cov['files']['t.py']['executed_lines']
-    assert [9] == cov['files']['t.py']['missing_lines']
+        assert [1, 3, 4, 6, 8, 11] == a['files']['t.py']['executed_lines']
+        assert [9] == a['files']['t.py']['missing_lines']
 
-    assert 'executed_branches' not in cov['files']['t.py']
-    assert 'missing_branches' not in cov['files']['t.py']
+        assert 'executed_branches' not in a['files']['t.py']
+        assert 'missing_branches' not in a['files']['t.py']
+
+        check_summaries(a)
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='pytest-forked is Unix-specific')
@@ -821,6 +844,8 @@ def test_pytest_forked(tmp_path):
 
     with out.open() as f:
         cov = json.load(f)
+
+    check_summaries(cov)
 
     assert test_file in cov['files']
     assert {test_file} == set(cov['files'].keys())
