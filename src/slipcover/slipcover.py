@@ -527,6 +527,13 @@ class Slipcover:
         }
 
 
+    def signal_child_process(self):
+        self.source = None  # only the parent process needs to run _add_unseen_source_files
+        with self.lock:
+            self._get_newly_seen()
+            self.all_seen.clear()
+
+
     def get_coverage(self):
         """Returns coverage information collected."""
 

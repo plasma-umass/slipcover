@@ -16,7 +16,7 @@ input_tmpfiles = []
 output_tmpfile = None
 
 
-def fork_shim():
+def fork_shim(sci):
     """Shims os.fork(), preparing the child to write its coverage to a temporary file
        and the parent to read from that file, so as to report the full coverage obtained.
     """
@@ -30,7 +30,10 @@ def fork_shim():
 
         if (pid := original_fork(*pargs, **kwargs)):
             input_tmpfiles.append(tmp_file)
+
         else:
+            sci.signal_child_process()
+            input_tmpfiles.clear()  # to be used by this process' children, if any
             output_tmpfile = tmp_file
 
         return pid
@@ -61,7 +64,7 @@ def get_coverage(sci):
     return cov
 
 
-def exit_shim(args, sci):
+def exit_shim(sci):
     """Shims os._exit(), so a previously forked child process writes its coverage to
        a temporary file read by the parent.
     """
@@ -188,8 +191,8 @@ def main():
 
 
     if platform.system() != 'Windows':
-        os.fork = fork_shim()
-        os._exit = exit_shim(args, sci)
+        os.fork = fork_shim(sci)
+        os._exit = exit_shim(sci)
 
     def sci_atexit():
         global output_tmpfile
