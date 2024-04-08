@@ -644,6 +644,9 @@ def test_reports_on_other_sources(tmp_path):
     with open(out_file, "r") as f:
         cov = json.load(f)
 
+    assert 'tests/importer.py' not in cov['files']
+    assert str(Path('tests/importer.py').resolve()) not in cov['files']
+
     init_file = str(Path('tests') / 'imported' / '__init__.py')
     foo_file = str(Path('tests') / 'imported' / 'foo.py')
     baz_file = str(Path('tests') / 'imported' / 'subdir' / 'baz.PY')
