@@ -1,6 +1,7 @@
 import pytest
 import slipcover.importer as im
 from pathlib import Path
+import subprocess
 
 import sys
 
@@ -276,3 +277,13 @@ def test():
 
     p = subprocess.run([sys.executable, "-m", "slipcover", "--silent", "-m", "pytest", "-vv", cmdfile])
     assert p.returncode == 0
+
+
+def test_run_script_argv_is_str(tmp_path):
+    cmdfile = tmp_path / "t.py"
+    cmdfile.write_text("""
+import sys
+assert isinstance(sys.argv[0], str)
+""")
+
+    subprocess.run([sys.executable, "-m", "slipcover", "--silent", cmdfile], check=True)

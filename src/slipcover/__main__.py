@@ -222,7 +222,7 @@ def main():
         script_globals['__name__'] = '__main__'
         script_globals['__file__'] = args.script
 
-        sys.argv = [args.script, *args.script_or_module_args]
+        sys.argv = [str(args.script), *args.script_or_module_args]
 
         # the 1st item in sys.path is always the main script's directory
         sys.path.pop(0)
