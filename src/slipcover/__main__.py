@@ -10,6 +10,7 @@ import functools
 import os
 import tempfile
 import json
+import warnings
 
 # Used for fork() support
 input_tmpfiles = []
@@ -53,7 +54,7 @@ def get_coverage(sci):
                 f.seek(0)
                 sc.merge_coverage(cov, json.load(f))
             except json.JSONDecodeError as e:
-                print(f"Error reading {fname}: {e}")
+                warnings.warn(f"Error reading {fname}: {e}")
             finally:
                 f.close()
                 try:
@@ -85,11 +86,12 @@ def exit_shim(sci):
 
 def merge_files(args):
     """Merges coverage files."""
+
     try:
         with args.merge[0].open() as jf:
             merged = json.load(jf)
     except Exception as e:
-        print(f"Error reading in {args.merge[0]}: {e}")
+        warnings.warn(f"Error reading in {args.merge[0]}: {e}")
         return 1
 
     try:
@@ -97,14 +99,14 @@ def merge_files(args):
             with f.open() as jf:
                 sc.merge_coverage(merged, json.load(jf))
     except Exception as e:
-        print(f"Error merging in {f}: {e}")
+        warnings.warn(f"Error merging in {f}: {e}")
         return 1
 
     try:
         with args.out.open("w", encoding='utf-8') as jf:
             json.dump(merged, jf)
     except Exception as e:
-        print(e)
+        warnings.warn(e)
         return 1
 
     return 0
