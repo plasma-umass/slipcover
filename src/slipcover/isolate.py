@@ -14,7 +14,10 @@ class IsolatePlugin:
 
     def pytest_ignore_collect(self, path, config):
         if self._is_child:
-            return True
+            return True     # only one test module per child process
+
+        if not str(path).endswith('.py'):
+            return False    # only fork for test modules, not directories, etc.
 
         if (pid := os.fork()):
             pid, status = os.waitpid(pid, 0)
