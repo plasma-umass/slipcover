@@ -30,8 +30,12 @@ jobs:
 
     - name: install dependencies
       run: |
-        python3 -m pip install pytest pytest-forked
+        python3 -m pip install pytest
         python3 -m pip install -e .
+
+    - name: install Unix dependencies
+      if: matrix.os != 'windows-latest'
+      run: python3 -m pip install pytest-forked
 
     - name: run tests
       run: python3 -m pytest
