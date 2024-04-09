@@ -416,6 +416,13 @@ def test_print_coverage_zero_lines(do_branch, capsys):
     assert re.match(f'^foo\\.py +{"1" if PYTHON_VERSION < (3,11) else "0"} +0{" +0 +0 +0" if do_branch else ""} +100', output[3])
 
 
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_print_coverage_no_coverage(capsys, do_branch):
+    sci = sc.Slipcover(branch=do_branch)
+    cov = sci.get_coverage()
+    sc.print_coverage(cov)
+
+
 def test_print_coverage_skip_covered():
     p = subprocess.run(f"{sys.executable} -m slipcover --skip-covered tests/importer.py".split(),
                        check=True, capture_output=True)

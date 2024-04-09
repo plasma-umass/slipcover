@@ -86,6 +86,9 @@ def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_cov
     """Prints coverage information for human consumption."""
     from tabulate import tabulate
 
+    if not coverage.get('files', None): # includes empty coverage['files']
+        return
+
     branch_coverage = coverage.get('meta', {}).get('branch_coverage', False)
 
     def table():
