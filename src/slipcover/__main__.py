@@ -139,7 +139,7 @@ def main():
     ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
 
     ap.add_argument('--isolate-tests', default=False,
-                    action=argparse.BooleanOptionalAction,
+                    action=(argparse.BooleanOptionalAction if sys.version_info[0:2] >= (3,9) else 'store_true'),
                     help='run pytest tests in isolation, to try to work around state pollution')
 
     # intended for slipcover development only
