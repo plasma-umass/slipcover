@@ -863,6 +863,50 @@ def test_pytest_forked(tmp_path):
     assert [] == cov['missing_lines']
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='fork() and pytest-forked are Unix-specific')
+def test_forked_twice(tmp_path, monkeypatch):
+    source = (Path('tests') / 'pyt.py').resolve()
+    out = tmp_path / "out.json"
+    script = tmp_path / "foo.py"
+
+    monkeypatch.chdir(tmp_path)
+    test_file = 't.py'
+    Path(test_file).write_text(source.read_text())
+
+    script.write_text(f"""\
+import os
+import sys
+import pytest
+
+if (pid := os.fork()):
+    pid, status = os.waitpid(pid, 0)
+    if status:
+        if os.WIFSIGNALED(status):
+            exitstatus = os.WTERMSIG(status) + 128
+        else:
+            exitstatus = os.WEXITSTATUS(status)
+    else:
+        exitstatus = 0
+
+    sys.exit(exitstatus)
+else:
+    print(os.getpid(), "calling pytest")
+    os._exit(pytest.main(['--forked', '{test_file}']))
+""")
+
+    subprocess.run([sys.executable, '-m', 'slipcover', '--debug', '--json', '--out', str(out), script])
+
+    with out.open() as f:
+        cov = json.load(f)
+
+    check_summaries(cov)
+
+    assert test_file in cov['files']
+    cov = cov['files'][test_file]
+    assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
+    assert [] == cov['missing_lines']
+
+
 def test_merge_flag(cov_merge_fixture):
     subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
                     '--json', '--out', "a.json", "t.py"], check=True)
