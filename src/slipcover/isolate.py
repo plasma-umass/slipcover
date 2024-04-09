@@ -51,22 +51,7 @@ class IsolatePlugin:
         return pytest.ExitCode.TESTS_FAILED if self._test_failed else pytest.ExitCode.OK
 
 
-def preload_pytest_plugins():
-    """Preloads pytest plugins, in an attempt to speed things up."""
-    import pkg_resources
-    import importlib
-    import warnings
-
-    for ep in pkg_resources.iter_entry_points(group='pytest11'):
-        try:
-            importlib.import_module(ep.module_name)
-        except ImportError as e:
-            warnings.warn(e)
-
-
 if __name__ == "__main__":
-    preload_pytest_plugins()
-
     plugin = IsolatePlugin()
     exitcode = pytest.main(sys.argv[1:] + ['--forked'], plugins=[plugin])
     if exitcode in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
