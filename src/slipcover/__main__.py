@@ -140,7 +140,7 @@ def main():
 
     ap.add_argument('--isolate-tests', default=False,
                     action=(argparse.BooleanOptionalAction if sys.version_info[0:2] >= (3,9) else 'store_true'),
-                    help='run pytest tests in isolation, to try to work around state pollution')
+                    help=argparse.SUPPRESS) #'run pytest tests in isolation, to try to work around state pollution')
 
     # intended for slipcover development only
     ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)

@@ -19,6 +19,9 @@ class IsolatePlugin:
         if not str(path).endswith('.py'):
             return False    # only fork for test modules, not directories, etc.
 
+        # FIXME manage stdout/stderr to avoid children clobbering output,
+        # FIXME properly report executed tests
+
         if (pid := os.fork()):
             pid, status = os.waitpid(pid, 0)
             if status:
