@@ -80,7 +80,7 @@ jobs:
             python3 -m build --wheel
 
       - name: run auditwheel for manylinux
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.container != ''
         run: |
           auditwheel repair dist/*.whl
           rm -f dist/*.whl
