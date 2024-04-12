@@ -101,8 +101,9 @@ setuptools.setup(
     packages=['slipcover'],
     package_dir={'': 'src'},
     ext_modules=([probe] if PYTHON_VERSION < (3,12) else []),
-    python_requires=f">=3.{PYTHON_VERSION[1]},<3.{PYTHON_VERSION[1]+1}" if PYTHON_VERSION < (3,12) \
-                    else ">=3.12,<3.14",
+#    python_requires=f">=3.{PYTHON_VERSION[1]},<3.{PYTHON_VERSION[1]+1}" if PYTHON_VERSION < (3,12) \
+#                    else ">=3.12,<3.14",
+    python_requires=">=3.8,<3.14",
     install_requires=[
         "tabulate"
     ],
