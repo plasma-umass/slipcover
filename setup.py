@@ -8,6 +8,7 @@ def get_version():
     v = re.findall(r"\nVERSION *= *\"([^\"]+)\"", Path("src/slipcover/slipcover.py").read_text())[0]
     return v
 
+PYTHON_VERSION = sys.version_info[0:2]
 VERSION = get_version()
 REPO_URL = "https://github.com/plasma-umass/slipcover"
 
@@ -74,7 +75,7 @@ probe = setuptools.extension.Extension(
     language='c++',
 )
 
-if sys.argv[1].startswith('bdist') and sys.platform == 'darwin' and \
+if sys.argv[1].startswith('bdist') and sys.platform == 'darwin' and PYTHON_VERSION < (3,12) and\
    sum(arg == '-arch' for arg in platform_compile_args()) > 1:
     # Build universal wheels on MacOS.
     # ---
@@ -99,8 +100,9 @@ setuptools.setup(
     license="Apache License 2.0",
     packages=['slipcover'],
     package_dir={'': 'src'},
-    ext_modules=([probe]),
-    python_requires=">=3.8,<3.14",
+    ext_modules=([probe] if PYTHON_VERSION < (3,12) else []),
+    python_requires=f">=3.{PYTHON_VERSION[1]},<3.{PYTHON_VERSION[1]+1}" if PYTHON_VERSION < (3,12) \
+                    else ">=3.12,<3.14",
     install_requires=[
         "tabulate"
     ],

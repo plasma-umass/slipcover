@@ -30,14 +30,15 @@ jobs:
     container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python_version: ['3.8', '3.9', '3.10', '3.11']
         os: ['ubuntu-latest', 'macos-latest', 'windows-latest']
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux2014_x86_64  # https://github.com/pypa/manylinux
+          # just need ONE build from 3.12 onwards; also only one needs to upload sources
           - os: macos-latest
-            python_version: 3.8
-            upload_source: true   # just need ONE of them to do it
+            python_version: 3.12
+            upload_source: true
 
     steps:
       - uses: actions/checkout@v3
