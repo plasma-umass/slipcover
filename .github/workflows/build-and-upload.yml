@@ -36,8 +36,9 @@ jobs:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux2014_x86_64  # https://github.com/pypa/manylinux
           # just need ONE build from 3.12 onwards; also only one needs to upload sources
-          - os: macos-latest
-            python_version: 3.12
+          - python_version: 3.12
+            os: ubuntu-latest
+            container: ''
             upload_source: true
 
     steps:
