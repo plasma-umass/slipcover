@@ -79,38 +79,33 @@ def test_probe_deinstrument():
 
 def check_line_probes(code):
     # Are all lines where we expect?
-    for (offset, line) in dis.findlinestarts(code):
-        if line:
-            print(f"checking {code.co_name} line {line}")
-            if bc.op_RESUME == code.co_code[offset]:
-                continue
+    for (offset, line) in sc.findlinestarts(code):
+        assert bc.op_NOP == code.co_code[offset], f"NOP missing at offset {offset}"
+        probe_len = bc.branch2offset(code.co_code[offset+1])
+        it = iter(bc.unpack_opargs(code.co_code[offset+2:offset+2+probe_len]))
 
-            assert bc.op_NOP == code.co_code[offset], f"NOP missing at offset {offset}"
-            probe_len = bc.branch2offset(code.co_code[offset+1])
-            it = iter(bc.unpack_opargs(code.co_code[offset+2:offset+2+probe_len]))
-
-            if PYTHON_VERSION >= (3,11):
-                op_offset, op_len, op, op_arg = next(it)
-                assert op == bc.op_PUSH_NULL
-
+        if PYTHON_VERSION >= (3,11):
             op_offset, op_len, op, op_arg = next(it)
-            assert op == bc.op_LOAD_CONST
+            assert op == bc.op_PUSH_NULL
 
+        op_offset, op_len, op, op_arg = next(it)
+        assert op == bc.op_LOAD_CONST
+
+        op_offset, op_len, op, op_arg = next(it)
+        assert op == bc.op_LOAD_CONST
+
+        op_offset, op_len, op, op_arg = next(it)
+        if PYTHON_VERSION >= (3,11):
+            assert op == bc.op_PRECALL
             op_offset, op_len, op, op_arg = next(it)
-            assert op == bc.op_LOAD_CONST
+            assert op == bc.op_CALL
+        else:
+            assert op == bc.op_CALL_FUNCTION
 
-            op_offset, op_len, op, op_arg = next(it)
-            if PYTHON_VERSION >= (3,11):
-                assert op == bc.op_PRECALL
-                op_offset, op_len, op, op_arg = next(it)
-                assert op == bc.op_CALL
-            else:
-                assert op == bc.op_CALL_FUNCTION
+        op_offset, op_len, op, op_arg = next(it)
+        assert op == bc.op_POP_TOP
 
-            op_offset, op_len, op, op_arg = next(it)
-            assert op == bc.op_POP_TOP
-
-            assert next(it, None) is None   # check end of probe
+        assert next(it, None) is None   # check end of probe
 
     for const in code.co_consts:
         if isinstance(const, types.CodeType):

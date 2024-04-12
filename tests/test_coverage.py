@@ -122,7 +122,7 @@ def test_exception():
     cov = cov['files'][simple_current_file()]
     assert [2, 3, 4, 5, 7, 8, 10, 12] == [l-base_line for l in cov['executed_lines']]
 
-    all_lines = {l-base_line for offset, l in dis.findlinestarts(foo.__code__)}
+    all_lines = {l-base_line for offset, l in sc.findlinestarts(foo.__code__)}
 
     if 6 not in all_lines: # 6 is unreachable and may be omitted from the code
         assert [] == [l-base_line for l in cov['missing_lines']]

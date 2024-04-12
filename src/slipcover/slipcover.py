@@ -24,8 +24,19 @@ if sys.version_info[0:2] < (3,10):
     setattr(Counter, 'total', counter_total)
 
 
-if sys.version_info[0:2] >= (3,12):
+# Python 3.13 returns 'None' lines;
+# Python 3.11+ generates a line just for RESUME;
+# Python 3.11 generates a 0th line
+if sys.version_info[0:2] >= (3,11):
     _op_RESUME = dis.opmap["RESUME"]
+
+    def findlinestarts(co: types.CodeType):
+        for off, line in dis.findlinestarts(co):
+            if line and co.co_code[off] != _op_RESUME:
+                yield off, line
+
+else:
+    findlinestarts = dis.findlinestarts
 
 
 class SlipcoverError(Exception):
@@ -285,9 +296,7 @@ class Slipcover:
                 if isinstance(c, types.CodeType):
                     yield from Slipcover.lines_from_code(c)
 
-            # Python 3.11+ generates a line just for RESUME
-            yield from (line for off, line in dis.findlinestarts(co)
-                        if not br.is_branch(line) and co.co_code[off] != _op_RESUME)
+            yield from (line for _, line in findlinestarts(co) if not br.is_branch(line))
 
 
         @staticmethod
@@ -296,7 +305,7 @@ class Slipcover:
                 if isinstance(c, types.CodeType):
                     yield from Slipcover.branches_from_code(c)
 
-            yield from (br.decode_branch(line) for off, line in dis.findlinestarts(co) if br.is_branch(line))
+            yield from (br.decode_branch(line) for _, line in findlinestarts(co) if br.is_branch(line))
 
     else:
         @staticmethod
@@ -306,7 +315,7 @@ class Slipcover:
                     yield from Slipcover.lines_from_code(c)
 
             # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
-            yield from (line for off, line in dis.findlinestarts(co) if line != 0 and co.co_code[off] != bc.op_RESUME)
+            yield from (line for _, line in findlinestarts(co))
 
 
         @staticmethod

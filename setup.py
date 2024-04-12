@@ -100,7 +100,7 @@ setuptools.setup(
     packages=['slipcover'],
     package_dir={'': 'src'},
     ext_modules=([probe]),
-    python_requires=">=3.8,<3.13",
+    python_requires=">=3.8,<3.14",
     install_requires=[
         "tabulate"
     ],
@@ -115,6 +115,7 @@ setuptools.setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS :: MacOS X",
