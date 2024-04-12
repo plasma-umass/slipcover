@@ -172,12 +172,8 @@ def main():
 
         args.module = ['slipcover.isolate']
 
-        try:
-            import pytest_forked
-            if pytest_forked.__file__ is None:
-                # 'import pytest_forked' may work, but the plugin may still not be there...
-                raise ImportError("pytest-forked not installed")
-        except ImportError:
+        import importlib
+        if importlib.util.find_spec('pytest_forked') is None:
             ap.error('--isolate-tests requires pytest-forked  (fix with "pip install pytest-forked")')
 
     if args.merge:
