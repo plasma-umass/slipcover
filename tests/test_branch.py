@@ -28,8 +28,7 @@ def assign2append(tree: ast.AST):
                 return ast.AugAssign(
                         target=node.targets[0],
                         op=ast.Add(),
-                        value=ast.List(elts=[node.value], ctx=ast.Load()),
-                        ctx=ast.Load())
+                        value=ast.List(elts=[node.value], ctx=ast.Load()))
 
             return node
 
