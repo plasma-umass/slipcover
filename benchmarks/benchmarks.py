@@ -18,7 +18,7 @@ def load_cases():
                               capture_output=True, text=True).stdout.strip()
 
     class Case:
-        def __init__(self, name, label, command, color=None, get_version=None):
+        def __init__(self, name, label, command, color=None, get_version=None, env=None):
             self.name = name
             self.label = label
             self.command = command
@@ -26,15 +26,21 @@ def load_cases():
             # using a version getter allows us to only attempt to get the
             # version when needed (the module may not exist, etc.)
             self.get_version = get_version if get_version else lambda: None
+            self.env = env
 
     return [Case('base', "(no coverage)",
                  sys.executable + " {bench_command}"),
             Case('coveragepy', "coverage.py line",
                  sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
-                 color='orange', get_version=lambda: version('coverage')),
+                 color='orange', get_version=lambda: version('coverage'),
+                 env={'COVERAGE_CORE':'sysmon'}),
             Case('coveragepy-branch', "coverage.py line+branch",
                  sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
-                 color='tab:orange', get_version=lambda: version('coverage')),
+                 color='tab:orange', get_version=lambda: version('coverage'),
+                 env={'COVERAGE_CORE':'sysmon'}),
+            Case('coveragepy-branch-nosysmon', "coverage.py line+branch, no sysmon",
+                 sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
+                 color='yellow', get_version=lambda: version('coverage')),
             Case('nulltracer', "null C tracer",
                  sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}",
                  color='tab:red', get_version=lambda: version('nulltracer')),
@@ -103,19 +109,19 @@ def load_benchmarks():
     benchmarks.append(
         Benchmark('flask', "-m pytest --count 5", {
                     # coveragepy options from setup.cfg
-                    'slipcover_opts': '--source=src,*/site-packages',
+                    'slipcover_opts': '--source=src', #,*/site-packages',
                     'nulltracer_opts': '--prefix=src'
                   },
                   cwd=FLASK
         )
     )
 
-    benchmarks.append(
-        Benchmark('matplotlib', "-m pytest -k 'not (test_backends_interactive or test_get_font_names)'", {
-                  },
-                  cwd=MATPLOTLIB
-        )
-    )
+#    benchmarks.append(
+#        Benchmark('matplotlib', "-m pytest -k 'not (test_backends_interactive or test_get_font_names)'", {
+#                  },
+#                  cwd=MATPLOTLIB
+#        )
+#    )
 
     def path2bench(p: Path) -> str:
         import re
@@ -124,7 +130,7 @@ def load_benchmarks():
         bench_name = match.group(2) if match else p.name
 
         return Benchmark(bench_name, p, {'coveragepy_opts': f'--include={p}',
-                                         'slipcover_opts': f'--source={p.parent}',
+#                                         'slipcover_opts': f'--source={p.parent}',
                                          'nulltracer_opts': f'--prefix={p}'
                                          })
 
@@ -208,14 +214,20 @@ def parse_args():
     return args
 
 
-def run_command(command: str, cwd=None):
+def run_command(command: str, cwd=None, env=None):
     import shlex
     import time
+    import os
+
+    if env:
+        full_env = os.environ.copy()
+        full_env.update(env)
+        env = full_env
 
     print(command)
 
     begin = time.perf_counter_ns()
-    subprocess.run(shlex.split(command), cwd=cwd, check=True) # capture_output=True)
+    subprocess.run(shlex.split(command), cwd=cwd, check=True, env=env) # capture_output=True)
     end = time.perf_counter_ns()
 
     elapsed = (end - begin)/1000000000
@@ -650,7 +662,7 @@ if __name__ == "__main__":
                 times = []
                 for t in range(bench.tries):
                     print(f"--- {case.name} {bench.name} #{t+1}/{bench.tries} ---")
-                    times.append(run_command(case.command.format(**bench.format), cwd=bench.cwd))
+                    times.append(run_command(case.command.format(**bench.format), cwd=bench.cwd, env=case.env))
 
                 results[case.name][bench.name] = {
                     'datetime': datetime.now().isoformat(),
