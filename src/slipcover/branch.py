@@ -42,7 +42,7 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             return [mark]
 
         def visit_FunctionDef(self, node: Union[ast.AsyncFunctionDef, ast.FunctionDef]) -> ast.AST:
-            # Mark BRANCH_NAME global, so that our assignment are easier to find (only STORE_NAME/STORE_GLOBAL,
+            # Mark BRANCH_NAME global, so that our assignments are easier to find (only STORE_NAME/STORE_GLOBAL,
             # but not STORE_FAST, etc.)
             has_docstring = ast.get_docstring(node, clean=False) is not None
             node.body.insert(1 if has_docstring else 0, ast.Global([BRANCH_NAME]))
