@@ -160,6 +160,69 @@ def test_threads():
     assert [] == cov['missing_lines']
 
 
+def test_async_inline():
+    sci = sc.Slipcover()
+    result = None
+
+    base_line = current_line()
+    async def foo(n):
+        nonlocal result
+        x = 0
+        for i in range(n):
+            x += (i+1)
+        result = x
+
+    sci.instrument(foo)
+
+    import asyncio
+    asyncio.run(foo(3))
+
+    assert 6 == result
+
+    cov = sci.get_coverage()
+    assert {simple_current_file()} == cov['files'].keys()
+
+    cov = cov['files'][simple_current_file()]
+    assert [3, 4, 5, 6] == [l-base_line for l in cov['executed_lines']]
+    assert [] == cov['missing_lines']
+
+
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_async_file(tmp_path, do_branch):
+    code = tmp_path / "t.py"
+    out = tmp_path / "out.json"
+
+    code.write_text("""\
+import asyncio
+
+async def foo(n):
+    x = 0
+    for i in range(n):
+        x += (i+1)
+    result = x
+
+asyncio.run(foo(3))
+""")
+
+    subprocess.run([sys.executable, '-m', 'slipcover'] + (['--branch'] if do_branch else []) +\
+                   ['--json', '--out', out, code])
+    with out.open("r") as f:
+        cov = json.load(f)
+
+    assert {str(code)} == cov['files'].keys()
+
+    cov = cov['files'][str(code)]
+    assert [1, 3, 4, 5, 6, 7, 9] == cov['executed_lines']
+    assert [] == cov['missing_lines']
+
+    if do_branch:
+        assert [[5,6], [5,7]] == cov['executed_branches']
+        assert [] == cov['missing_branches']
+    else:
+        assert 'executed_branches' not in cov
+        assert 'missing_branches' not in cov
+
+
 def test_branches():
     t = ast_parse("""
         def foo(x):

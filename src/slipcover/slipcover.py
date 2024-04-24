@@ -29,14 +29,15 @@ if sys.version_info[0:2] < (3,10):
 
 
 # Python 3.13 returns 'None' lines;
-# Python 3.11+ generates a line just for RESUME;
+# Python 3.11+ generates a line just for RESUME or RETURN_GENERATOR, POP_TOP, RESUME;
 # Python 3.11 generates a 0th line
 if sys.version_info[0:2] >= (3,11):
     _op_RESUME = dis.opmap["RESUME"]
+    _op_RETURN_GENERATOR = dis.opmap["RETURN_GENERATOR"]
 
     def findlinestarts(co: types.CodeType):
         for off, line in dis.findlinestarts(co):
-            if line and co.co_code[off] != _op_RESUME:
+            if line and co.co_code[off] not in (_op_RESUME, _op_RETURN_GENERATOR):
                 yield off, line
 
 else:
@@ -383,7 +384,7 @@ class Slipcover:
 
             probe_signal_index = ed.add_const(probe.signal)
 
-            off_list = list(dis.findlinestarts(co))
+            off_list = list(findlinestarts(co))
             if self.branch:
                 off_list.extend(list(ed.find_const_assignments(br.BRANCH_NAME)))
                 # sort line probes (2-tuples) before branch probes (3-tuples) because
@@ -398,8 +399,6 @@ class Slipcover:
             for off_item in off_list:
                 if len(off_item) == 2: # from findlinestarts
                     offset, lineno = off_item
-                    if lineno == 0 or co.co_code[offset] == bc.op_RESUME:
-                        continue
 
                     # Can't insert between an EXTENDED_ARG and the final opcode
                     if (offset >= 2 and co.co_code[offset-2] == bc.op_EXTENDED_ARG):
@@ -431,6 +430,10 @@ class Slipcover:
             new_code = ed.finish()
 
             if self.disassemble:
+                print()
+                print(f'---- {co.co_name} before ----')
+                dis.dis(co)
+                print(f'---- {co.co_name} after ----')
                 dis.dis(new_code)
 
             if self.immediate:
