@@ -17,7 +17,7 @@ if sys.version_info[0:2] < (3,12):
 from pathlib import Path
 from . import branch as br
 
-VERSION = "1.0.8"
+VERSION = "1.0.9"
 
 # FIXME provide __all__
 
