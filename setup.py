@@ -83,10 +83,10 @@ if sys.argv[1].startswith('bdist') and sys.platform == 'darwin' and PYTHON_VERSI
     # all minor versions to 0, leading to tags like like "macosx_11_0_universal2". If you use
     # the actual (non-0) minor name in the build platform, pip doesn't install it.
     import platform as p
-    print(f"MacOS version {p.mac_ver()}")
     v = p.mac_ver()[0].split(".")
     v = f"{v[0]}.0" if int(v[0]) >= 11 else ".".join(v)
     sys.argv.extend(['--plat-name', f"macosx-{v}-universal2"])
+    print(f"MacOS version {p.mac_ver()}; sys.argv={sys.argv}")
 
 setuptools.setup(
     name="slipcover",
