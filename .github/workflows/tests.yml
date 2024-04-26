@@ -42,7 +42,7 @@ jobs:
     - name: install dependencies
       run: |
         python3 -m pip install pytest
-        python3 -m pip install -e .
+        python3 -m pip install -v .
 
     - name: install Unix dependencies
       if: matrix.os != 'windows-latest'
