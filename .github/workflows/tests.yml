@@ -41,8 +41,8 @@ jobs:
 
     - name: install dependencies
       run: |
-        python3 -m pip install pytest
-        python3 -m pip -vvv install --no-use-pep517 .
+        python3 -m pip install wheel setuptools pytest
+        python3 -m pip -vvv install .
 
     - name: install Unix dependencies
       if: matrix.os != 'windows-latest'
