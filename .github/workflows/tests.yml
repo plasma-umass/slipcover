@@ -25,11 +25,19 @@ jobs:
             python: 3.8
           - os: macos-13
             python: 3.9
+          - os: macos-13
+            python: 3.10
+          - os: macos-13
+            python: 3.11
         exclude:
-          - os: macos-latest
+          - os: macos-latest  # Python 3.8 unavailable on macos-14
             python: 3.8
-          - os: macos-latest
+          - os: macos-latest  # Python 3.9 unavailable on macos-14
             python: 3.9
+          - os: macos-latest  # "ImportError: dlopen(.../probe.cpython-311-darwin.so, 0x002): bad bind opcode 0x00"
+            python: 3.10
+          - os: macos-latest  # "ImportError: dlopen(.../probe.cpython-311-darwin.so, 0x002): bad bind opcode 0x00"
+            python: 3.11
 
     steps:
     - uses: actions/checkout@v3
@@ -39,13 +47,10 @@ jobs:
         python-version: ${{ matrix.python }}
         allow-prereleases: true
 
-    - name: install dependencies
+    - name: install prereqs and SlipCover
       run: |
-        python3 -m pip install -U pip
-        python3 -m pip install -U wheel setuptools pytest build
-        python3 -m build
-        python3 -m pip install dist/*.whl
-#        python3 -m pip -vvv install --no-use-pep517 .
+        python3 -m pip install wheel setuptools pytest
+        python3 -m pip install --no-use-pep517 .
 
     - name: install Unix dependencies
       if: matrix.os != 'windows-latest'
@@ -89,7 +94,7 @@ jobs:
     container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_version: ['3.8', '3.9', '3.10', '3.11']
+        python_version: ['3.8', '3.9', '3.10', '3.11', '3.12']
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux2014_x86_64 # https://github.com/pypa/manylinux
