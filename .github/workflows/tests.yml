@@ -26,6 +26,8 @@ jobs:
           - os: macos-13
             python: '3.9'
           - os: macos-13
+            python: 'pypy-3.9'
+          - os: macos-13
             python: '3.10'
           - os: macos-13
             python: '3.11'
@@ -34,6 +36,8 @@ jobs:
             python: '3.8'
           - os: macos-latest  # Python 3.9 unavailable on macos-14
             python: '3.9'
+          - os: macos-latest  # "ImportError: dlopen(.../probe.cpython-311-darwin.so, 0x002): bad bind opcode 0x00"
+            python: 'pypy-3.9'
           - os: macos-latest  # "ImportError: dlopen(.../probe.cpython-311-darwin.so, 0x002): bad bind opcode 0x00"
             python: '3.10'
           - os: macos-latest  # "ImportError: dlopen(.../probe.cpython-311-darwin.so, 0x002): bad bind opcode 0x00"
