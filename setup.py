@@ -7,7 +7,7 @@ from pathlib import Path
 try:
     import tomllib  # available in Python 3.11+
 except ImportError:
-    from pip._vendor import tomli as tomllib
+    import tomli as tomllib
 
 
 PYTHON_VERSION = sys.version_info[0:2]

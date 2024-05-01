@@ -35,7 +35,7 @@ slipcover = "slipcover.__main__:main"
 requires = [
     "setuptools>61",
     "wheel",
-    "pip; python_version < '3.11'" # for tomllib
+    "tomli; python_version < '3.11'" # tomllib alternative
 ]
 build-backend = "setuptools.build_meta"
 
