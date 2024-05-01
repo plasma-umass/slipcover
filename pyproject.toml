@@ -40,4 +40,4 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]
-main = "src"
+"" = "src"
