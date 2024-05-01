@@ -94,6 +94,11 @@ def bdist_wheel_options():
     if limited_api_args():
         options['py_limited_api'] = 'cp310'
 
+    if PYTHON_VERSION >= (3,12):
+        # for Python 3.12 onwards, we're a pure Python distribution
+        assert not ext_modules()
+        options['python_tag'] = 'py312' # this requires 3.12+
+
     # Build universal wheels on MacOS.
     if sys.platform == 'darwin' and ext_modules() and \
        sum(arg == '-arch' for arg in platform_compile_args()) > 1:
