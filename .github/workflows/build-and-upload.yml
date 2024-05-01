@@ -73,7 +73,7 @@ jobs:
 
       - name: install dependencies
         run: |
-          python3 -m pip install setuptools wheel twine build virtualenv
+          python3 -m pip install twine build
 
       - name: build wheel
         run: |
