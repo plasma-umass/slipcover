@@ -1,0 +1,43 @@
+[project]
+name = "slipcover"
+description = "Near Zero-Overhead Python Code Coverage"
+keywords = ['coverage', 'testing']
+dynamic = ["readme", "version"]
+authors = [
+    { name="Juan Altmayer Pizzorno", email="juan@altmayer.com" },
+    { name="Emery Berger", email="emery.berger@gmail.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows :: Windows 10"
+]
+requires-python = ">=3.8,<3.14"
+dependencies = [
+    "tabulate"
+]
+
+[project.scripts]
+slipcover = "slipcover.__main__:main"
+
+[project.urls]
+"Homepage" = "https://github.com/plasma-umass/slipcover"
+"Repository" = "https://github.com/plasma-umass/slipcover"
+
+[build-system]
+requires = [
+    "setuptools>61",
+    "wheel",
+    "pip; python_version < '3.11'" # for tomllib
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+main = "src"
