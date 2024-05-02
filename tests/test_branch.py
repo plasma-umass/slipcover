@@ -37,6 +37,28 @@ def assign2append(tree: ast.AST):
     return tree
 
 
+def check_locations(node: ast.AST):
+    """Implements the same checks as the VALIDATE_POSITIONS checks from Python/ast.c (Python 3.12.3) """
+    for attr in node._attributes:
+        assert hasattr(node, attr)
+
+    if 'end_lineno' in node._attributes:
+        assert node.end_lineno >= node.lineno
+        if node.lineno < 0:
+            assert node.end_lineno == node.lineno
+
+    if 'end_col_offset' in node._attributes:
+        if node.col_offset < 0:
+            assert node.end_col_offset == node.col_offset
+
+    if 'end_lineno' in node._attributes and 'end_col_offset' in node._attributes:
+        if node.lineno == node.end_lineno:
+            assert node.end_col_offset >= node.col_offset
+
+    for child in ast.iter_child_nodes(node):
+        check_locations(child)
+
+
 def test_if():
     t = ast_parse("""
         if x == 0:
@@ -46,6 +68,7 @@ def test_if():
     """)
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,4)] == get_branches(code)
 
@@ -76,6 +99,7 @@ def test_if_else():
     """)
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,6)] == get_branches(code)
 
@@ -107,6 +131,7 @@ def test_if_elif_else():
     """)
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,3), (3,4), (3,6)] == get_branches(code)
 
@@ -128,6 +153,7 @@ def test_if_nothing_after_it():
     """)
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1,0), (1,2)] == get_branches(code)
 
@@ -161,6 +187,7 @@ def test_if_nested():
     """)
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,7), (3,4), (3,11), (4,5), (4,11), (8,9), (8,10)] == get_branches(code)
 
@@ -199,6 +226,7 @@ def test_if_in_function():
     """)
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,0), (2,3), (6,0), (6,7), (11,0), (11,12)] == get_branches(code)
 
@@ -233,6 +261,7 @@ def test_keep_docstrings():
 #    print(ast.dump(t, indent=True))
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(3,0), (3,4), (8,0), (8,9), (14,0), (14,15)] == get_branches(code)
 
@@ -247,6 +276,26 @@ def test_keep_docstrings():
     assert 'Foo something' == g['Foo'].__doc__
 
 
+def test_branch_bad_positions():
+    t = ast_parse("""\
+def foo(x):
+    if x == 0:
+        t = '''\\
+x == 0
+'''
+    else:
+        t = '''\\
+x != 0
+'''
+""")
+
+    t = br.preinstrument(t)
+    # on Python 3.12.3, compile() raises a ValueError due to failing
+    # the VALIDATE_POSITIONS checks from Python/ast.c
+    compile(t, "foo.py", 'exec')
+    check_locations(t)
+
+
 def test_for():
     t = ast_parse("""
         for v in [1, 2]:
@@ -258,6 +307,7 @@ def test_for():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,5), (2,1), (2,3)] == get_branches(code)
 
@@ -291,6 +341,7 @@ def test_async_for():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(10,11), (10,13), (11,12), (11,13)] == get_branches(code)
 
@@ -314,6 +365,7 @@ def test_for_else():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,5), (2,1), (2,3)] == get_branches(code)
 
@@ -338,6 +390,7 @@ def test_for_break_else():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(1,2), (1,6), (2,3), (2,4)] == get_branches(code)
 
@@ -363,6 +416,7 @@ def test_while():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,3), (2,7), (4,2), (4,5)] == get_branches(code)
 
@@ -388,6 +442,7 @@ def test_while_else():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,3), (2,7), (4,2), (4,5)] == get_branches(code)
 
@@ -414,6 +469,7 @@ def test_while_break_else():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,3), (2,8), (4,5), (4,6)] == get_branches(code)
 
@@ -440,6 +496,7 @@ def test_match():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,4), (2,6), (2,7)] == get_branches(code)
 
@@ -467,6 +524,7 @@ def test_match_case_with_false_guard():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(3,5), (3,7), (3,8)] == get_branches(code)
 
@@ -491,6 +549,7 @@ def test_match_branch_to_exit():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,0), (2,4), (2,6)] == get_branches(code)
 
@@ -517,6 +576,7 @@ def test_match_default():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,4), (2,6), (2,8)] == get_branches(code)
 
@@ -544,6 +604,7 @@ def test_branch_after_case():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,0), (2,4), (2,7), (4,0), (4,5), (7,0), (7,8)] == get_branches(code)
 
@@ -574,6 +635,7 @@ def test_branch_after_case_with_default():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,4), (2,7), (2,10), (4,0), (4,5), (7,0), (7,8), (10,0), (10,11)] == get_branches(code)
 
@@ -602,6 +664,7 @@ def test_branch_after_case_with_next():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(2,4), (2,7), (2,9), (4,5), (4,9), (7,8), (7,9)] == get_branches(code)
 
@@ -634,6 +697,7 @@ def test_try_except(star):
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4,5), (4,13), (7,8), (7,13), (10,11), (10,13)] == get_branches(code)
 
@@ -651,6 +715,7 @@ def test_try_finally():
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4,5), (4,7)] == get_branches(code)
 
@@ -672,6 +737,7 @@ def test_try_else(star):
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4,5), (4,10), (7,0), (7,8)] == get_branches(code)
 
@@ -696,5 +762,6 @@ def test_try_else_finally(star):
 
 
     t = br.preinstrument(t)
+    check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4,5), (4,10), (7,8), (7,13), (10,11), (10,13)] == get_branches(code)

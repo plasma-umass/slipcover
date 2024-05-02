@@ -32,6 +32,9 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             if sys.version_info[0:2] >= (3,12):
                 for node in ast.walk(mark):
                     node.lineno = node.end_lineno = encode_branch(from_line, to_line)
+                    # Leaving the columns unitialized can lead to invalid positions despite
+                    # our use of ast.fix_missing_locations
+                    node.col_offset = node.end_col_offset = -1
             elif sys.version_info[0:2] == (3,11):
                 for node in ast.walk(mark):
                     node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
