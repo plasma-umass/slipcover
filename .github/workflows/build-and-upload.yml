@@ -33,14 +33,14 @@ jobs:
         python_version: ['3.8', '3.9', '3.10']  # The 3.10 builds use abi3, so are good for Python 3.10+
 #        os: ['ubuntu-latest', 'macos-13', 'windows-latest']
         os: ['macos-14']
-        include:
-          - os: ubuntu-latest
-            container: quay.io/pypa/manylinux2014_x86_64  # https://github.com/pypa/manylinux
-          # From 3.12 onwards we're a "pure Python" package;  also, only one needs to upload sources
-          - python_version: 3.12
-            os: ubuntu-latest
-            container: ''
-            upload_source: true
+#        include:
+#          - os: ubuntu-latest
+#            container: quay.io/pypa/manylinux2014_x86_64  # https://github.com/pypa/manylinux
+#          # From 3.12 onwards we're a "pure Python" package;  also, only one needs to upload sources
+#          - python_version: 3.12
+#            os: ubuntu-latest
+#            container: ''
+#            upload_source: true
 
     steps:
       - uses: actions/checkout@v3
@@ -63,7 +63,7 @@ jobs:
       - name: select Xcode version
         if: startsWith(matrix.os, 'macos-')
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer
+          sudo xcode-select -s /Applications/Xcode_15.3.app/Contents/Developer
           clang++ --version
           g++ --version
 
