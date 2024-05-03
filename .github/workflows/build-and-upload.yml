@@ -31,7 +31,6 @@ jobs:
     strategy:
       matrix:
         python_version: ['3.8', '3.9', '3.10']  # The 3.10 builds use abi3, so are good for Python 3.10+
-        # retaining MacOS 13 build in case the MacOS 14 doesn't work on it (need to test it out)
         os: ['ubuntu-latest', 'macos-13', 'macos-14', 'windows-latest']
         include:
           - os: ubuntu-latest
