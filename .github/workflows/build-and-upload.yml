@@ -75,9 +75,12 @@ jobs:
         run: |
           python3 -m pip install twine build
 
+      - name: select Xcode version
+        if: startsWith(matrix.os, 'macos-')
+        run: xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer
+
       - name: build wheel
-        run: |
-            python3 -m build --wheel
+        run: python3 -m build --wheel
 
       - name: run auditwheel for manylinux
         if: matrix.container != ''
