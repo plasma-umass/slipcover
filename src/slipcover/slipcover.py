@@ -7,11 +7,7 @@ from collections import defaultdict, Counter
 import threading
 
 if sys.version_info[0:2] < (3,12):
-    try:
-        from . import probe
-    except ImportError:
-        raise RuntimeError("You probably have the wrong package; " + \
-                           "SlipCover for Python <3.12 requires version-specific builds")
+    from . import probe
     from . import bytecode as bc
 
 from pathlib import Path
