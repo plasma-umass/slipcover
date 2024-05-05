@@ -513,11 +513,11 @@ def test_match():
 def test_match_case_with_false_guard():
     t = ast_parse("""
         x = 0
-        v = 2
+        v = 1
         match v:
             case 1 if x > 0:
                 x = 1
-            case 2:
+            case 1:
                 x = 2
         x += 2
     """)
