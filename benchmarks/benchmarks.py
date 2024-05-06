@@ -32,15 +32,18 @@ def load_cases():
                  sys.executable + " {bench_command}"),
             Case('coveragepy', "coverage.py line",
                  sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
+                 color='orange', get_version=lambda: version('coverage')),
+            Case('coveragepy-sysmon', "coverage.py line",
+                 sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
                  color='orange', get_version=lambda: version('coverage'),
                  env={'COVERAGE_CORE':'sysmon'}),
-            Case('coveragepy-branch', "coverage.py line+branch",
+            Case('coveragepy-branch', "coverage.py line+branch, no sysmon",
+                 sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
+                 color='tab:orange', get_version=lambda: version('coverage')),
+            Case('coveragepy-branch-sysmon', "coverage.py line+branch",
                  sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
                  color='tab:orange', get_version=lambda: version('coverage'),
                  env={'COVERAGE_CORE':'sysmon'}),
-            Case('coveragepy-branch-nosysmon', "coverage.py line+branch, no sysmon",
-                 sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
-                 color='yellow', get_version=lambda: version('coverage')),
             Case('nulltracer', "null C tracer",
                  sys.executable + " -m nulltracer {nulltracer_opts} {bench_command}",
                  color='tab:red', get_version=lambda: version('nulltracer')),
@@ -176,7 +179,7 @@ def parse_args():
         p.add_argument('--style', type=str, help='set matplotlib style')
         p.add_argument('--figure-width', type=float, default=16, help='matplotlib figure width')
         p.add_argument('--figure-height', type=float, default=8, help='matplotlib figure height')
-        p.add_argument('--bar-labels', action='store_true', help='add labels to bars')
+        p.add_argument('--bar-labels', action=argparse.BooleanOptionalAction, help='add labels to bars')
         p.add_argument('--font-size-delta', type=int, default=0, help='increase or decrease font size')
         p.add_argument('--rename-slipcover', type=str, help='rename SlipCover in names to given string')
         p.add_argument('--yscale', type=str, default="linear", help='set matplotlib Y scale')
@@ -519,7 +522,8 @@ def plot_summary_results(args):
         data = [median([getValue(c, b.name) for b in benchmarks if b.name in common_benchmarks]) for c in args.case]
         x = args.case_name if args.case_name else args.case
         bp = ax.bar(x, data, color=[c.color for cn in args.case for c in cases if c.name == cn])
-        ax.bar_label(bp, labels=[f'{v:,.0f} %' for v in data])
+        if args.bar_labels:
+            ax.bar_label(bp, labels=[f'{v:,.0f} %' for v in data])
 #        ax.set_xticklabels(args.case)
 
         if args.extra_space:
