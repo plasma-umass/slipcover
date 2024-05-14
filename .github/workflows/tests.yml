@@ -38,7 +38,7 @@ jobs:
             python: '3.9'
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: select Xcode version
       # MacOS > 14.2 requires Xcode >= 15.3; otherwise loading native extension modules fails with e.g.:
@@ -49,7 +49,7 @@ jobs:
         clang++ --version
         g++ --version
 
-    - uses: actions/setup-python@v4
+    - uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python }}
         allow-prereleases: true
@@ -78,7 +78,7 @@ jobs:
             container: quay.io/pypa/manylinux2014_x86_64 # https://github.com/pypa/manylinux
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: set up python
         run: |
             PYT=`echo "${{ matrix.python_tag }}" | tr -d "."`; ls -d -1 /opt/python/$PYT-*/bin | head -n 1 >> $GITHUB_PATH
@@ -107,7 +107,7 @@ jobs:
             container: quay.io/pypa/manylinux2014_x86_64 # https://github.com/pypa/manylinux
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: set up python
         run: |
           PYV=`echo "${{ matrix.python_version }}" | tr -d "."`; ls -d -1 /opt/python/cp$PYV*/bin | head -n 1 >> $GITHUB_PATH
