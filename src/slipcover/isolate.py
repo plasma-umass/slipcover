@@ -7,7 +7,7 @@ class IsolateItem(pytest.Item):
         super().__init__(*args, **kwargs)
 
     def runtest(self):
-        assert False, "should never execute"
+        raise RuntimeException("This should never execute")
 
     def run_forked(self):
         # adapted from pytest-forked
@@ -24,14 +24,13 @@ class IsolateItem(pytest.Item):
             reports = list()
             for it in module.collect():
                 reports.extend(ptf.forked_run_report(it))
-            print(reports)
-            return marshal.dumps([ptf.serialize_report(x) for x in reports])
+            return marshal.dumps([self.config.hook.pytest_report_to_serializable(report=r) for r in reports])
 
         ff = py.process.ForkedFunc(runforked)
         result = ff.waitfinish()
 
         if result.retval is not None:
-            reports = [_pytest.runner.TestReport(**r) for r in marshal.loads(result.retval)]
+            reports = [self.config.hook.pytest_report_from_serializable(data=r) for r in marshal.loads(result.retval)]
         else:
             reports = [ptf.report_process_crash(self, result)]
 
