@@ -67,13 +67,13 @@ def load_cases():
                  color='silver', get_version=lambda: git_head),
             Case('slipcover-branch-no-deinstr-1', "Slipcover l+b, no bytecode deinstr.",
                  sys.executable + " -m slipcover --branch --threshold=-1 {slipcover_opts} {bench_command}",
-                 color='grey', get_version=lambda: git_head),
+                 color='silver', get_version=lambda: git_head),
             Case('slipcover-no-deinstr', "SlipCover line, no deinstr.",
                  sys.executable + " -m slipcover --threshold=-2 {slipcover_opts} {bench_command}",
                  color='lightgreen', get_version=lambda: git_head),
             Case('slipcover-branch-no-deinstr', "SlipCover l+b, no deinstr.",
                  sys.executable + " -m slipcover --branch --threshold=-2 {slipcover_opts} {bench_command}",
-                 color='green', get_version=lambda: git_head),
+                 color='lightgreen', get_version=lambda: git_head),
     ]
 
 cases = load_cases()
