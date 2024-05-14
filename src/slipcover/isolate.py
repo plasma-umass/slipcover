@@ -12,9 +12,9 @@ class IsolateItem(pytest.Item):
     def run_forked(self):
         # adapted from pytest-forked
         import marshal
-        import pytest_forked as ptf
         import _pytest
-        import py
+        import pytest_forked as ptf # FIXME pytest-forked is unmantained
+        import py                   # FIXME py is maintenance only
 
         ihook = self.ihook
         ihook.pytest_runtest_logstart(nodeid=self.nodeid, location=self.location)
