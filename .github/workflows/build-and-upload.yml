@@ -19,7 +19,7 @@ jobs:
     steps:
       - run: TZ='America/New_York' date '+%Y%m%d%H%M' > dev-build.txt
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: devN
           path: dev-build.txt
@@ -42,7 +42,7 @@ jobs:
             upload_source: true
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Mark workspace safe for git
         # needed for container and self-hosted runners; see https://github.com/actions/checkout/issues/766
@@ -55,7 +55,7 @@ jobs:
 
       - name: get coordinated .devN
         if: github.event_name != 'release'
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: devN
 
@@ -70,7 +70,7 @@ jobs:
 
       - name: set up python (script version)
         if: matrix.container == ''
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python_version }}
 
@@ -82,6 +82,7 @@ jobs:
 
       - name: install dependencies
         run: |
+          python3 -m pip install -U pip # avoids GitHub warnings
           python3 -m pip install twine build
 
       - name: build wheel
