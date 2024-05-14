@@ -34,7 +34,7 @@ jobs:
         os: ['ubuntu-latest', 'macos-13', 'macos-14', 'windows-latest']
         include:
           - os: ubuntu-latest
-            container: quay.io/pypa/manylinux2014_x86_64  # https://github.com/pypa/manylinux
+            container: quay.io/pypa/manylinux_2_28_x86_64 # https://github.com/pypa/manylinux
           # From 3.12 onwards we're a "pure Python" package;  also, only one needs to upload sources
           - python_version: 3.12
             os: ubuntu-latest
