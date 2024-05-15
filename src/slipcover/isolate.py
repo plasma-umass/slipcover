@@ -1,5 +1,4 @@
 import pytest
-import sys
 
 
 class IsolateItem(pytest.Item):
@@ -22,15 +21,23 @@ class IsolateItem(pytest.Item):
         def runforked():
             module = pytest.Module.from_parent(parent=self.parent, path=self.path)
             reports = list()
-            for it in module.collect():
-                reports.extend(ptf.forked_run_report(it))
-            return marshal.dumps([self.config.hook.pytest_report_to_serializable(report=r) for r in reports])
+
+            def collect_and_run(collector):
+                for it in collector.collect():
+                    if isinstance(it, pytest.Collector):
+                        collect_and_run(it)
+                    else:
+                        reports.extend(ptf.forked_run_report(it))
+
+            collect_and_run(module)
+
+            return marshal.dumps([self.config.hook.pytest_report_to_serializable(config=self.config, report=r) for r in reports])
 
         ff = py.process.ForkedFunc(runforked)
         result = ff.waitfinish()
 
         if result.retval is not None:
-            reports = [self.config.hook.pytest_report_from_serializable(data=r) for r in marshal.loads(result.retval)]
+            reports = [self.config.hook.pytest_report_from_serializable(config=self.config, data=r) for r in marshal.loads(result.retval)]
         else:
             reports = [ptf.report_process_crash(self, result)]
 
@@ -64,4 +71,5 @@ class IsolatePlugin:
 
 
 if __name__ == "__main__":
+    import sys
     sys.exit(pytest.main(sys.argv[1:], plugins=[IsolatePlugin()]))

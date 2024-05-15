@@ -186,3 +186,29 @@ def test_foo():
         # can't capture coverage if the process gets killed
         if not (p == failing and fail_kind == 'kill'):
             assert str(p) in cov['files']
+
+
+def test_isolate_module_yields_collector(tmp_path, monkeypatch):
+    # A pytest.Collector.collect()'s return value may include not only pytest.Item,
+    # but also pytest.Collector.
+    #
+    # Here we test for this by including a class within the test module:
+    # when the module is being collected, pytest.Module.collect() will include
+    # a pytest.Class collector to actually collect items from within the class.
+
+    out = tmp_path / "out.json"
+
+    monkeypatch.chdir(tmp_path)
+    tests_dir = Path('tests')
+    tests_dir.mkdir()
+
+    test = seq2p(tests_dir, 1)
+    test.write_text("""\
+class TestClass:
+    def test_foo(self):
+        assert True
+""")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--json', '--out', str(out),
+                                        '-m', 'slipcover.isolate', tests_dir], check=False)
+    assert p.returncode == pytest.ExitCode.OK
