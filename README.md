@@ -8,7 +8,7 @@ at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
 [![pypi](https://img.shields.io/pypi/v/slipcover?color=blue)](https://pypi.org/project/slipcover/)
 [![Downloads](https://static.pepy.tech/badge/slipcover)](https://pepy.tech/project/slipcover)
 ![pyversions](https://img.shields.io/pypi/pyversions/slipcover?logo=python&logoColor=FBE072)
-![tests](https://github.com/jaltmayerpizzorno/slipcover/workflows/tests/badge.svg)
+![tests](https://github.com/plasma-umass/slipcover/workflows/tests/badge.svg)
 
 ## About Slipcover
 SlipCover is a fast [code coverage](https://en.wikipedia.org/wiki/Code_coverage) tool.
@@ -131,7 +131,7 @@ really it should work anywhere where CPython/PyPy does.
 
 ## Contributing
 SlipCover is under active development; contributions are welcome!
-Please also feel free to [create a new issue](https://github.com/jaltmayerpizzorno/slipcover/issues/new)
+Please also feel free to [create a new issue](https://github.com/plasma-umass/slipcover/issues/new)
 with any suggestions or issues you may encounter.
 
 ## Technical Information
