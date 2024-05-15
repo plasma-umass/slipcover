@@ -138,10 +138,6 @@ def main():
                     help="threshold for de-instrumentation (if not immediate)")
     ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
 
-    ap.add_argument('--isolate-tests', default=False,
-                    action=(argparse.BooleanOptionalAction if sys.version_info[0:2] >= (3,9) else 'store_true'),
-                    help=argparse.SUPPRESS) #'run pytest tests in isolation, to try to work around state pollution')
-
     # intended for slipcover development only
     ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
     ap.add_argument('--dis', action='store_true', help=argparse.SUPPRESS)
@@ -163,18 +159,6 @@ def main():
     else:
         args = ap.parse_args(sys.argv[1:])
 
-    if args.isolate_tests:
-        if platform.system() == 'Windows':
-            ap.error('--isolate-tests is only supported on Unix')
-
-        if args.module != ['pytest']:
-            ap.error('--isolate-tests must be used with -m pytest')
-
-        args.module = ['slipcover.isolate']
-
-        import importlib
-        if importlib.util.find_spec('pytest_forked') is None:
-            ap.error('--isolate-tests requires pytest-forked  (fix with "pip install pytest-forked")')
 
     if args.merge:
         if not args.out: ap.error("--out is required with --merge")
