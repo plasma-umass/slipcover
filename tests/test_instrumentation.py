@@ -628,7 +628,8 @@ def test_find_functions():
     import class_test as t
 
     def func_names(funcs):
-        return sorted(map(lambda f: f.__name__, funcs))
+        # pytest-asyncio > 0.21.1 adds __pytest_asyncio_... event loop functions
+        return sorted([f.__name__ for f in funcs if f.__name__ != 'scoped_event_loop'])
 
     assert ["b", "b_classm", "b_static", "f1", "f2", "f3", "f4", "f5", "f7",
             "f_classm", "f_static"] == \
