@@ -14,7 +14,7 @@ PYTHON_VERSION = sys.version_info[0:2]
 
 
 def get_version():
-    v = re.findall(r"\nVERSION *= *\"([^\"]+)\"", Path("src/slipcover/slipcover.py").read_text())[0]
+    v = re.findall(r"^__version__ *= *\"([^\"]+)\"", Path("src/slipcover/version.py").read_text())[0]
     return v
 
 

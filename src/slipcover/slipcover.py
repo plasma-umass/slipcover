@@ -12,8 +12,7 @@ if sys.version_info[0:2] < (3,12):
 
 from pathlib import Path
 from . import branch as br
-
-VERSION = "1.0.13"
+from .version import __version__
 
 # FIXME provide __all__
 
@@ -535,7 +534,7 @@ class Slipcover:
 
         return {
             'software': 'slipcover',
-            'version': VERSION,
+            'version': __version__,
             'timestamp': datetime.datetime.now().isoformat(),
             'branch_coverage': branch_coverage,
             'show_contexts': False

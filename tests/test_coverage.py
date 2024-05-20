@@ -331,7 +331,7 @@ def test_meta_in_results(do_branch):
     assert 'meta' in cov
     meta = cov['meta']
     assert 'slipcover' == meta['software']
-    assert sc.VERSION == meta['version']
+    assert sc.__version__ == meta['version']
     assert 'timestamp' in meta
     assert do_branch == meta['branch_coverage']
     assert meta['show_contexts'] is False
@@ -564,7 +564,7 @@ def test_pytest_interpose_branch(tmp_path):
     assert [[3,6]] == cov['missing_branches']
 
     new_cache_files = set(cache_files())
-    sc_cache_files = set(fn for fn in new_cache_files if ('slipcover-' + sc.VERSION) in fn.name)
+    sc_cache_files = set(fn for fn in new_cache_files if ('slipcover-' + sc.__version__) in fn.name)
 
     # ensure ours is being cached
     assert {} != sc_cache_files

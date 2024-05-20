@@ -1,5 +1,6 @@
 from typing import Any, Optional
-from .slipcover import Slipcover, VERSION
+from .slipcover import Slipcover
+from .version import __version__
 from . import branch as br
 from pathlib import Path
 import sys
@@ -244,7 +245,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
             return orig_rewrite_asserts(*args)
 
         def adjust_name(fn : Path) -> Path:
-            return fn.parent / (fn.stem + "-slipcover-" + VERSION + fn.suffix)
+            return fn.parent / (fn.stem + "-slipcover-" + __version__ + fn.suffix)
 
         orig_read_pyc = pyrewrite._read_pyc
         def read_pyc(*args, **kwargs):

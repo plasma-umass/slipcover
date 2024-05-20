@@ -144,7 +144,7 @@ def main():
     ap.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
     ap.add_argument('--dont-wrap-pytest', action='store_true', help=argparse.SUPPRESS)
     ap.add_argument('--version', action='version',
-                    version=f"%(prog)s v{sc.VERSION} (Python {'.'.join(map(str, sys.version_info[:3]))})")
+                    version=f"%(prog)s v{sc.__version__} (Python {'.'.join(map(str, sys.version_info[:3]))})")
 
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument('-m', dest='module', nargs=1, help="run given module as __main__")
