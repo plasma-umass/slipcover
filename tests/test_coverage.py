@@ -937,12 +937,12 @@ def test_pytest_forked(tmp_path):
 def test_forked_twice(tmp_path, monkeypatch):
     source = (Path('tests') / 'pyt.py').resolve()
     out = tmp_path / "out.json"
-    script = tmp_path / "foo.py"
 
     monkeypatch.chdir(tmp_path)
     test_file = 't.py'
     Path(test_file).write_text(source.read_text())
 
+    script = tmp_path / "foo.py"
     script.write_text(f"""\
 import os
 import sys
@@ -975,6 +975,48 @@ else:
     cov = cov['files'][test_file]
     assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == cov['executed_lines']
     assert [] == cov['missing_lines']
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='fork() and and other functions are Unix-specific')
+def test_fork_close(tmp_path, monkeypatch, capfd):
+    source = (Path('tests') / 'pyt.py').resolve()
+    out = tmp_path / "out.json"
+
+    script = tmp_path / "foo.py"
+    script.write_text("""\
+import os
+import sys
+
+if (pid := os.fork()):
+    pid, status = os.waitpid(pid, 0)
+    if status:
+        if os.WIFSIGNALED(status):
+            exitstatus = os.WTERMSIG(status) + 128
+        else:
+            exitstatus = os.WEXITSTATUS(status)
+    else:
+        exitstatus = 0
+
+    sys.exit(exitstatus)
+else:
+    os.closerange(3, os.sysconf("SC_OPEN_MAX")) #16
+""")
+
+    # don't use capture_output here to let pytest manage/display the output.
+    subprocess.run([sys.executable, '-m', 'slipcover', '--debug', '--json', '--out', str(out), script])
+
+    with out.open() as f:
+        cov = json.load(f)
+
+     # no warnings about not being able to read from subprocess JSON coverage file
+    assert capfd.readouterr().err == ""
+
+    check_summaries(cov)
+
+    script = str(script)
+    assert script in cov['files']
+    cov = cov['files'][script]
+    assert 16 not in  cov['executed_lines']
 
 
 def test_merge_flag(cov_merge_fixture):
