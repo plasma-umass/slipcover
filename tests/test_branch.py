@@ -548,6 +548,22 @@ def test_match_case_with_false_guard():
 
 
 @pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_match_case_with_guard_isnt_wildcard():
+    t = ast_parse("""
+        def fun(v):
+            match v:
+                case _ if v > 0:
+                    print("not default")
+    """)
+
+
+    t = br.preinstrument(t)
+    check_locations(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,0), (2,4)] == get_branches(code)
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
 def test_match_branch_to_exit():
     t = ast_parse("""
         v = 5
@@ -693,6 +709,39 @@ def test_branch_after_case_with_next():
         assert [(2,4), (4,9)] == g[br.BRANCH_NAME]
 
 
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_match_wildcard_in_match_or():
+    # Thanks to Ned Batchelder for this test case
+    t = ast_parse(f"""
+            def absurd(x):
+                match x:
+                    case (3 | 99 | (999 | _)):
+                        print("default")
+            absurd(5)
+            """)
+
+    t = br.preinstrument(t)
+    check_locations(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,4)] == get_branches(code)
+
+
+@pytest.mark.skipif(PYTHON_VERSION < (3,10), reason="New in 3.10")
+def test_match_capture():
+    t = ast_parse(f"""
+            def capture(x):
+                match x:
+                    case y:
+                        print("default")
+            capture(5)
+            """)
+
+    t = br.preinstrument(t)
+    check_locations(t)
+    code = compile(t, "foo", "exec")
+    assert [(2,4)] == get_branches(code)
+
+
 @pytest.mark.parametrize("star", ['', '*'] if PYTHON_VERSION >= (3,11) else [''])
 def test_try_except(star):
     t = ast_parse(f"""
@@ -781,3 +830,4 @@ def test_try_else_finally(star):
     check_locations(t)
     code = compile(t, "foo", "exec")
     assert [(4,5), (4,10), (7,8), (7,13), (10,11), (10,13)] == get_branches(code)
+

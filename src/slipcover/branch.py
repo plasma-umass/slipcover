@@ -87,9 +87,11 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                 for case in node.cases:
                     case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
 
-                has_wildcard = isinstance(node.cases[-1].pattern, ast.MatchAs) and \
-                               node.cases[-1].pattern.pattern is None
+                last_pattern = case.pattern  # case is node.cases[-1]
+                while isinstance(last_pattern, ast.MatchOr):
+                    last_pattern = last_pattern.patterns[-1]
 
+                has_wildcard = case.guard is None and isinstance(last_pattern, ast.MatchAs) and last_pattern.pattern is None
                 if not has_wildcard:
                     to_line = node.next_node.lineno if node.next_node else 0 # exit
                     node.cases.append(ast.match_case(ast.MatchAs(),
