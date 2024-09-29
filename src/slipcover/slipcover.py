@@ -5,7 +5,7 @@ import sys
 import threading
 import types
 from collections import Counter, defaultdict
-from typing import TYPE_CHECKING, Dict, Iterable, Iterator, List, NotRequired, Tuple, TypedDict
+from typing import TYPE_CHECKING
 
 if sys.version_info[0:2] < (3,12):
     from . import bytecode as bc
@@ -42,6 +42,8 @@ else:
     findlinestarts = dis.findlinestarts
 
 if TYPE_CHECKING:
+    from typing import Dict, Iterable, Iterator, List, NotRequired, Tuple, TypedDict
+
     class CoverageMeta(TypedDict):
         software: str
         version: str
