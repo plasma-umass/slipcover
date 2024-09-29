@@ -1,18 +1,21 @@
 from __future__ import annotations
-import sys
+
 import dis
-import types
-from typing import Dict, Set, List, Tuple
-from collections import defaultdict, Counter
+import sys
 import threading
+import types
+from collections import Counter, defaultdict
+from typing import TYPE_CHECKING, Dict, Iterable, Iterator, List, NotRequired, Tuple, TypedDict
 
 if sys.version_info[0:2] < (3,12):
-    from . import probe
     from . import bytecode as bc
+    from . import probe
 
 from pathlib import Path
+
 from . import branch as br
 from .version import __version__
+from .xmlreport import XmlReporter
 
 # FIXME provide __all__
 
@@ -38,6 +41,32 @@ if sys.version_info[0:2] >= (3,11):
 else:
     findlinestarts = dis.findlinestarts
 
+if TYPE_CHECKING:
+    class CoverageMeta(TypedDict):
+        software: str
+        version: str
+        timestamp: str
+        branch_coverage: bool
+        show_contexts: bool
+    
+    class CoverageSummary(TypedDict):
+        covered_lines: int
+        missing_lines: int
+        covered_branches: NotRequired[int]
+        missing_branches: NotRequired[int]
+        percent_covered: float
+    
+    class CoverageFile(TypedDict):
+        executed_lines: List[int]
+        missing_lines: List[int]
+        executed_branches: NotRequired[List[Tuple[int, int]]]
+        missing_branches: NotRequired[List[Tuple[int, int]]]
+        summary: CoverageSummary
+
+    class Coverage(TypedDict):
+        meta: CoverageMeta
+        files: Dict[str, CoverageFile]
+        summary: CoverageSummary
 
 class SlipcoverError(Exception):
     pass
@@ -56,7 +85,7 @@ class PathSimplifier:
 
 
 def format_missing(missing_lines: List[int], executed_lines: List[int],
-                   missing_branches: List[tuple]) -> List[str]:
+                   missing_branches: List[tuple]) -> str:
     """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
        between missed ones"""
 
@@ -91,6 +120,21 @@ def format_missing(missing_lines: List[int], executed_lines: List[int],
             yield format_branch(missing_branches.pop(0))
 
     return ", ".join(find_ranges())
+
+def print_xml(
+    coverage: Coverage,
+    source_paths: Iterable[str],
+    *,
+    with_branches: bool = False,
+    xml_package_depth: int = 99,
+    outfile=sys.stdout
+) -> None:
+    XmlReporter(
+        coverage=coverage,
+        source=source_paths,
+        with_branches=with_branches,
+        xml_package_depth=xml_package_depth,
+    ).report(outfile=outfile)
 
 
 def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_covered=False) -> None:
