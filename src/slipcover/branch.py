@@ -26,34 +26,37 @@ def preinstrument(tree: ast.AST) -> ast.AST:
             pass
 
         def _mark_branch(self, from_line: int, to_line: int) -> List[ast.stmt]:
-            mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
-                               ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
-
             if sys.version_info[0:2] >= (3,12):
+                # Using a constant Expr allows the compiler to optimize this to a NOP
+                mark = ast.Expr(ast.Constant(None))
                 for node in ast.walk(mark):
                     node.lineno = node.end_lineno = encode_branch(from_line, to_line)
                     # Leaving the columns unitialized can lead to invalid positions despite
                     # our use of ast.fix_missing_locations
                     node.col_offset = node.end_col_offset = -1
-            elif sys.version_info[0:2] == (3,11):
-                for node in ast.walk(mark):
-                    node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
             else:
-                for node in ast.walk(mark):
-                    node.lineno = from_line
+                mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
+                                   ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
+                if sys.version_info[0:2] == (3,11):
+                    for node in ast.walk(mark):
+                        node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
+                else:
+                    for node in ast.walk(mark):
+                        node.lineno = from_line
 
             return [mark]
 
-        def visit_FunctionDef(self, node: Union[ast.AsyncFunctionDef, ast.FunctionDef]) -> ast.AST:
-            # Mark BRANCH_NAME global, so that our assignments are easier to find (only STORE_NAME/STORE_GLOBAL,
-            # but not STORE_FAST, etc.)
-            has_docstring = ast.get_docstring(node, clean=False) is not None
-            node.body.insert(1 if has_docstring else 0, ast.Global([BRANCH_NAME]))
-            super().generic_visit(node)
-            return node
+        if sys.version_info[0:2] < (3,12):
+            def visit_FunctionDef(self, node: Union[ast.AsyncFunctionDef, ast.FunctionDef]) -> ast.AST:
+                # Mark BRANCH_NAME global, so that our assignments are easier to find (only STORE_NAME/STORE_GLOBAL,
+                # but not STORE_FAST, etc.)
+                has_docstring = ast.get_docstring(node, clean=False) is not None
+                node.body.insert(1 if has_docstring else 0, ast.Global([BRANCH_NAME]))
+                super().generic_visit(node)
+                return node
 
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
-            return self.visit_FunctionDef(node)
+            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
+                return self.visit_FunctionDef(node)
 
         def _mark_branches(self, node: ast.AST) -> ast.AST:
             node.body = self._mark_branch(node.lineno, node.body[0].lineno) + node.body
@@ -84,9 +87,11 @@ def preinstrument(tree: ast.AST) -> ast.AST:
                 for case in node.cases:
                     case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
 
-                has_wildcard = isinstance(node.cases[-1].pattern, ast.MatchAs) and \
-                               node.cases[-1].pattern.pattern is None
+                last_pattern = case.pattern  # case is node.cases[-1]
+                while isinstance(last_pattern, ast.MatchOr):
+                    last_pattern = last_pattern.patterns[-1]
 
+                has_wildcard = case.guard is None and isinstance(last_pattern, ast.MatchAs) and last_pattern.pattern is None
                 if not has_wildcard:
                     to_line = node.next_node.lineno if node.next_node else 0 # exit
                     node.cases.append(ast.match_case(ast.MatchAs(),

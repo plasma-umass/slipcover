@@ -51,8 +51,11 @@ def get_coverage(sci):
         for f in input_tmpfiles:
             try:
                 fname = f.name
-                f.seek(0)
-                sc.merge_coverage(cov, json.load(f))
+                f.seek(0, os.SEEK_END)
+                # If the file is empty, it was likely closed, possibly upon exec
+                if f.tell() != 0:
+                    f.seek(0)
+                    sc.merge_coverage(cov, json.load(f))
             except json.JSONDecodeError as e:
                 warnings.warn(f"Error reading {fname}: {e}")
             finally:
