@@ -34,7 +34,7 @@ if sys.version_info >= (3,11):
     op_PRECALL = dis.opmap["PRECALL"]
     op_CALL = dis.opmap["CALL"]
     op_CACHE = dis.opmap["CACHE"]
-    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])
+    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"]) # type: ignore[attr-defined]
 else:
     op_RESUME = None
     op_PUSH_NULL = None
@@ -63,7 +63,7 @@ def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
         )
     bytecode.extend([opcode, arg & 0xFF])
     if sys.version_info >= (3,11):
-        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])
+        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])  # type: ignore[attr-defined]
     return bytecode
 
 

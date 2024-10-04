@@ -450,54 +450,55 @@ class Slipcover:
             return new_code
 
 
-    def deinstrument(self, co, lines: set) -> types.CodeType:
-        """De-instruments a code object previously instrumented for coverage detection.
+    if sys.version_info < (3,12):
+        def deinstrument(self, co, lines: set) -> types.CodeType:
+            """De-instruments a code object previously instrumented for coverage detection.
 
-        If invoked on a function, de-instruments its code.
-        """
+            If invoked on a function, de-instruments its code.
+            """
 
-        assert not self.immediate
+            assert not self.immediate
 
-        if isinstance(co, types.FunctionType):
-            co.__code__ = self.deinstrument(co.__code__, lines)
-            return co.__code__
+            if isinstance(co, types.FunctionType):
+                co.__code__ = self.deinstrument(co.__code__, lines)
+                return co.__code__
 
-        assert isinstance(co, types.CodeType)
-        # print(f"de-instrumenting {co.co_name}")
+            assert isinstance(co, types.CodeType)
+            # print(f"de-instrumenting {co.co_name}")
 
-        ed = bc.Editor(co)
+            ed = bc.Editor(co)
 
-        co_consts = co.co_consts
-        for i, c in enumerate(co_consts):
-            if isinstance(c, types.CodeType):
-                nc = self.deinstrument(c, lines)
-                if nc is not c:
-                    ed.set_const(i, nc)
+            co_consts = co.co_consts
+            for i, c in enumerate(co_consts):
+                if isinstance(c, types.CodeType):
+                    nc = self.deinstrument(c, lines)
+                    if nc is not c:
+                        ed.set_const(i, nc)
 
-        index = self.code2index[co]
+            index = self.code2index[co]
 
-        for (offset, lineno) in index:
-            if lineno in lines and (func := ed.get_inserted_function(offset)):
-                func_index, func_arg_index, *_ = func
-                if co_consts[func_index] == probe.signal:
-                    probe.mark_removed(co_consts[func_arg_index])
-                    ed.disable_inserted_function(offset)
+            for (offset, lineno) in index:
+                if lineno in lines and (func := ed.get_inserted_function(offset)):
+                    func_index, func_arg_index, *_ = func
+                    if co_consts[func_index] == probe.signal:
+                        probe.mark_removed(co_consts[func_arg_index])
+                        ed.disable_inserted_function(offset)
 
-        new_code = ed.finish()
-        if new_code is co:
-            return co
+            new_code = ed.finish()
+            if new_code is co:
+                return co
 
-        # no offsets changed, so the old code's index is still usable
-        self.code2index[new_code] = index
+            # no offsets changed, so the old code's index is still usable
+            self.code2index[new_code] = index
 
-        with self.lock:
-            self.replace_map[co] = new_code
+            with self.lock:
+                self.replace_map[co] = new_code
 
-            if co in self.instrumented[co.co_filename]:
-                self.instrumented[co.co_filename].remove(co)
-                self.instrumented[co.co_filename].add(new_code)
+                if co in self.instrumented[co.co_filename]:
+                    self.instrumented[co.co_filename].remove(co)
+                    self.instrumented[co.co_filename].add(new_code)
 
-        return new_code
+            return new_code
 
 
     def _add_unseen_source_files(self, source: List[str]):
@@ -644,41 +645,42 @@ class Slipcover:
         self.modules.append(m)
 
 
-    def deinstrument_seen(self) -> None:
-        with self.lock:
-            newly_seen = self._get_newly_seen()
+    if sys.version_info < (3,12):
+        def deinstrument_seen(self) -> None:
+            with self.lock:
+                newly_seen = self._get_newly_seen()
 
-            for file, new_set in newly_seen.items():
-                for co in self.instrumented[file]:
-                    self.deinstrument(co, new_set)
+                for file, new_set in newly_seen.items():
+                    for co in self.instrumented[file]:
+                        self.deinstrument(co, new_set)
 
-                self.all_seen[file].update(new_set)
+                    self.all_seen[file].update(new_set)
 
-            # Replace references to code
-            if self.replace_map:
-                visited : set = set()
+                # Replace references to code
+                if self.replace_map:
+                    visited : set = set()
 
-                # XXX the set of function objects could be pre-computed at register_module;
-                # also, the same could be done for functions objects in globals()
-                for m in self.modules:
-                    for f in Slipcover.find_functions(m.__dict__.values(), visited):
-                        if f.__code__ in self.replace_map:
-                            f.__code__ = self.replace_map[f.__code__]
-
-                globals_seen = []
-                for frame in sys._current_frames().values():
-                    while frame:
-                        if not frame.f_globals in globals_seen:
-                            globals_seen.append(frame.f_globals)
-                            for f in Slipcover.find_functions(frame.f_globals.values(), visited):
-                                if f.__code__ in self.replace_map:
-                                    f.__code__ = self.replace_map[f.__code__]
-
-                        for f in Slipcover.find_functions(frame.f_locals.values(), visited):
+                    # XXX the set of function objects could be pre-computed at register_module;
+                    # also, the same could be done for functions objects in globals()
+                    for m in self.modules:
+                        for f in Slipcover.find_functions(m.__dict__.values(), visited):
                             if f.__code__ in self.replace_map:
                                 f.__code__ = self.replace_map[f.__code__]
 
-                        frame = frame.f_back # type: ignore[assignment]
+                    globals_seen = []
+                    for frame in sys._current_frames().values():
+                        while frame:
+                            if not frame.f_globals in globals_seen:
+                                globals_seen.append(frame.f_globals)
+                                for f in Slipcover.find_functions(frame.f_globals.values(), visited):
+                                    if f.__code__ in self.replace_map:
+                                        f.__code__ = self.replace_map[f.__code__]
 
-                # all references should have been replaced now... right?
-                self.replace_map.clear()
+                            for f in Slipcover.find_functions(frame.f_locals.values(), visited):
+                                if f.__code__ in self.replace_map:
+                                    f.__code__ = self.replace_map[f.__code__]
+
+                            frame = frame.f_back # type: ignore[assignment]
+
+                    # all references should have been replaced now... right?
+                    self.replace_map.clear()

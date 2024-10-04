@@ -31,10 +31,10 @@ def preinstrument(tree: ast.Module) -> ast.Module:
                 # Using a constant Expr allows the compiler to optimize this to a NOP
                 mark = ast.Expr(ast.Constant(None))
                 for node in ast.walk(mark):
-                    node.lineno = node.end_lineno = encode_branch(from_line, to_line)
+                    node.lineno = node.end_lineno = encode_branch(from_line, to_line) # type: ignore[attr-defined]
                     # Leaving the columns unitialized can lead to invalid positions despite
                     # our use of ast.fix_missing_locations
-                    node.col_offset = node.end_col_offset = -1
+                    node.col_offset = node.end_col_offset = -1 # type: ignore[attr-defined]
             else:
                 mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
                                    ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
@@ -132,7 +132,7 @@ def preinstrument(tree: ast.Module) -> ast.Module:
             elif isinstance(node, try_type) and name == 'handlers':
                 # each 'except' continues either in 'finally', or after the 'try'
                 for h in field:
-                    h.next_node = node.finalbody[0] if node.finalbody else node.next_node # type: ignore[attr-defined]
+                    h.next_node = node.finalbody[0] if node.finalbody else node.next_node # type: ignore[attr-defined,union-attr]
             elif isinstance(field, list):
                 # if a field is a list, each item but the last one continues with the next item
                 prev = None
@@ -152,7 +152,7 @@ def preinstrument(tree: ast.Module) -> ast.Module:
                         elif node.finalbody:
                             prev.next_node = node.finalbody[0] # type: ignore[attr-defined]
                         else:
-                            prev.next_node = node.next_node  # type: ignore[attr-defined]
+                            prev.next_node = node.next_node  # type: ignore[attr-defined, union-attr]
                     else:
                         prev.next_node = node.next_node  # type: ignore[attr-defined]
 
