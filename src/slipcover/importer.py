@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import sysconfig
 
-from importlib.abc import MetaPathFinder, Loader
+from importlib.abc import MetaPathFinder, Loader, ResourceReader
 from importlib import machinery
 
 
@@ -29,14 +29,17 @@ class SlipcoverLoader(Loader):
             delattr(self, "get_resource_reader")
 
     # for compability with loaders supporting resources, used e.g. by sklearn
-    def get_resource_reader(self, fullname: str):
-        return self.orig_loader.get_resource_reader(fullname)
+    def get_resource_reader(self, fullname: str) -> Optional[ResourceReader]:
+        # FIXME deprecated in Python 3.12
+        if hasattr(self.orig_loader, 'get_resource_reader'):
+            return self.orig_loader.get_resource_reader(fullname)
+        return None
 
     def create_module(self, spec):
         return self.orig_loader.create_module(spec)
 
     def get_code(self, name):   # expected by pyrun
-        return self.orig_loader.get_code(name)
+        return self.orig_loader.get_code(name) # type: ignore[attr-defined]
 
     def exec_module(self, module):
         import ast
@@ -45,7 +48,7 @@ class SlipcoverLoader(Loader):
             t = br.preinstrument(ast.parse(self.origin.read_bytes()))
             code = compile(t, str(self.origin), "exec")
         else:
-            code = self.orig_loader.get_code(module.__name__)
+            code = self.orig_loader.get_code(module.__name__)  # type: ignore[attr-defined]
 
         self.sci.register_module(module)
         code = self.sci.instrument(code)
@@ -133,7 +136,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
             if isinstance(spec.loader, machinery.ExtensionFileLoader):
                 return None
 
-            if self.file_matcher.matches(spec.origin):
+            if spec.origin and self.file_matcher.matches(spec.origin):
                 if self.debug:
                     print(f"instrumenting {fullname} from {spec.origin}")
                 spec.loader = SlipcoverLoader(self.sci, spec.loader, spec.origin)
@@ -146,7 +149,7 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
 class ImportManager:
     """A context manager that enables instrumentation while active."""
 
-    def __init__(self, sci: Slipcover, file_matcher: FileMatcher = None, debug: bool = False):
+    def __init__(self, sci: Slipcover, file_matcher: Optional[FileMatcher] = None, debug: bool = False):
         self.mpf = SlipcoverMetaPathFinder(sci, file_matcher if file_matcher else MatchEverything(), debug)
 
     def __enter__(self) -> "ImportManager":
@@ -196,7 +199,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
 
         find_replacements(code)
 
-        visited = set()
+        visited : set = set()
         for f in Slipcover.find_functions(module.__dict__.values(), visited):
             if (repl := replacement.get(f.__code__.co_name, None)):
                 assert f.__code__.co_firstlineno == repl.co_firstlineno # sanity check
@@ -215,7 +218,7 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
             obj = sci.instrument(obj)
         exec(obj, g)
 
-    pyrewrite._Slipcover_exec_wrapper = exec_wrapper
+    pyrewrite._Slipcover_exec_wrapper = exec_wrapper  # type: ignore[attr-defined]
 
     if sci.branch:
         import inspect
@@ -249,11 +252,11 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
 
         orig_read_pyc = pyrewrite._read_pyc
         def read_pyc(*args, **kwargs):
-            return orig_read_pyc(*args[:1], adjust_name(args[1]), *args[2:], **kwargs)
+            return orig_read_pyc(*args[:1], adjust_name(args[1]), *args[2:], **kwargs) # type: ignore[call-arg]
 
         orig_write_pyc = pyrewrite._write_pyc
         def write_pyc(*args, **kwargs):
-            return orig_write_pyc(*args[:3], adjust_name(args[3]), *args[4:], **kwargs)
+            return orig_write_pyc(*args[:3], adjust_name(args[3]), *args[4:], **kwargs) # type: ignore[call-arg]
 
         pyrewrite._read_pyc = read_pyc
         pyrewrite._write_pyc = write_pyc

@@ -19,7 +19,7 @@ if sys.version_info[0:2] >= (3,12):
 
 EXIT = 0
 
-def preinstrument(tree: ast.AST) -> ast.AST:
+def preinstrument(tree: ast.Module) -> ast.Module:
     """Prepares an AST for Slipcover instrumentation, inserting assignments indicating where branches happen."""
 
     class SlipcoverTransformer(ast.NodeTransformer):

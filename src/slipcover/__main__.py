@@ -109,7 +109,7 @@ def merge_files(args):
         with args.out.open("w", encoding='utf-8') as jf:
             json.dump(merged, jf)
     except Exception as e:
-        warnings.warn(e)
+        warnings.warn(str(e))
         return 1
 
     return 0

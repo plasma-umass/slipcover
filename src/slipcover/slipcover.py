@@ -2,12 +2,12 @@ from __future__ import annotations
 import sys
 import dis
 import types
-from typing import Dict, Set, List, Tuple
+from typing import Dict, Set, List, Tuple, Optional, Iterator, cast
 from collections import defaultdict, Counter
 import threading
 
-if sys.version_info[0:2] < (3,12):
-    from . import probe
+if sys.version_info < (3,12):
+    from . import probe # type: ignore[attr-defined]
     from . import bytecode as bc
 
 from pathlib import Path
@@ -17,7 +17,7 @@ from .version import __version__
 # FIXME provide __all__
 
 # Counter.total() is new in 3.10
-if sys.version_info[0:2] < (3,10):
+if sys.version_info < (3,10):
     def counter_total(self: Counter) -> int:
         return sum([self[n] for n in self])
     setattr(Counter, 'total', counter_total)
@@ -26,7 +26,7 @@ if sys.version_info[0:2] < (3,10):
 # Python 3.13 returns 'None' lines;
 # Python 3.11+ generates a line just for RESUME or RETURN_GENERATOR, POP_TOP, RESUME;
 # Python 3.11 generates a 0th line
-if sys.version_info[0:2] >= (3,11):
+if sys.version_info >= (3,11):
     _op_RESUME = dis.opmap["RESUME"]
     _op_RETURN_GENERATOR = dis.opmap["RETURN_GENERATOR"]
 
@@ -56,7 +56,7 @@ class PathSimplifier:
 
 
 def format_missing(missing_lines: List[int], executed_lines: List[int],
-                   missing_branches: List[tuple]) -> List[str]:
+                   missing_branches: List[tuple]) -> str:
     """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
        between missed ones"""
 
@@ -150,12 +150,12 @@ def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_cov
 def add_summaries(cov: dict) -> None:
     """Adds (or updates) 'summary' entries in coverage information."""
     # global summary
-    g_summary = defaultdict(int)
+    g_summary : dict = defaultdict(int)
     g_nom = g_den = 0
 
     if 'files' in cov:
         for f_cov in cov['files'].values():
-            summary = { # per-file summary
+            summary : dict = { # per-file summary
                 'covered_lines': len(f_cov['executed_lines']),
                 'missing_lines': len(f_cov['missing_lines']),
             }
@@ -231,7 +231,7 @@ def merge_coverage(a: dict, b: dict) -> dict:
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
-                 disassemble: bool = False, source: List[str] = None):
+                 disassemble: bool = False, source: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
@@ -251,7 +251,7 @@ class Slipcover:
         # notes lines/branches seen since last de-instrumentation
         self._get_newly_seen()
 
-        if sys.version_info[0:2] >= (3,12):
+        if sys.version_info >= (3,12):
             def handle_line(code, line):
                 if br.is_branch(line):
                     self.newly_seen[code.co_filename].add(br.decode_branch(line))
@@ -272,7 +272,7 @@ class Slipcover:
             # provides an index (line_or_branch -> offset) for each code object
             self.code2index: Dict[types.CodeType, list] = dict()
 
-        self.modules = []
+        self.modules : list = []
 
     def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
@@ -289,7 +289,7 @@ class Slipcover:
         return newly_seen
 
 
-    if sys.version_info[0:2] >= (3,12):
+    if sys.version_info >= (3,12):
         @staticmethod
         def lines_from_code(co: types.CodeType) -> Iterator[int]:
             for c in co.co_consts:
@@ -329,8 +329,8 @@ class Slipcover:
                 yield co.co_consts[br_index]
 
 
-    if sys.version_info[0:2] >= (3,12):
-        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+    if sys.version_info >= (3,12):
+        def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
             If invoked on a function, instruments its code.
@@ -357,7 +357,7 @@ class Slipcover:
             return co
 
     else:
-        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+        def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
             If invoked on a function, instruments its code.
@@ -500,10 +500,10 @@ class Slipcover:
         return new_code
 
 
-    def _add_unseen_source_files(self):
+    def _add_unseen_source_files(self, source: List[str]):
         import ast
 
-        dirs = [Path(d).resolve() for d in self.source]
+        dirs = [Path(d).resolve() for d in source]
 
         while dirs:
             p = dirs.pop()
@@ -559,7 +559,7 @@ class Slipcover:
                 self.all_seen[file].update(lines)
 
             if self.source:
-                self._add_unseen_source_files()
+                self._add_unseen_source_files(self.source)
 
             simp = PathSimplifier()
 
@@ -656,7 +656,7 @@ class Slipcover:
 
             # Replace references to code
             if self.replace_map:
-                visited = set()
+                visited : set = set()
 
                 # XXX the set of function objects could be pre-computed at register_module;
                 # also, the same could be done for functions objects in globals()
@@ -678,7 +678,7 @@ class Slipcover:
                             if f.__code__ in self.replace_map:
                                 f.__code__ = self.replace_map[f.__code__]
 
-                        frame = frame.f_back
+                        frame = frame.f_back # type: ignore[assignment]
 
                 # all references should have been replaced now... right?
                 self.replace_map.clear()
