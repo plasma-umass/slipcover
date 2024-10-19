@@ -7,9 +7,9 @@ import types
 from collections import Counter, defaultdict
 from typing import TYPE_CHECKING
 
-if sys.version_info[0:2] < (3,12):
+if sys.version_info < (3,12):
     from . import bytecode as bc
-    from . import probe
+    from . import probe  # type: ignore[attr-defined]
 
 from pathlib import Path
 
@@ -20,7 +20,7 @@ from .xmlreport import XmlReporter
 # FIXME provide __all__
 
 # Counter.total() is new in 3.10
-if sys.version_info[0:2] < (3,10):
+if sys.version_info < (3,10):
     def counter_total(self: Counter) -> int:
         return sum([self[n] for n in self])
     setattr(Counter, 'total', counter_total)
@@ -29,7 +29,7 @@ if sys.version_info[0:2] < (3,10):
 # Python 3.13 returns 'None' lines;
 # Python 3.11+ generates a line just for RESUME or RETURN_GENERATOR, POP_TOP, RESUME;
 # Python 3.11 generates a 0th line
-if sys.version_info[0:2] >= (3,11):
+if sys.version_info >= (3,11):
     _op_RESUME = dis.opmap["RESUME"]
     _op_RETURN_GENERATOR = dis.opmap["RETURN_GENERATOR"]
 
@@ -42,7 +42,7 @@ else:
     findlinestarts = dis.findlinestarts
 
 if TYPE_CHECKING:
-    from typing import Dict, Iterable, Iterator, List, NotRequired, Tuple, TypedDict
+    from typing import Dict, Iterable, Iterator, List, NotRequired, Optional, Tuple, TypedDict
 
     class CoverageMeta(TypedDict):
         software: str
@@ -196,12 +196,12 @@ def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_cov
 def add_summaries(cov: dict) -> None:
     """Adds (or updates) 'summary' entries in coverage information."""
     # global summary
-    g_summary = defaultdict(int)
+    g_summary : dict = defaultdict(int)
     g_nom = g_den = 0
 
     if 'files' in cov:
         for f_cov in cov['files'].values():
-            summary = { # per-file summary
+            summary : dict = { # per-file summary
                 'covered_lines': len(f_cov['executed_lines']),
                 'missing_lines': len(f_cov['missing_lines']),
             }
@@ -277,7 +277,7 @@ def merge_coverage(a: dict, b: dict) -> dict:
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
-                 disassemble: bool = False, source: List[str] = None):
+                 disassemble: bool = False, source: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
@@ -297,7 +297,7 @@ class Slipcover:
         # notes lines/branches seen since last de-instrumentation
         self._get_newly_seen()
 
-        if sys.version_info[0:2] >= (3,12):
+        if sys.version_info >= (3,12):
             def handle_line(code, line):
                 if br.is_branch(line):
                     self.newly_seen[code.co_filename].add(br.decode_branch(line))
@@ -318,7 +318,7 @@ class Slipcover:
             # provides an index (line_or_branch -> offset) for each code object
             self.code2index: Dict[types.CodeType, list] = dict()
 
-        self.modules = []
+        self.modules : list = []
 
     def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
@@ -335,7 +335,7 @@ class Slipcover:
         return newly_seen
 
 
-    if sys.version_info[0:2] >= (3,12):
+    if sys.version_info >= (3,12):
         @staticmethod
         def lines_from_code(co: types.CodeType) -> Iterator[int]:
             for c in co.co_consts:
@@ -375,8 +375,8 @@ class Slipcover:
                 yield co.co_consts[br_index]
 
 
-    if sys.version_info[0:2] >= (3,12):
-        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+    if sys.version_info >= (3,12):
+        def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
             If invoked on a function, instruments its code.
@@ -403,7 +403,7 @@ class Slipcover:
             return co
 
     else:
-        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+        def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
             If invoked on a function, instruments its code.
@@ -496,60 +496,61 @@ class Slipcover:
             return new_code
 
 
-    def deinstrument(self, co, lines: set) -> types.CodeType:
-        """De-instruments a code object previously instrumented for coverage detection.
+    if sys.version_info < (3,12):
+        def deinstrument(self, co, lines: set) -> types.CodeType:
+            """De-instruments a code object previously instrumented for coverage detection.
 
-        If invoked on a function, de-instruments its code.
-        """
+            If invoked on a function, de-instruments its code.
+            """
 
-        assert not self.immediate
+            assert not self.immediate
 
-        if isinstance(co, types.FunctionType):
-            co.__code__ = self.deinstrument(co.__code__, lines)
-            return co.__code__
+            if isinstance(co, types.FunctionType):
+                co.__code__ = self.deinstrument(co.__code__, lines)
+                return co.__code__
 
-        assert isinstance(co, types.CodeType)
-        # print(f"de-instrumenting {co.co_name}")
+            assert isinstance(co, types.CodeType)
+            # print(f"de-instrumenting {co.co_name}")
 
-        ed = bc.Editor(co)
+            ed = bc.Editor(co)
 
-        co_consts = co.co_consts
-        for i, c in enumerate(co_consts):
-            if isinstance(c, types.CodeType):
-                nc = self.deinstrument(c, lines)
-                if nc is not c:
-                    ed.set_const(i, nc)
+            co_consts = co.co_consts
+            for i, c in enumerate(co_consts):
+                if isinstance(c, types.CodeType):
+                    nc = self.deinstrument(c, lines)
+                    if nc is not c:
+                        ed.set_const(i, nc)
 
-        index = self.code2index[co]
+            index = self.code2index[co]
 
-        for (offset, lineno) in index:
-            if lineno in lines and (func := ed.get_inserted_function(offset)):
-                func_index, func_arg_index, *_ = func
-                if co_consts[func_index] == probe.signal:
-                    probe.mark_removed(co_consts[func_arg_index])
-                    ed.disable_inserted_function(offset)
+            for (offset, lineno) in index:
+                if lineno in lines and (func := ed.get_inserted_function(offset)):
+                    func_index, func_arg_index, *_ = func
+                    if co_consts[func_index] == probe.signal:
+                        probe.mark_removed(co_consts[func_arg_index])
+                        ed.disable_inserted_function(offset)
 
-        new_code = ed.finish()
-        if new_code is co:
-            return co
+            new_code = ed.finish()
+            if new_code is co:
+                return co
 
-        # no offsets changed, so the old code's index is still usable
-        self.code2index[new_code] = index
+            # no offsets changed, so the old code's index is still usable
+            self.code2index[new_code] = index
 
-        with self.lock:
-            self.replace_map[co] = new_code
+            with self.lock:
+                self.replace_map[co] = new_code
 
-            if co in self.instrumented[co.co_filename]:
-                self.instrumented[co.co_filename].remove(co)
-                self.instrumented[co.co_filename].add(new_code)
+                if co in self.instrumented[co.co_filename]:
+                    self.instrumented[co.co_filename].remove(co)
+                    self.instrumented[co.co_filename].add(new_code)
 
-        return new_code
+            return new_code
 
 
-    def _add_unseen_source_files(self):
+    def _add_unseen_source_files(self, source: List[str]):
         import ast
 
-        dirs = [Path(d).resolve() for d in self.source]
+        dirs = [Path(d).resolve() for d in source]
 
         while dirs:
             p = dirs.pop()
@@ -605,7 +606,7 @@ class Slipcover:
                 self.all_seen[file].update(lines)
 
             if self.source:
-                self._add_unseen_source_files()
+                self._add_unseen_source_files(self.source)
 
             simp = PathSimplifier()
 
@@ -690,41 +691,42 @@ class Slipcover:
         self.modules.append(m)
 
 
-    def deinstrument_seen(self) -> None:
-        with self.lock:
-            newly_seen = self._get_newly_seen()
+    if sys.version_info < (3,12):
+        def deinstrument_seen(self) -> None:
+            with self.lock:
+                newly_seen = self._get_newly_seen()
 
-            for file, new_set in newly_seen.items():
-                for co in self.instrumented[file]:
-                    self.deinstrument(co, new_set)
+                for file, new_set in newly_seen.items():
+                    for co in self.instrumented[file]:
+                        self.deinstrument(co, new_set)
 
-                self.all_seen[file].update(new_set)
+                    self.all_seen[file].update(new_set)
 
-            # Replace references to code
-            if self.replace_map:
-                visited = set()
+                # Replace references to code
+                if self.replace_map:
+                    visited : set = set()
 
-                # XXX the set of function objects could be pre-computed at register_module;
-                # also, the same could be done for functions objects in globals()
-                for m in self.modules:
-                    for f in Slipcover.find_functions(m.__dict__.values(), visited):
-                        if f.__code__ in self.replace_map:
-                            f.__code__ = self.replace_map[f.__code__]
-
-                globals_seen = []
-                for frame in sys._current_frames().values():
-                    while frame:
-                        if not frame.f_globals in globals_seen:
-                            globals_seen.append(frame.f_globals)
-                            for f in Slipcover.find_functions(frame.f_globals.values(), visited):
-                                if f.__code__ in self.replace_map:
-                                    f.__code__ = self.replace_map[f.__code__]
-
-                        for f in Slipcover.find_functions(frame.f_locals.values(), visited):
+                    # XXX the set of function objects could be pre-computed at register_module;
+                    # also, the same could be done for functions objects in globals()
+                    for m in self.modules:
+                        for f in Slipcover.find_functions(m.__dict__.values(), visited):
                             if f.__code__ in self.replace_map:
                                 f.__code__ = self.replace_map[f.__code__]
 
-                        frame = frame.f_back
+                    globals_seen = []
+                    for frame in sys._current_frames().values():
+                        while frame:
+                            if not frame.f_globals in globals_seen:
+                                globals_seen.append(frame.f_globals)
+                                for f in Slipcover.find_functions(frame.f_globals.values(), visited):
+                                    if f.__code__ in self.replace_map:
+                                        f.__code__ = self.replace_map[f.__code__]
 
-                # all references should have been replaced now... right?
-                self.replace_map.clear()
+                            for f in Slipcover.find_functions(frame.f_locals.values(), visited):
+                                if f.__code__ in self.replace_map:
+                                    f.__code__ = self.replace_map[f.__code__]
+
+                            frame = frame.f_back # type: ignore[assignment]
+
+                    # all references should have been replaced now... right?
+                    self.replace_map.clear()

@@ -2,7 +2,7 @@ from __future__ import annotations
 import sys
 import dis
 import types
-from typing import List, Tuple
+from typing import List, Tuple, Iterator
 
 # FIXME provide __all__
 
@@ -34,7 +34,7 @@ if sys.version_info >= (3,11):
     op_PRECALL = dis.opmap["PRECALL"]
     op_CALL = dis.opmap["CALL"]
     op_CACHE = dis.opmap["CACHE"]
-    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])
+    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"]) # type: ignore[attr-defined]
 else:
     op_RESUME = None
     op_PUSH_NULL = None
@@ -63,11 +63,11 @@ def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
         )
     bytecode.extend([opcode, arg & 0xFF])
     if sys.version_info >= (3,11):
-        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])
+        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])  # type: ignore[attr-defined]
     return bytecode
 
 
-def unpack_opargs(code: bytes) -> Tuple[int, int, int, int]:
+def unpack_opargs(code: bytes) -> Iterator[Tuple[int, int, int, int]]:
     """Unpacks opcodes and their arguments, returning:
 
     - the beginning offset, including that of the first EXTENDED_ARG, if any
@@ -444,8 +444,8 @@ class Editor:
         self.patch = None
 
         self.branches = None
-        self.ex_table = None
-        self.lines = None
+        self.ex_table = []
+        self.lines = []
         self.inserts = []
 
         self.max_addtl_stack = 0
@@ -641,7 +641,7 @@ class Editor:
         if not self.patch and not self.consts:
             return self.orig_code
 
-        replace = {}
+        replace : dict = {}
         if self.consts is not None:
             replace["co_consts"] = tuple(self.consts)
 
