@@ -89,16 +89,17 @@ jobs:
             cat $GITHUB_PATH
       - name: install dependencies
         run: |
-            python3 -m pip install --upgrade pip  # to avoid warnings
-            python3 -m pip install wheel
+            python3 -m pip install -U pip # avoids warnings
+            python3 -m pip install wheel build
+
       - name: build sdist
-        run: |
-            python3 setup.py sdist
+        run: python3 -m build --sdist
+
       - name: try to use it
         run: |
             tar xzf dist/slipcover*.tar.gz
             cd slipcover*
-            python3 setup.py build
+            python3 -m build --wheel
 
   # Run a manylinux wheel build to verify build configuration
   test-build-wheel-manylinux:
@@ -117,13 +118,15 @@ jobs:
         run: |
           PYV=`echo "${{ matrix.python_version }}" | tr -d "."`; ls -d -1 /opt/python/cp$PYV*/bin | head -n 1 >> $GITHUB_PATH
           cat $GITHUB_PATH
+
       - name: install dependencies
         run: |
-          python3 -m pip install --upgrade pip  # otherwise building 'cryptography' may fail
-          python3 -m pip install setuptools wheel twine
+          python3 -m pip install -U pip # avoids GitHub warnings
+          python3 -m pip install twine build
+
       - name: build wheel
-        run: |
-            python3 setup.py bdist_wheel
+        run: python3 -m build --wheel
+
       - name: run auditwheel for manylinux
         run: |
           auditwheel repair dist/*.whl
