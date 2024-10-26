@@ -56,7 +56,8 @@ jobs:
 
     - name: install SlipCover and pytest
       run: |
-        python3 -m pip install --upgrade pip  # to avoid warnings
+        python3 -m pip install -U pip  # to avoid warnings
+        python3 -m pip install -U setuptools
         python3 -m pip install .
         python3 -m pip install pytest
 
