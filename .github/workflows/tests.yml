@@ -54,17 +54,20 @@ jobs:
         python-version: ${{ matrix.python }}
         allow-prereleases: true
 
-    - name: check compiler
-      if: startsWith(matrix.python, 'pypy-')
-      run: |
-        g++ --version
-
-    - name: install SlipCover and pytest
+    - name: install prereqs
       run: |
         python3 -m pip install -U pip  # to avoid warnings
-        python3 -m pip install -U setuptools
-        python3 -m pip install .
         python3 -m pip install pytest
+
+    - name: install SlipCover (non-pypy)
+      if: "! startsWith(matrix.python, 'pypy-')"
+      run: |
+        python3 -m pip install .
+
+    - name: install SlipCover (pypy)
+      if: startsWith(matrix.python, 'pypy-')
+      run: |
+        LDSHARED="g++ -shared" python3 -m pip install .
 
     - name: install Unix dependencies
       if: matrix.os != 'windows-latest'
