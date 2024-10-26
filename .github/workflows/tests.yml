@@ -54,6 +54,11 @@ jobs:
         python-version: ${{ matrix.python }}
         allow-prereleases: true
 
+    - name: check compiler
+      if: startsWith(matrix.python, 'pypy-')
+      run: |
+        g++ --version
+
     - name: install SlipCover and pytest
       run: |
         python3 -m pip install -U pip  # to avoid warnings
