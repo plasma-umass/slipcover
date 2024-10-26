@@ -6,8 +6,15 @@ from pathlib import Path
 import sys
 import sysconfig
 
-from importlib.abc import MetaPathFinder, Loader, ResourceReader
+from importlib.abc import MetaPathFinder, Loader
 from importlib import machinery
+
+if sys.version_info >= (3, 12):
+    from importlib.resources.abc import TraversableResources
+elif sys.version_info >= (3, 11):
+    from importlib.resources.abc import ResourceReader as TraversableResources
+else:
+    from importlib.abc import ResourceReader as TraversableResources
 
 
 if sys.version_info[0:2] < (3,9):
@@ -29,8 +36,7 @@ class SlipcoverLoader(Loader):
             delattr(self, "get_resource_reader")
 
     # for compability with loaders supporting resources, used e.g. by sklearn
-    def get_resource_reader(self, fullname: str) -> Optional[ResourceReader]:
-        # FIXME deprecated in Python 3.12
+    def get_resource_reader(self, fullname: str) -> Optional[TraversableResources]:
         if hasattr(self.orig_loader, 'get_resource_reader'):
             return self.orig_loader.get_resource_reader(fullname)
         return None
