@@ -59,19 +59,13 @@ jobs:
         python3 -m pip install -U pip  # to avoid warnings
         python3 -m pip install pytest
 
-    - name: install SlipCover (non-pypy)
-      if: "! startsWith(matrix.python, 'pypy-')"
-      run: |
-        python3 -m pip install .
-
-    - name: install SlipCover (pypy)
-      if: startsWith(matrix.python, 'pypy-')
-      run: |
-        LDCXXSHARED="g++ -shared" python3 -m pip install .
-
     - name: install Unix dependencies
       if: matrix.os != 'windows-latest'
       run: python3 -m pip install pytest-forked
+
+    - name: install SlipCover
+      run: |
+        python3 -m pip install .
 
     - name: run tests
       run: python3 -m pytest
