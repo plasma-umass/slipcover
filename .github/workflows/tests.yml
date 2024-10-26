@@ -67,7 +67,7 @@ jobs:
     - name: install SlipCover (pypy)
       if: startsWith(matrix.python, 'pypy-')
       run: |
-        LDSHARED="g++ -shared" python3 -m pip install .
+        LDCXXSHARED="g++ -shared" python3 -m pip install .
 
     - name: install Unix dependencies
       if: matrix.os != 'windows-latest'
