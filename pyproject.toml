@@ -34,7 +34,8 @@ slipcover = "slipcover.__main__:main"
 [build-system]
 # see https://peps.python.org/pep-0508/#environment-markers for conditional syntax
 requires = [
-    "setuptools>72",
+    "setuptools>61",
+    "setuptools<72.2; implementation_name == 'pypy'", # https://github.com/pypa/distutils/issues/283
     "wheel",
     "tomli; python_version < '3.11'" # tomllib alternative
 ]
