@@ -1,15 +1,15 @@
-import pytest
-import slipcover.slipcover as sc
-import slipcover.branch as br
-import types
 import dis
-import sys
-import platform
+import json
 import re
 import subprocess
+import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
-import json
 
+import pytest
+
+import slipcover.branch as br
+import slipcover.slipcover as sc
 
 PYTHON_VERSION = sys.version_info[0:2]
 
@@ -1046,3 +1046,380 @@ def test_merge_flag_no_out(cov_merge_fixture):
 
     with pytest.raises(subprocess.CalledProcessError):
         subprocess.run([sys.executable, '-m', 'slipcover', '--merge', 'a.json', 'b.json'], check=True)
+
+def test_xml_flag(cov_merge_fixture: Path):
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--xml', '--out', "out.xml", "t.py"], check=True)
+    assert 0 == p.returncode
+
+    xtext = (cov_merge_fixture / 'out.xml').read_text(encoding='utf8')
+    dom = ET.fromstring(xtext)
+
+    assert dom.tag == 'coverage'
+
+    assert dom.get('lines-valid') == '7'
+    assert dom.get('lines-covered') == '5'
+    assert dom.get('line-rate') == '0.7143'
+    assert dom.get('branch-rate') == '0'
+    assert dom.get('complexity') == '0'
+
+    sources = dom.findall('.//sources/source')
+    assert [elt.text for elt in sources] == [str(Path.cwd())]
+
+    package = dom.find('.//packages/package')
+    assert package.get('name') == '.'
+    assert package.get('line-rate') == '0.7143'
+    assert package.get('branch-rate') == '0'
+    assert package.get('complexity') == '0'
+
+    class_ = package.find('.//classes/class')
+    assert class_.get('name') == 't.py'
+    assert class_.get('filename') == 't.py'
+    assert class_.get('complexity') == '0'
+    assert class_.get('line-rate') == '0.7143'
+    assert class_.get('branch-rate') == '0'
+
+    lines = class_.findall('.//lines/line')
+    assert len(lines) == 7
+
+    assert lines[0].get('number') == '1'
+    assert lines[0].get('hits') == '1'
+    assert lines[0].get('branch') is None
+    assert lines[0].get('condition-coverage') is None
+    assert lines[0].get('missing-branches') is None
+
+    assert lines[1].get('number') == '3'
+    assert lines[1].get('hits') == '1'
+    assert lines[1].get('branch') is None
+    assert lines[1].get('condition-coverage') is None
+    assert lines[1].get('missing-branches') is None
+
+    assert lines[2].get('number') == '4'
+    assert lines[2].get('hits') == '1'
+    assert lines[2].get('branch') is None
+    assert lines[2].get('condition-coverage') is None
+    assert lines[2].get('missing-branches') is None
+
+    assert lines[3].get('number') == '6'
+    assert lines[3].get('hits') == '0'
+    assert lines[3].get('branch') is None
+    assert lines[3].get('condition-coverage') is None
+    assert lines[3].get('missing-branches') is None
+
+    assert lines[4].get('number') == '8'
+    assert lines[4].get('hits') == '1'
+    assert lines[4].get('branch') is None
+    assert lines[4].get('condition-coverage') is None
+    assert lines[4].get('missing-branches') is None
+
+    assert lines[5].get('number') == '9'
+    assert lines[5].get('hits') == '0'
+    assert lines[5].get('branch') is None
+    assert lines[5].get('condition-coverage') is None
+    assert lines[5].get('missing-branches') is None
+
+    assert lines[6].get('number') == '11'
+    assert lines[6].get('hits') == '1'
+    assert lines[6].get('branch') is None
+    assert lines[6].get('condition-coverage') is None
+    assert lines[6].get('missing-branches') is None
+
+def test_xml_flag_with_branches(cov_merge_fixture: Path):
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--branch', '--xml', '--out', "out.xml", "t.py"], check=True)
+    assert 0 == p.returncode
+
+    xtext = (cov_merge_fixture / 'out.xml').read_text(encoding='utf8')
+    dom = ET.fromstring(xtext)
+
+    assert dom.tag == 'coverage'
+
+    assert dom.get('lines-valid') == '7'
+    assert dom.get('lines-covered') == '5'
+    assert dom.get('line-rate') == '0.7143'
+    assert dom.get('branch-rate') == '0.5'
+    assert dom.get('complexity') == '0'
+
+    sources = dom.findall('.//sources/source')
+    assert [elt.text for elt in sources] == [str(Path.cwd())]
+
+    package = dom.find('.//packages/package')
+    assert package.get('name') == '.'
+    assert package.get('line-rate') == '0.7143'
+    assert package.get('branch-rate') == '0.5'
+    assert package.get('complexity') == '0'
+
+    class_ = package.find('.//classes/class')
+    assert class_.get('name') == 't.py'
+    assert class_.get('filename') == 't.py'
+    assert class_.get('complexity') == '0'
+    assert class_.get('line-rate') == '0.7143'
+    assert class_.get('branch-rate') == '0.5'
+
+    lines = class_.findall('.//lines/line')
+    assert len(lines) == 7
+
+    assert lines[0].get('number') == '1'
+    assert lines[0].get('hits') == '1'
+    assert lines[0].get('branch') is None
+    assert lines[0].get('condition-coverage') is None
+    assert lines[0].get('missing-branches') is None
+
+    assert lines[1].get('number') == '3'
+    assert lines[1].get('hits') == '1'
+    assert lines[1].get('branch') == 'true'
+    assert lines[1].get('condition-coverage') == '50% (1/2)'
+    assert lines[1].get('missing-branches') == '6'
+
+    assert lines[2].get('number') == '4'
+    assert lines[2].get('hits') == '1'
+    assert lines[2].get('branch') is None
+    assert lines[2].get('condition-coverage') is None
+    assert lines[2].get('missing-branches') is None
+
+    assert lines[3].get('number') == '6'
+    assert lines[3].get('hits') == '0'
+    assert lines[3].get('branch') is None
+    assert lines[3].get('condition-coverage') is None
+    assert lines[3].get('missing-branches') is None
+
+    assert lines[4].get('number') == '8'
+    assert lines[4].get('hits') == '1'
+    assert lines[4].get('branch') == 'true'
+    assert lines[4].get('condition-coverage') == '50% (1/2)'
+    assert lines[4].get('missing-branches') == '9'
+
+    assert lines[5].get('number') == '9'
+    assert lines[5].get('hits') == '0'
+    assert lines[5].get('branch') is None
+    assert lines[5].get('condition-coverage') is None
+    assert lines[5].get('missing-branches') is None
+
+    assert lines[6].get('number') == '11'
+    assert lines[6].get('hits') == '1'
+    assert lines[6].get('branch') is None
+    assert lines[6].get('condition-coverage') is None
+    assert lines[6].get('missing-branches') is None
+
+def test_xml_flag_with_pytest(tmp_path):
+    out_file = tmp_path / "out.xml"
+
+    test_file = str(Path('tests') / 'pyt.py')
+
+    subprocess.run(f"{sys.executable} -m slipcover --xml --out {out_file} -m pytest {test_file}".split(),
+                   check=True)
+    xtext = out_file.read_text(encoding='utf8')
+    dom = ET.fromstring(xtext)
+
+    assert dom.tag == 'coverage'
+
+    elts = dom.findall(".//sources/source")
+    assert [elt.text for elt in elts] == [str(Path.cwd())]
+
+    assert dom.get('lines-valid') == '12'
+    assert dom.get('lines-covered') == '12'
+    assert dom.get('line-rate') == '1'
+    assert dom.get('branch-rate') == '0'
+    assert dom.get('complexity') == '0'
+
+    sources = dom.findall('.//sources/source')
+    assert [elt.text for elt in sources] == [str(Path.cwd())]
+
+    package = dom.find('.//packages/package')
+    assert package.get('name') == 'tests'
+    assert package.get('line-rate') == '1'
+    assert package.get('branch-rate') == '0'
+    assert package.get('complexity') == '0'
+
+    class_ = package.find('.//classes/class')
+    assert class_.get('name') == 'pyt.py'
+    assert class_.get('filename') == 'tests/pyt.py'
+    assert class_.get('complexity') == '0'
+    assert class_.get('line-rate') == '1'
+    assert class_.get('branch-rate') == '0'
+
+    lines = class_.findall('.//lines/line')
+    assert len(lines) == 12
+
+    assert lines[0].get('number') == '1'
+    assert lines[0].get('hits') == '1'
+    assert lines[0].get('branch') is None
+    assert lines[0].get('condition-coverage') is None
+    assert lines[0].get('missing-branches') is None
+
+    assert lines[1].get('number') == '2'
+    assert lines[1].get('hits') == '1'
+    assert lines[1].get('branch') is None
+    assert lines[1].get('condition-coverage') is None
+    assert lines[1].get('missing-branches') is None
+
+    assert lines[2].get('number') == '3'
+    assert lines[2].get('hits') == '1'
+    assert lines[2].get('branch') is None
+    assert lines[2].get('condition-coverage') is None
+    assert lines[2].get('missing-branches') is None
+
+    assert lines[3].get('number') == '4'
+    assert lines[3].get('hits') == '1'
+    assert lines[3].get('branch') is None
+    assert lines[3].get('condition-coverage') is None
+    assert lines[3].get('missing-branches') is None
+
+    assert lines[4].get('number') == '5'
+    assert lines[4].get('hits') == '1'
+    assert lines[4].get('branch') is None
+    assert lines[4].get('condition-coverage') is None
+    assert lines[4].get('missing-branches') is None
+
+    assert lines[5].get('number') == '6'
+    assert lines[5].get('hits') == '1'
+    assert lines[5].get('branch') is None
+    assert lines[5].get('condition-coverage') is None
+    assert lines[5].get('missing-branches') is None
+
+    assert lines[6].get('number') == '8'
+    assert lines[6].get('hits') == '1'
+    assert lines[6].get('branch') is None
+    assert lines[6].get('condition-coverage') is None
+    assert lines[6].get('missing-branches') is None
+
+    assert lines[7].get('number') == '9'
+    assert lines[7].get('hits') == '1'
+    assert lines[7].get('branch') is None
+    assert lines[7].get('condition-coverage') is None
+    assert lines[7].get('missing-branches') is None
+    
+    assert lines[8].get('number') == '10'
+    assert lines[8].get('hits') == '1'
+    assert lines[8].get('branch') is None
+    assert lines[8].get('condition-coverage') is None
+    assert lines[8].get('missing-branches') is None
+
+    assert lines[9].get('number') == '11'
+    assert lines[9].get('hits') == '1'
+    assert lines[9].get('branch') is None
+    assert lines[9].get('condition-coverage') is None
+    assert lines[9].get('missing-branches') is None
+
+    assert lines[10].get('number') == '13'
+    assert lines[10].get('hits') == '1'
+    assert lines[10].get('branch') is None
+    assert lines[10].get('condition-coverage') is None
+    assert lines[10].get('missing-branches') is None
+
+    assert lines[11].get('number') == '14'
+    assert lines[11].get('hits') == '1'
+    assert lines[11].get('branch') is None
+    assert lines[11].get('condition-coverage') is None
+    assert lines[11].get('missing-branches') is None
+
+
+def test_xml_flag_with_branches_and_pytest(tmp_path):
+    out_file = tmp_path / "out.xml"
+
+    test_file = str(Path('tests') / 'pyt.py')
+
+    subprocess.run(f"{sys.executable} -m slipcover --branch --xml --out {out_file} -m pytest {test_file}".split(),
+                   check=True)
+    xtext = out_file.read_text(encoding='utf8')
+    dom = ET.fromstring(xtext)
+
+    assert dom.tag == 'coverage'
+
+    elts = dom.findall(".//sources/source")
+    assert [elt.text for elt in elts] == [str(Path.cwd())]
+
+    assert dom.get('lines-valid') == '12'
+    assert dom.get('lines-covered') == '12'
+    assert dom.get('line-rate') == '1'
+    assert dom.get('branch-rate') == '0.75'
+    assert dom.get('complexity') == '0'
+
+    sources = dom.findall('.//sources/source')
+    assert [elt.text for elt in sources] == [str(Path.cwd())]
+
+    package = dom.find('.//packages/package')
+    assert package.get('name') == 'tests'
+    assert package.get('line-rate') == '1'
+    assert package.get('branch-rate') == '0.75'
+    assert package.get('complexity') == '0'
+
+    class_ = package.find('.//classes/class')
+    assert class_.get('name') == 'pyt.py'
+    assert class_.get('filename') == 'tests/pyt.py'
+    assert class_.get('complexity') == '0'
+    assert class_.get('line-rate') == '1'
+    assert class_.get('branch-rate') == '0.75'
+
+    lines = class_.findall('.//lines/line')
+    assert len(lines) == 12
+
+    assert lines[0].get('number') == '1'
+    assert lines[0].get('hits') == '1'
+    assert lines[0].get('branch') is None
+    assert lines[0].get('condition-coverage') is None
+    assert lines[0].get('missing-branches') is None
+
+    assert lines[1].get('number') == '2'
+    assert lines[1].get('hits') == '1'
+    assert lines[1].get('branch') is None
+    assert lines[1].get('condition-coverage') is None
+    assert lines[1].get('missing-branches') is None
+
+    assert lines[2].get('number') == '3'
+    assert lines[2].get('hits') == '1'
+    assert lines[2].get('branch') == 'true'
+    assert lines[2].get('condition-coverage') == '50% (1/2)'
+    assert lines[2].get('missing-branches') == '6'
+
+    assert lines[3].get('number') == '4'
+    assert lines[3].get('hits') == '1'
+    assert lines[3].get('branch') == 'true'
+    assert lines[3].get('condition-coverage') == '100% (2/2)'
+    assert lines[3].get('missing-branches') is None
+
+    assert lines[4].get('number') == '5'
+    assert lines[4].get('hits') == '1'
+    assert lines[4].get('branch') is None
+    assert lines[4].get('condition-coverage') is None
+    assert lines[4].get('missing-branches') is None
+
+    assert lines[5].get('number') == '6'
+    assert lines[5].get('hits') == '1'
+    assert lines[5].get('branch') is None
+    assert lines[5].get('condition-coverage') is None
+    assert lines[5].get('missing-branches') is None
+
+    assert lines[6].get('number') == '8'
+    assert lines[6].get('hits') == '1'
+    assert lines[6].get('branch') is None
+    assert lines[6].get('condition-coverage') is None
+    assert lines[6].get('missing-branches') is None
+
+    assert lines[7].get('number') == '9'
+    assert lines[7].get('hits') == '1'
+    assert lines[7].get('branch') is None
+    assert lines[7].get('condition-coverage') is None
+    assert lines[7].get('missing-branches') is None
+    
+    assert lines[8].get('number') == '10'
+    assert lines[8].get('hits') == '1'
+    assert lines[8].get('branch') is None
+    assert lines[8].get('condition-coverage') is None
+    assert lines[8].get('missing-branches') is None
+
+    assert lines[9].get('number') == '11'
+    assert lines[9].get('hits') == '1'
+    assert lines[9].get('branch') is None
+    assert lines[9].get('condition-coverage') is None
+    assert lines[9].get('missing-branches') is None
+
+    assert lines[10].get('number') == '13'
+    assert lines[10].get('hits') == '1'
+    assert lines[10].get('branch') is None
+    assert lines[10].get('condition-coverage') is None
+    assert lines[10].get('missing-branches') is None
+
+    assert lines[11].get('number') == '14'
+    assert lines[11].get('hits') == '1'
+    assert lines[11].get('branch') is None
+    assert lines[11].get('condition-coverage') is None
+    assert lines[11].get('missing-branches') is None
