@@ -34,7 +34,7 @@ from slipcover.version import __url__, __version__
 if TYPE_CHECKING:
     from typing import Sequence, TypeVar
 
-    from slipcover.slipcover import Coverage, CoverageFile
+    from .schemas import Coverage, CoverageFile
 
     SortableItem = TypeVar("SortableItem", bound=Sequence[Any])
 
