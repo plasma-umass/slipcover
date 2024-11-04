@@ -1,8 +1,9 @@
 from __future__ import annotations
+import functools
 import sys
 import dis
 import types
-from typing import Dict, Set, List, Tuple, Optional, Iterator, cast
+from typing import Dict, Set, List, Tuple, TYPE_CHECKING, Iterator, Optional
 from collections import defaultdict, Counter
 import threading
 
@@ -13,6 +14,9 @@ if sys.version_info < (3,12):
 from pathlib import Path
 from . import branch as br
 from .version import __version__
+
+if TYPE_CHECKING:
+    from re import Pattern
 
 # FIXME provide __all__
 
@@ -231,12 +235,18 @@ def merge_coverage(a: dict, b: dict) -> dict:
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
-                 disassemble: bool = False, source: Optional[List[str]] = None):
+                 disassemble: bool = False, source: Optional[List[str]] = None,
+                 exclude_lines: Optional[Set[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.disassemble = disassemble
         self.source = source
+
+        self.exclude_lines = None
+        if exclude_lines:
+            import re
+            self.exclude_lines = {re.compile(exclude_line) for exclude_line in exclude_lines}
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -291,38 +301,38 @@ class Slipcover:
 
     if sys.version_info >= (3,12):
         @staticmethod
-        def lines_from_code(co: types.CodeType) -> Iterator[int]:
+        def lines_from_code(co: types.CodeType, exclude_lines: Optional[Set[Pattern]] = None) -> Iterator[int]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
-                    yield from Slipcover.lines_from_code(c)
+                    yield from Slipcover.lines_from_code(c, exclude_lines)
 
-            yield from (line for _, line in findlinestarts(co) if not br.is_branch(line))
+            yield from (line for _, line in findlinestarts(co) if not br.is_branch(line) and Slipcover.consider_line(co, exclude_lines))
 
 
         @staticmethod
-        def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
+        def branches_from_code(co: types.CodeType, exclude_lines: Optional[Set[Pattern]] = None) -> Iterator[Tuple[int, int]]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
-                    yield from Slipcover.branches_from_code(c)
+                    yield from Slipcover.branches_from_code(c, exclude_lines)
 
-            yield from (br.decode_branch(line) for _, line in findlinestarts(co) if br.is_branch(line))
+            yield from (br.decode_branch(line) for _, line in findlinestarts(co) if br.is_branch(line) and Slipcover.consider_line(co, exclude_lines))
 
     else:
         @staticmethod
-        def lines_from_code(co: types.CodeType) -> Iterator[int]:
+        def lines_from_code(co: types.CodeType, exclude_lines: Optional[Set[Pattern]] = None) -> Iterator[int]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
-                    yield from Slipcover.lines_from_code(c)
+                    yield from Slipcover.lines_from_code(c, exclude_lines)
 
             # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
-            yield from (line for _, line in findlinestarts(co))
+            yield from (line for _, line in findlinestarts(co) if Slipcover.consider_line(co, exclude_lines))
 
 
         @staticmethod
-        def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
+        def branches_from_code(co: types.CodeType, exclude_lines: Optional[Set[Pattern]] = None) -> Iterator[Tuple[int, int]]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
-                    yield from Slipcover.branches_from_code(c)
+                    yield from Slipcover.branches_from_code(c, exclude_lines)
 
             ed = bc.Editor(co)
             for _, _, br_index in ed.find_const_assignments(br.BRANCH_NAME):
@@ -330,7 +340,7 @@ class Slipcover:
 
 
     if sys.version_info >= (3,12):
-        def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
+        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
             If invoked on a function, instruments its code.
@@ -351,13 +361,13 @@ class Slipcover:
 
             if not parent:
                 with self.lock:
-                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co))
-                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co))
+                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co, self.exclude_lines))
+                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co, self.exclude_lines))
 
             return co
 
     else:
-        def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
+        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
             If invoked on a function, instruments its code.
@@ -439,8 +449,8 @@ class Slipcover:
 
             with self.lock:
                 if not parent:
-                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co))
-                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co))
+                    self.code_lines[co.co_filename].update(Slipcover.lines_from_code(co, self.exclude_lines))
+                    self.code_branches[co.co_filename].update(Slipcover.branches_from_code(co, self.exclude_lines))
 
                     self.instrumented[co.co_filename].add(new_code)
 
@@ -500,6 +510,21 @@ class Slipcover:
 
             return new_code
 
+    @staticmethod
+    def consider_line(co: types.CodeType, exclude_lines: Optional[Set[Pattern]] = None):
+        if not exclude_lines:
+            return True
+
+        line = get_source(co)
+        if not line:
+            return True
+
+        for exclusion in exclude_lines:
+            if exclusion.search(line):
+                return False
+
+        return True
+
 
     def _add_unseen_source_files(self, source: List[str]):
         import ast
@@ -521,9 +546,9 @@ class Slipcover:
                             if self.branch:
                                 t = br.preinstrument(t)
                             code = compile(t, filename, "exec")
-                            self.code_lines[filename] = set(Slipcover.lines_from_code(code))
+                            self.code_lines[filename] = set(Slipcover.lines_from_code(code, self.exclude_lines))
                             if self.branch:
-                                self.code_branches[filename] = set(Slipcover.branches_from_code(code))
+                                self.code_branches[filename] = set(Slipcover.branches_from_code(code, self.exclude_lines))
 
                     except Exception as e: # for SyntaxError and such... FIXME curate list and catch only those
                         print(f"Warning: unable to include {filename}: {e}")
@@ -684,3 +709,13 @@ class Slipcover:
 
                     # all references should have been replaced now... right?
                     self.replace_map.clear()
+
+
+@functools.lru_cache(None)
+def get_source(co) -> Optional[str]:
+    import inspect
+
+    try:
+        return '\n'.join(inspect.getsourcelines(co)[0])
+    except Exception:
+        return  None

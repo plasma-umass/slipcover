@@ -132,6 +132,7 @@ def main():
     ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
     ap.add_argument('--out', type=Path, help="specify output file name")
     ap.add_argument('--source', help="specify directories to cover")
+    ap.add_argument('-x', '--exclude-lines', action='append', type=str, help="Regex line patterns to ignore coverage for")
     ap.add_argument('--omit', help="specify file(s) to omit")
     ap.add_argument('--immediate', action='store_true',
                     help=(argparse.SUPPRESS if platform.python_implementation() == "PyPy" else "request immediate de-instrumentation"))
@@ -185,10 +186,11 @@ def main():
         for o in args.omit.split(','):
             file_matcher.addOmit(o)
 
+    exclude_lines = set(args.exclude_lines) if args.exclude_lines else None
 
     sci = sc.Slipcover(immediate=args.immediate,
                        d_miss_threshold=args.threshold, branch=args.branch,
-                       disassemble=args.dis, source=args.source)
+                       disassemble=args.dis, source=args.source, exclude_lines=exclude_lines)
 
 
     if not args.dont_wrap_pytest:
