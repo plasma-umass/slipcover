@@ -1,6 +1,7 @@
 import pytest
 import sys
 
+PYTHON_IMPL = sys.implementation.name
 PYTHON_VERSION = sys.version_info[0:2]
 
 if PYTHON_VERSION >= (3,12):
@@ -192,7 +193,8 @@ def test_exception():
     assert X == foo(42)
 
 
-@pytest.mark.skipif(PYTHON_VERSION != (3,10), reason="N/A: only 3.10 seems to generate code like this")
+@pytest.mark.skipif(PYTHON_IMPL != 'cpython' or PYTHON_VERSION != (3,10),
+                    reason="N/A: only cpython 3.10 seems to generate code like this")
 def test_instrument_code_before_first_line():
     sci = sc.Slipcover()
 

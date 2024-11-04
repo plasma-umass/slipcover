@@ -1,6 +1,7 @@
 import pytest
 import sys
 
+PYTHON_IMPL = sys.implementation.name
 PYTHON_VERSION = sys.version_info[0:2]
 
 if PYTHON_VERSION >= (3,12):
@@ -439,7 +440,7 @@ def test_make_lnotab():
             0, -30] == unpack_bytes(lnotab)
 
 
-@pytest.mark.skipif(PYTHON_VERSION != (3,10), reason="N/A: 3.10 specific")
+@pytest.mark.skipif(PYTHON_IMPL != 'cpython' or PYTHON_VERSION != (3,10), reason="N/A: cpython 3.10 specific")
 def test_make_linetable_310():
     lines = [bc.LineEntry(0, 6, 1),
              bc.LineEntry(6, 50, 2),
@@ -525,13 +526,13 @@ def test_make_lines_and_compare(code):
     lines = bc.LineEntry.from_code(code)
 
     dis.dis(code)
-    print(code.co_firstlineno)
+    print(f"{code.co_firstlineno=}")
     print([str(l) for l in lines])
 
     if PYTHON_VERSION < (3,10):
         my_lnotab = bc.LineEntry.make_lnotab(code.co_firstlineno, lines)
         assert list(code.co_lnotab) == list(my_lnotab)
-    elif PYTHON_VERSION == (3,10):
+    elif PYTHON_IMPL == 'cpython' and PYTHON_VERSION == (3,10):
         my_linetable = bc.LineEntry.make_linetable(code.co_firstlineno, lines)
         assert list(code.co_linetable) == list(my_linetable)
     else:

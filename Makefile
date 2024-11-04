@@ -2,11 +2,10 @@ all:
 	python3 -m pip install -e .
 
 # obtained with e.g. "brew install python@3.10"
-HOMEBREW_PYTHON=/opt/homebrew/opt/python@
 test:
 	- rm -f .coverage
-	@ for V in 3.8 3.9 3.10 3.11 3.12 3.13; do \
-	    P=$$(command -v ${HOMEBREW_PYTHON}$$V/bin/python3 || command -v python$$V); \
+	@ for V in python3.8 python3.9 pypy3.9 python3.10 pypy3.10 python3.11 python3.12 python3.13; do \
+	    P=$$(command -v $$V); \
 	    if ! [ -z $$P ]; then \
 	      $$P --version; \
 	      $$P -O -m pip uninstall -y slipcover; \
