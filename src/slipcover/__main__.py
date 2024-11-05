@@ -130,6 +130,11 @@ def main():
     ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
     ap.add_argument('--json', action='store_true', help="select JSON output")
     ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
+    ap.add_argument('--xml', action='store_true', help="select XML output")
+    ap.add_argument('--xml-package-depth', type=int, default=99, help=(
+        "Controls which directories are identified as packages in the report. "
+        "Directories deeper than this depth are not reported as packages. "
+        "The default is that all directories are reported as packages."))
     ap.add_argument('--out', type=Path, help="specify output file name")
     ap.add_argument('--source', help="specify directories to cover")
     ap.add_argument('--omit', help="specify file(s) to omit")
@@ -205,6 +210,9 @@ def main():
         def printit(coverage, outfile):
             if args.json:
                 print(json.dumps(coverage, indent=(4 if args.pretty_print else None)), file=outfile)
+            elif args.xml:
+                sc.print_xml(coverage, source_paths=[str(base_path)], with_branches=args.branch,
+                             xml_package_depth=args.xml_package_depth, outfile=outfile)
             else:
                 sc.print_coverage(coverage, outfile=outfile, skip_covered=args.skip_covered,
                                   missing_width=args.missing_width)

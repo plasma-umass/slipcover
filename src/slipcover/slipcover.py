@@ -1,18 +1,21 @@
 from __future__ import annotations
-import sys
+
 import dis
-import types
-from typing import Dict, Set, List, Tuple, Optional, Iterator, cast
-from collections import defaultdict, Counter
+import sys
 import threading
+import types
+from collections import Counter, defaultdict
+from typing import TYPE_CHECKING
 
 if sys.version_info < (3,12):
-    from . import probe # type: ignore[attr-defined]
     from . import bytecode as bc
+    from . import probe  # type: ignore[attr-defined]
 
 from pathlib import Path
+
 from . import branch as br
 from .version import __version__
+from .xmlreport import XmlReporter
 
 # FIXME provide __all__
 
@@ -38,6 +41,10 @@ if sys.version_info >= (3,11):
 else:
     findlinestarts = dis.findlinestarts
 
+if TYPE_CHECKING:
+    from typing import Dict, Iterable, Iterator, List, Optional, Tuple
+
+    from .schemas import Coverage
 
 class SlipcoverError(Exception):
     pass
@@ -91,6 +98,21 @@ def format_missing(missing_lines: List[int], executed_lines: List[int],
             yield format_branch(missing_branches.pop(0))
 
     return ", ".join(find_ranges())
+
+def print_xml(
+    coverage: Coverage,
+    source_paths: Iterable[str],
+    *,
+    with_branches: bool = False,
+    xml_package_depth: int = 99,
+    outfile=sys.stdout
+) -> None:
+    XmlReporter(
+        coverage=coverage,
+        source=source_paths,
+        with_branches=with_branches,
+        xml_package_depth=xml_package_depth,
+    ).report(outfile=outfile)
 
 
 def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_covered=False) -> None:
