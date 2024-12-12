@@ -34,8 +34,10 @@ if sys.version_info >= (3,11):
     _op_RETURN_GENERATOR = dis.opmap["RETURN_GENERATOR"]
 
     def findlinestarts(co: types.CodeType):
-        for off, line in dis.findlinestarts(co):
-            if line and co.co_code[off] not in (_op_RESUME, _op_RETURN_GENERATOR):
+        last_line = None
+        for off, _, line in co.co_lines():
+            if line and line != last_line and co.co_code[off] not in (_op_RESUME, _op_RETURN_GENERATOR):
+                last_line = line
                 yield off, line
 
 else:
