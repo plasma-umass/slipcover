@@ -91,6 +91,35 @@ def test_generators():
     assert [] == cov['missing_lines']
 
 
+def test_oneline_lambda():
+    sci = sc.Slipcover()
+
+    base_line = current_line()
+    def foo(n):
+        n = (
+            lambda: n
+        )()
+
+        unused = \
+            lambda: 24
+        return n
+
+    X = foo(42)
+
+    sci.instrument(foo)
+    dis.dis(foo)
+
+    assert X == foo(42)
+
+    cov = sci.get_coverage()
+    assert {simple_current_file()} == cov['files'].keys()
+
+    cov = cov['files'][simple_current_file()]
+    assert [2, 3, 6, 8] == [l-base_line for l in cov['executed_lines']]
+    assert [7] == cov['missing_lines']
+
+
+
 def test_exception():
     sci = sc.Slipcover()
 
