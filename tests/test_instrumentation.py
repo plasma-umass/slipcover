@@ -626,12 +626,13 @@ def test_no_deinstrument_seen_negative_threshold():
     assert old_code == foo.__code__, "Code de-instrumented"
 
 
+def func_names(funcs):
+    # pytest-asyncio > 0.21.1 adds __pytest_asyncio_... event loop functions
+    return sorted([f.__name__ for f in funcs if f.__name__ != 'scoped_event_loop'])
+
+
 def test_find_functions():
     import class_test as t
-
-    def func_names(funcs):
-        # pytest-asyncio > 0.21.1 adds __pytest_asyncio_... event loop functions
-        return sorted([f.__name__ for f in funcs if f.__name__ != 'scoped_event_loop'])
 
     assert ["b", "b_classm", "b_static", "f1", "f2", "f3", "f4", "f5", "f7",
             "f_classm", "f_static"] == \
@@ -655,3 +656,17 @@ def test_find_functions():
                                                   visited))
 
 
+def test_find_functions_class_side_effect():
+    # Celery overrides __class__ in ways that cause side effects -- see issue 55
+    class A:
+        @property
+        def __class__(self):
+            raise RuntimeError("We don't want this called")
+
+    class B:
+        foo = A()
+
+        def bar(self):
+            pass
+
+    assert ["bar"] == func_names(sc.Slipcover.find_functions(B.__dict__.values(), set()))

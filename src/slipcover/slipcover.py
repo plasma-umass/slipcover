@@ -622,12 +622,13 @@ class Slipcover:
 
     @staticmethod
     def find_functions(items, visited : set):
-        import inspect
+        # Don't use isinstance() or inspect.isfunction, as isinstance as may call __class__,
+        # which may have side effects (e.g., using Celery https://github.com/celery/celery).
         def is_patchable_function(func):
             # PyPy has no "builtin functions" like CPython. instead, it uses
             # regular functions, with a special type of code object.
             # the second condition is always True on CPython
-            return inspect.isfunction(func) and type(func.__code__) is types.CodeType
+            return issubclass(type(func), types.FunctionType) and type(func.__code__) is types.CodeType
 
         def find_funcs(root):
             if is_patchable_function(root):
@@ -637,7 +638,7 @@ class Slipcover:
 
             # Prefer isinstance(x,type) over isclass(x) because many many
             # things, such as str(), are classes
-            elif isinstance(root, type):
+            elif issubclass(type(root), type):
                 if root not in visited:
                     visited.add(root)
 
@@ -653,7 +654,7 @@ class Slipcover:
                                 yield from find_funcs(base.__dict__[obj_key])
                                 break
 
-            elif (isinstance(root, classmethod) or isinstance(root, staticmethod)) and \
+            elif (issubclass(type(root), classmethod) or issubclass(type(root), staticmethod)) and \
                  is_patchable_function(root.__func__):
                 if root.__func__ not in visited:
                     visited.add(root.__func__)
