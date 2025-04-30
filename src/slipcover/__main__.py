@@ -87,7 +87,7 @@ def exit_shim(sci):
     return wrapper
 
 
-def merge_files(args):
+def merge_files(args, base_path):
     """Merges coverage files."""
 
     try:
@@ -107,10 +107,24 @@ def merge_files(args):
 
     try:
         with args.out.open("w", encoding='utf-8') as jf:
-            json.dump(merged, jf)
+            if args.xml:
+                sc.print_xml(merged, source_paths=[str(base_path)], with_branches=args.branch,
+                             xml_package_depth=args.xml_package_depth, outfile=jf)
+            else:
+                json.dump(merged, jf, indent=(4 if args.pretty_print else None))
+
+        # print human-readable table for merge results
+        if not args.silent:
+            sc.print_coverage(merged, outfile=sys.stdout, skip_covered=args.skip_covered,
+                              missing_width=args.missing_width)
+
     except Exception as e:
         warnings.warn(str(e))
         return 1
+
+    if args.fail_under:
+        if merged['summary']['percent_covered'] < args.fail_under:
+            return 2
 
     return 0
 
@@ -168,13 +182,13 @@ def main():
         args = ap.parse_args(sys.argv[1:])
 
 
-    if args.merge:
-        if not args.out: ap.error("--out is required with --merge")
-        return merge_files(args)
-
-
     base_path = Path(args.script).resolve().parent if args.script \
                 else Path('.').resolve()
+
+
+    if args.merge:
+        if not args.out: ap.error("--out is required with --merge")
+        return merge_files(args, base_path=base_path)
 
 
     file_matcher = sc.FileMatcher()
