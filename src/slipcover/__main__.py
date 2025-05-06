@@ -243,8 +243,14 @@ def main():
 
     atexit.register(sci_atexit)
 
-    if args.sigterm:
-        signal.signal(signal.SIGTERM, lambda *_: sci_atexit())
+    # Windows doesn't have a SIGTERM signal.
+    if args.sigterm and platform.system() != 'Windows':
+        def sci_sigterm_atexit(signum, frame):
+            sci_atexit()
+            # we have to exit here, otherwise the process won't stop.
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, sci_sigterm_atexit)
 
     if args.script:
         # python 'globals' for the script being executed
