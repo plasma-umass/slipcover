@@ -8,6 +8,7 @@ import atexit
 import platform
 import functools
 import os
+import signal
 import tempfile
 import json
 import warnings
@@ -159,6 +160,7 @@ def main():
     ap.add_argument('--threshold', type=int, default=50, metavar="T",
                     help="threshold for de-instrumentation (if not immediate)")
     ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
+    ap.add_argument('--sigterm', action='store_true', help="if true, register a SIGTERM signal handler to capture data when the process ends due to a SIGTERM signal.")
 
     # intended for slipcover development only
     ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
@@ -240,6 +242,9 @@ def main():
                 printit(coverage, sys.stdout)
 
     atexit.register(sci_atexit)
+
+    if args.sigterm:
+        signal.signal(signal.SIGTERM, lambda *_: sci_atexit())
 
     if args.script:
         # python 'globals' for the script being executed
