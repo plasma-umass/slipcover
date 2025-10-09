@@ -203,6 +203,7 @@ def add_summaries(cov: dict) -> None:
             g_den += den
 
     g_summary['percent_covered'] = 100.0 if g_den == 0 else 100*g_nom/g_den
+    g_summary['percent_covered_display'] = str(int(round(g_summary['percent_covered'], 0)))
     cov['summary'] = g_summary
 
 
