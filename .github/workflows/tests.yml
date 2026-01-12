@@ -17,6 +17,7 @@ jobs:
   run-tests:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
         python: [ '3.8', '3.9', 'pypy-3.9', '3.10', 'pypy-3.10', '3.11', '3.12', '3.13', '3.14' ]
@@ -78,7 +79,7 @@ jobs:
     container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_tag: ['cp311', 'pp310']
+        python_tag: ['cp311']  # PyPy not available in manylinux container; tested via run-tests job
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux_2_28_x86_64 # https://github.com/pypa/manylinux
