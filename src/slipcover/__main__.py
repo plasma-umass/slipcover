@@ -11,6 +11,7 @@ import os
 import tempfile
 import json
 import warnings
+import shutil
 
 # Used for fork() support
 input_tmpfiles = []
@@ -43,10 +44,12 @@ def fork_shim(sci):
 
 
 def get_coverage(sci):
-    """Combines this process' coverage with that of any previously forked children."""
+    """Combines this process' coverage with that of any previously forked children and xdist workers."""
     global input_tmpfiles, output_tmpfile
 
     cov = sci.get_coverage()
+
+    # Merge coverage from forked children (pytest-forked)
     if input_tmpfiles:
         for f in input_tmpfiles:
             try:
@@ -64,6 +67,24 @@ def get_coverage(sci):
                     os.remove(fname)
                 except FileNotFoundError:
                     pass
+
+    # Merge coverage from xdist workers (pytest-xdist)
+    coverage_dir = os.environ.get("SLIPCOVER_COVERAGE_DIR")
+    if coverage_dir:
+        coverage_dir = Path(coverage_dir)
+        merged_file = coverage_dir / "merged.json"
+        if merged_file.exists():
+            try:
+                with open(merged_file) as f:
+                    xdist_cov = json.load(f)
+                sc.merge_coverage(cov, xdist_cov)
+            except Exception as e:
+                warnings.warn(f"Error reading xdist coverage: {e}")
+        # Clean up the xdist coverage directory
+        try:
+            shutil.rmtree(coverage_dir)
+        except Exception:
+            pass
 
     return cov
 
@@ -213,6 +234,16 @@ def main():
     if not args.dont_wrap_pytest:
         sc.wrap_pytest(sci, file_matcher)
 
+    # Set environment variables for pytest-xdist workers to pick up
+    if args.module and args.module[0] == 'pytest':
+        os.environ["SLIPCOVER_ENABLED"] = "1"
+        if args.branch:
+            os.environ["SLIPCOVER_BRANCH"] = "1"
+        if args.source:
+            source_str = ",".join(args.source) if isinstance(args.source, list) else args.source
+            os.environ["SLIPCOVER_SOURCE"] = source_str
+        if args.omit:
+            os.environ["SLIPCOVER_OMIT"] = args.omit
 
     if platform.system() != 'Windows':
         os.fork = fork_shim(sci)

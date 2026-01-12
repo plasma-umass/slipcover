@@ -28,6 +28,9 @@ dependencies = [
 [project.scripts]
 slipcover = "slipcover.__main__:main"
 
+[project.entry-points.pytest11]
+slipcover = "slipcover.pytest_plugin"
+
 [project.urls]
 "Homepage" = "https://github.com/plasma-umass/slipcover"
 "Repository" = "https://github.com/plasma-umass/slipcover"
@@ -48,6 +51,7 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 test = [
     'pytest',
-    'pytest-forked'
+    'pytest-forked',
+    'pytest-xdist'
 ]
 
