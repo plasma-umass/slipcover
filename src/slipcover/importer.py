@@ -70,6 +70,8 @@ class FileMatcher:
             Path(sysconfig.get_path("stdlib")).resolve(),
             Path(sysconfig.get_path("purelib")).resolve(),
         )
+        # Don't instrument slipcover's own modules
+        self._slipcover_path = Path(__file__).resolve().parent
 
     def addSource(self, source : Path):
         if isinstance(source, str):
@@ -93,6 +95,10 @@ class FileMatcher:
         if filename.suffix in ('.pyd', '.so'): return False  # can't instrument DLLs
 
         filename = filename.resolve()
+
+        # Never instrument slipcover's own modules
+        if filename.is_relative_to(self._slipcover_path):
+            return False
 
         if self.omit:
             from fnmatch import fnmatch
@@ -141,6 +147,12 @@ class SlipcoverMetaPathFinder(MetaPathFinder):
             # can't instrument extension files
             if isinstance(spec.loader, machinery.ExtensionFileLoader):
                 return None
+
+            # skip pytest's assertion rewriting hook - wrap_pytest handles those
+            # AssertionRewritingHook doesn't have get_code() method
+            loader_type = type(spec.loader).__name__
+            if loader_type == 'AssertionRewritingHook':
+                return spec
 
             if spec.origin and self.file_matcher.matches(spec.origin):
                 if self.debug:
