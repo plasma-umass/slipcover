@@ -62,12 +62,25 @@ def _get_annotation_only_lines(co: types.CodeType) -> frozenset:
 
     # Collect opcodes per line
     ops_by_line: dict = {}
+    current_line = None
     for instr in dis.get_instructions(co):
-        if instr.positions and instr.positions.lineno:
-            line = instr.positions.lineno
-            if line not in ops_by_line:
-                ops_by_line[line] = set()
-            ops_by_line[line].add(instr.opname)
+        # Python 3.11+ has instr.positions.lineno for every instruction
+        # Python < 3.11 has instr.starts_line only for first instruction on each line
+        if sys.version_info >= (3, 11):
+            if instr.positions and instr.positions.lineno:
+                line = instr.positions.lineno
+            else:
+                continue
+        else:
+            if instr.starts_line is not None:
+                current_line = instr.starts_line
+            line = current_line
+            if line is None:
+                continue
+
+        if line not in ops_by_line:
+            ops_by_line[line] = set()
+        ops_by_line[line].add(instr.opname)
 
     # Find lines where ALL ops are annotation-only ops
     annotation_lines = set()
