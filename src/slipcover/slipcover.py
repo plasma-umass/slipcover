@@ -41,6 +41,42 @@ if sys.version_info >= (3,11):
 else:
     findlinestarts = dis.findlinestarts
 
+
+# Opcodes used only for loading type annotations (for function parameter/return annotations)
+# Lines that ONLY contain these ops are annotation-only lines and should be excluded from coverage
+_ANNOTATION_ONLY_OPS = frozenset({'LOAD_NAME', 'LOAD_GLOBAL', 'LOAD_ATTR', 'BINARY_SUBSCR'})
+
+
+def _get_annotation_only_lines(co: types.CodeType) -> frozenset:
+    """Find lines that only contain annotation-loading bytecode.
+
+    In Python < 3.14, function annotations are evaluated eagerly and their bytecode
+    appears in the module code. Lines that ONLY load types (e.g., continuation lines
+    of multi-line function signatures) should be excluded from coverage since they're
+    just metadata, not actual program logic.
+
+    In Python 3.14+, annotations are deferred (PEP 649), so this returns empty.
+    """
+    if sys.version_info >= (3, 14):
+        return frozenset()
+
+    # Collect opcodes per line
+    ops_by_line: dict = {}
+    for instr in dis.get_instructions(co):
+        if instr.positions and instr.positions.lineno:
+            line = instr.positions.lineno
+            if line not in ops_by_line:
+                ops_by_line[line] = set()
+            ops_by_line[line].add(instr.opname)
+
+    # Find lines where ALL ops are annotation-only ops
+    annotation_lines = set()
+    for line, ops in ops_by_line.items():
+        if ops and ops.issubset(_ANNOTATION_ONLY_OPS):
+            annotation_lines.add(line)
+
+    return frozenset(annotation_lines)
+
 if TYPE_CHECKING:
     from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
@@ -317,15 +353,25 @@ class Slipcover:
         def lines_from_code(co: types.CodeType) -> Iterator[int]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+) - they're only
+                    # called when annotations are explicitly accessed, not during normal execution
+                    if c.co_name == '__annotate__':
+                        continue
                     yield from Slipcover.lines_from_code(c)
 
-            yield from (line for _, line in findlinestarts(co) if not br.is_branch(line))
+            # Exclude annotation-only lines (Python < 3.14 evaluates annotations eagerly)
+            annotation_only = _get_annotation_only_lines(co)
+            yield from (line for _, line in findlinestarts(co)
+                        if not br.is_branch(line) and line not in annotation_only)
 
 
         @staticmethod
         def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+)
+                    if c.co_name == '__annotate__':
+                        continue
                     yield from Slipcover.branches_from_code(c)
 
             yield from (br.decode_branch(line) for _, line in findlinestarts(co) if br.is_branch(line))
@@ -338,7 +384,9 @@ class Slipcover:
                     yield from Slipcover.lines_from_code(c)
 
             # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
-            yield from (line for _, line in findlinestarts(co))
+            # Exclude annotation-only lines (Python < 3.14 evaluates annotations eagerly)
+            annotation_only = _get_annotation_only_lines(co)
+            yield from (line for _, line in findlinestarts(co) if line not in annotation_only)
 
 
         @staticmethod
@@ -370,6 +418,9 @@ class Slipcover:
             # handle functions-within-functions
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+)
+                    if c.co_name == '__annotate__':
+                        continue
                     self.instrument(c, co)
 
             if not parent:
@@ -591,7 +642,8 @@ class Slipcover:
             for f, f_code_lines in self.code_lines.items():
                 if f in self.all_seen:
                     branches_seen = {x for x in self.all_seen[f] if isinstance(x, tuple)}
-                    lines_seen = self.all_seen[f] - branches_seen
+                    # Only count lines that are in code_lines (excludes annotation-only lines)
+                    lines_seen = (self.all_seen[f] - branches_seen) & f_code_lines
                 else:
                     lines_seen = branches_seen = set()
 
