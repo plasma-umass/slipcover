@@ -694,14 +694,14 @@ def test_summary_in_output_zero_lines(do_branch):
 
 
 @pytest.mark.parametrize("json_flag", ["", "--json"])
-def test_fail_under(json_flag):
+def test_fail_under(tmp_path, json_flag):
     p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --fail-under 100 tests/branch.py".split(), check=False)
     assert 0 == p.returncode
 
-    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 83 tests/branch.py".split(), check=False)
+    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 85 tests/branch.py".split(), check=False)
     assert 0 == p.returncode
 
-    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 84 tests/branch.py".split(), check=False)
+    p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 86 tests/branch.py".split(), check=False)
     assert 2 == p.returncode
 
     p = subprocess.run(f"{sys.executable} -m slipcover --branch --fail-under 93 -m pytest tests/pyt.py".split(), check=False)

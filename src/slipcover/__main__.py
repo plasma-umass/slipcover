@@ -299,8 +299,10 @@ def main():
             code = sci.instrument(code)
 
         with sc.ImportManager(sci, file_matcher):
-            exec(code, script_globals)
-
+            try:
+                exec(code, script_globals)
+            except SystemExit as e:
+                return_code = e.code if e.code is not None else 0
     else:
         import runpy
         sys.argv = [*args.module, *args.script_or_module_args]
