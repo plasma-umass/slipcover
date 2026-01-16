@@ -704,6 +704,12 @@ def test_fail_under(json_flag):
     p = subprocess.run(f"{sys.executable} -m slipcover {json_flag} --branch --fail-under 84 tests/branch.py".split(), check=False)
     assert 2 == p.returncode
 
+    p = subprocess.run(f"{sys.executable} -m slipcover --branch --fail-under 93 -m pytest tests/pyt.py".split(), check=False)
+    assert 0 == p.returncode
+
+    p = subprocess.run(f"{sys.executable} -m slipcover --branch --fail-under 94 -m pytest tests/pyt.py".split(), check=False)
+    assert 2 == p.returncode
+
 
 def test_reports_on_other_sources(tmp_path):
     out_file = tmp_path / "out.json"
