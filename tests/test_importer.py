@@ -290,3 +290,205 @@ assert isinstance(sys.argv[0], str)
 """)
 
     subprocess.run([sys.executable, "-m", "slipcover", "--silent", cmdfile], check=True)
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError')
+def test_wrap_alembic(tmp_path, monkeypatch):
+    """Test that Alembic migrations are covered when using wrap_alembic."""
+    import json
+
+    # Create a minimal alembic setup
+    migrations_dir = tmp_path / "migrations"
+    versions_dir = migrations_dir / "versions"
+    versions_dir.mkdir(parents=True)
+
+    # Create alembic.ini
+    alembic_ini = tmp_path / "alembic.ini"
+    alembic_ini.write_text(f"""
+[alembic]
+script_location = {migrations_dir}
+sqlalchemy.url = sqlite:///:memory:
+""")
+
+    # Create env.py
+    env_py = migrations_dir / "env.py"
+    env_py.write_text("""
+from alembic import context
+
+def run_migrations_offline():
+    context.configure(url="sqlite:///:memory:", literal_binds=True)
+    with context.begin_transaction():
+        context.run_migrations()
+
+def run_migrations_online():
+    from sqlalchemy import create_engine
+    connectable = create_engine("sqlite:///:memory:")
+    with connectable.connect() as connection:
+        context.configure(connection=connection)
+        with context.begin_transaction():
+            context.run_migrations()
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+""")
+
+    # Create script.py.mako (required by alembic)
+    script_mako = migrations_dir / "script.py.mako"
+    script_mako.write_text("")
+
+    # Create a migration file
+    migration_file = versions_dir / "001_test_migration.py"
+    migration_file.write_text('''
+"""test migration"""
+revision = '001'
+down_revision = None
+
+def upgrade():
+    x = 1  # line 8
+    y = 2  # line 9
+
+def downgrade():
+    pass  # line 12
+''')
+
+    # Create a script that runs the alembic migration
+    script = tmp_path / "run_migration.py"
+    script.write_text(f"""
+import sys
+sys.path.insert(0, '{tmp_path}')
+from alembic.config import Config
+from alembic import command
+
+alembic_cfg = Config('{alembic_ini}')
+command.upgrade(alembic_cfg, 'head')
+""")
+
+    monkeypatch.chdir(tmp_path)
+
+    out = tmp_path / "coverage.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "slipcover", "--json", "--out", str(out),
+         "--source", str(versions_dir), str(script)],
+        capture_output=True,
+        text=True
+    )
+
+    # The script should complete (may have warnings, but not crash)
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+
+    # Check that the migration file was covered
+    # The path might be stored as relative or absolute depending on the working directory
+    migration_files = [k for k in cov['files'].keys() if '001_test_migration.py' in k]
+    assert migration_files, f"Migration file not in coverage: {list(cov['files'].keys())}"
+
+    # Check that lines in the upgrade function were executed
+    file_cov = cov['files'][migration_files[0]]
+    executed_lines = file_cov['executed_lines']
+    # Lines 7 and 8 are inside upgrade() function (x=1, y=2)
+    assert 7 in executed_lines or 8 in executed_lines, f"upgrade() lines not executed, executed: {executed_lines}"
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError')
+def test_wrap_alembic_with_branch(tmp_path, monkeypatch):
+    """Test that Alembic migrations are covered with branch coverage enabled."""
+    import json
+
+    # Create a minimal alembic setup
+    migrations_dir = tmp_path / "migrations"
+    versions_dir = migrations_dir / "versions"
+    versions_dir.mkdir(parents=True)
+
+    # Create alembic.ini
+    alembic_ini = tmp_path / "alembic.ini"
+    alembic_ini.write_text(f"""
+[alembic]
+script_location = {migrations_dir}
+sqlalchemy.url = sqlite:///:memory:
+""")
+
+    # Create env.py
+    env_py = migrations_dir / "env.py"
+    env_py.write_text("""
+from alembic import context
+
+def run_migrations_offline():
+    context.configure(url="sqlite:///:memory:", literal_binds=True)
+    with context.begin_transaction():
+        context.run_migrations()
+
+def run_migrations_online():
+    from sqlalchemy import create_engine
+    connectable = create_engine("sqlite:///:memory:")
+    with connectable.connect() as connection:
+        context.configure(connection=connection)
+        with context.begin_transaction():
+            context.run_migrations()
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+""")
+
+    # Create script.py.mako (required by alembic)
+    script_mako = migrations_dir / "script.py.mako"
+    script_mako.write_text("")
+
+    # Create a migration file with a branch
+    migration_file = versions_dir / "001_test_migration.py"
+    migration_file.write_text('''
+"""test migration"""
+revision = '001'
+down_revision = None
+
+def upgrade():
+    x = 1
+    if x > 0:  # branch
+        y = 2
+    else:
+        y = 3
+
+def downgrade():
+    pass
+''')
+
+    # Create a script that runs the alembic migration
+    script = tmp_path / "run_migration.py"
+    script.write_text(f"""
+import sys
+sys.path.insert(0, '{tmp_path}')
+from alembic.config import Config
+from alembic import command
+
+alembic_cfg = Config('{alembic_ini}')
+command.upgrade(alembic_cfg, 'head')
+""")
+
+    monkeypatch.chdir(tmp_path)
+
+    out = tmp_path / "coverage.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "slipcover", "--branch", "--json", "--out", str(out),
+         "--source", str(versions_dir), str(script)],
+        capture_output=True,
+        text=True
+    )
+
+    # The script should complete (may have warnings, but not crash)
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+
+    # Check that the migration file was covered
+    migration_files = [k for k in cov['files'].keys() if '001_test_migration.py' in k]
+    assert migration_files, f"Migration file not in coverage: {list(cov['files'].keys())}"
+
+    # Check that branch info is present
+    file_cov = cov['files'][migration_files[0]]
+    assert 'executed_branches' in file_cov, "Branch coverage not recorded"

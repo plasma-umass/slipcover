@@ -279,3 +279,45 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
         pyrewrite._read_pyc = read_pyc
         pyrewrite._write_pyc = write_pyc
         pyrewrite.rewrite_asserts = rewrite_asserts_wrapper
+
+
+def wrap_alembic(sci: Slipcover, file_matcher: FileMatcher):
+    """Wraps Alembic's module loading to instrument migration files."""
+    try:
+        import alembic.util.pyfiles as pyfiles
+    except ModuleNotFoundError:
+        return
+
+    import importlib.util
+    import ast
+    from importlib import machinery
+
+    orig_load_module_py = pyfiles.load_module_py
+
+    def load_module_py_wrapper(module_id, path):
+        path = Path(path)
+        if not file_matcher.matches(path):
+            return orig_load_module_py(module_id, path)
+
+        # Load and instrument the module
+        spec = importlib.util.spec_from_file_location(module_id, path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+
+        # Get the code object - handle branch pre-instrumentation if needed
+        if sci.branch and isinstance(spec.loader, machinery.SourceFileLoader) and path.exists():
+            t = br.preinstrument(ast.parse(path.read_bytes()))
+            code = compile(t, str(path), "exec")
+        else:
+            code = spec.loader.get_code(module_id)  # type: ignore[attr-defined]
+
+        if code is not None:
+            code = sci.instrument(code)
+            exec(code, module.__dict__)
+        else:
+            # Fallback to original if we can't get the code
+            spec.loader.exec_module(module)  # type: ignore[union-attr]
+
+        return module
+
+    pyfiles.load_module_py = load_module_py_wrapper
