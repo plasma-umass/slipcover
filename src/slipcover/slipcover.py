@@ -1,23 +1,26 @@
 from __future__ import annotations
-import sys
-import dis
-import types
-from typing import Dict, Set, List, Tuple
-from collections import defaultdict, Counter
-import threading
 
-if sys.version_info[0:2] < (3,12):
-    from . import probe
+import dis
+import sys
+import threading
+import types
+from collections import Counter, defaultdict
+from typing import TYPE_CHECKING
+
+if sys.version_info < (3,12):
     from . import bytecode as bc
+    from . import probe  # type: ignore[attr-defined]
 
 from pathlib import Path
+
 from . import branch as br
 from .version import __version__
+from .xmlreport import XmlReporter
 
 # FIXME provide __all__
 
 # Counter.total() is new in 3.10
-if sys.version_info[0:2] < (3,10):
+if sys.version_info < (3,10):
     def counter_total(self: Counter) -> int:
         return sum([self[n] for n in self])
     setattr(Counter, 'total', counter_total)
@@ -26,7 +29,7 @@ if sys.version_info[0:2] < (3,10):
 # Python 3.13 returns 'None' lines;
 # Python 3.11+ generates a line just for RESUME or RETURN_GENERATOR, POP_TOP, RESUME;
 # Python 3.11 generates a 0th line
-if sys.version_info[0:2] >= (3,11):
+if sys.version_info >= (3,11):
     _op_RESUME = dis.opmap["RESUME"]
     _op_RETURN_GENERATOR = dis.opmap["RETURN_GENERATOR"]
 
@@ -38,6 +41,59 @@ if sys.version_info[0:2] >= (3,11):
 else:
     findlinestarts = dis.findlinestarts
 
+
+# Opcodes used only for loading type annotations (for function parameter/return annotations)
+# Lines that ONLY contain these ops are annotation-only lines and should be excluded from coverage
+_ANNOTATION_ONLY_OPS = frozenset({'LOAD_NAME', 'LOAD_GLOBAL', 'LOAD_ATTR', 'BINARY_SUBSCR'})
+
+
+def _get_annotation_only_lines(co: types.CodeType) -> frozenset:
+    """Find lines that only contain annotation-loading bytecode.
+
+    In Python < 3.14, function annotations are evaluated eagerly and their bytecode
+    appears in the module code. Lines that ONLY load types (e.g., continuation lines
+    of multi-line function signatures) should be excluded from coverage since they're
+    just metadata, not actual program logic.
+
+    In Python 3.14+, annotations are deferred (PEP 649), so this returns empty.
+    """
+    if sys.version_info >= (3, 14):
+        return frozenset()
+
+    # Collect opcodes per line
+    ops_by_line: dict = {}
+    current_line = None
+    for instr in dis.get_instructions(co):
+        # Python 3.11+ has instr.positions.lineno for every instruction
+        # Python < 3.11 has instr.starts_line only for first instruction on each line
+        if sys.version_info >= (3, 11):
+            if instr.positions and instr.positions.lineno:
+                line = instr.positions.lineno
+            else:
+                continue
+        else:
+            if instr.starts_line is not None:
+                current_line = instr.starts_line
+            line = current_line
+            if line is None:
+                continue
+
+        if line not in ops_by_line:
+            ops_by_line[line] = set()
+        ops_by_line[line].add(instr.opname)
+
+    # Find lines where ALL ops are annotation-only ops
+    annotation_lines = set()
+    for line, ops in ops_by_line.items():
+        if ops and ops.issubset(_ANNOTATION_ONLY_OPS):
+            annotation_lines.add(line)
+
+    return frozenset(annotation_lines)
+
+if TYPE_CHECKING:
+    from typing import Dict, Iterable, Iterator, List, Optional, Tuple
+
+    from .schemas import Coverage
 
 class SlipcoverError(Exception):
     pass
@@ -56,7 +112,7 @@ class PathSimplifier:
 
 
 def format_missing(missing_lines: List[int], executed_lines: List[int],
-                   missing_branches: List[tuple]) -> List[str]:
+                   missing_branches: List[tuple]) -> str:
     """Formats ranges of missing lines, including non-code (e.g., comments) ones that fall
        between missed ones"""
 
@@ -91,6 +147,21 @@ def format_missing(missing_lines: List[int], executed_lines: List[int],
             yield format_branch(missing_branches.pop(0))
 
     return ", ".join(find_ranges())
+
+def print_xml(
+    coverage: Coverage,
+    source_paths: Iterable[str],
+    *,
+    with_branches: bool = False,
+    xml_package_depth: int = 99,
+    outfile=sys.stdout
+) -> None:
+    XmlReporter(
+        coverage=coverage,
+        source=source_paths,
+        with_branches=with_branches,
+        xml_package_depth=xml_package_depth,
+    ).report(outfile=outfile)
 
 
 def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_covered=False) -> None:
@@ -150,12 +221,12 @@ def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_cov
 def add_summaries(cov: dict) -> None:
     """Adds (or updates) 'summary' entries in coverage information."""
     # global summary
-    g_summary = defaultdict(int)
+    g_summary : dict = defaultdict(int)
     g_nom = g_den = 0
 
     if 'files' in cov:
         for f_cov in cov['files'].values():
-            summary = { # per-file summary
+            summary : dict = { # per-file summary
                 'covered_lines': len(f_cov['executed_lines']),
                 'missing_lines': len(f_cov['missing_lines']),
             }
@@ -181,6 +252,7 @@ def add_summaries(cov: dict) -> None:
             g_den += den
 
     g_summary['percent_covered'] = 100.0 if g_den == 0 else 100*g_nom/g_den
+    g_summary['percent_covered_display'] = str(int(round(g_summary['percent_covered'], 0)))
     cov['summary'] = g_summary
 
 
@@ -231,7 +303,7 @@ def merge_coverage(a: dict, b: dict) -> dict:
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
-                 disassemble: bool = False, source: List[str] = None):
+                 disassemble: bool = False, source: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
@@ -251,7 +323,7 @@ class Slipcover:
         # notes lines/branches seen since last de-instrumentation
         self._get_newly_seen()
 
-        if sys.version_info[0:2] >= (3,12):
+        if sys.version_info >= (3,12):
             def handle_line(code, line):
                 if br.is_branch(line):
                     self.newly_seen[code.co_filename].add(br.decode_branch(line))
@@ -272,7 +344,7 @@ class Slipcover:
             # provides an index (line_or_branch -> offset) for each code object
             self.code2index: Dict[types.CodeType, list] = dict()
 
-        self.modules = []
+        self.modules : list = []
 
     def _get_newly_seen(self):
         """Returns the current set of ``new'' lines, leaving a new container in place."""
@@ -289,20 +361,30 @@ class Slipcover:
         return newly_seen
 
 
-    if sys.version_info[0:2] >= (3,12):
+    if sys.version_info >= (3,12):
         @staticmethod
         def lines_from_code(co: types.CodeType) -> Iterator[int]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+) - they're only
+                    # called when annotations are explicitly accessed, not during normal execution
+                    if c.co_name == '__annotate__':
+                        continue
                     yield from Slipcover.lines_from_code(c)
 
-            yield from (line for _, line in findlinestarts(co) if not br.is_branch(line))
+            # Exclude annotation-only lines (Python < 3.14 evaluates annotations eagerly)
+            annotation_only = _get_annotation_only_lines(co)
+            yield from (line for _, line in findlinestarts(co)
+                        if not br.is_branch(line) and line not in annotation_only)
 
 
         @staticmethod
         def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+)
+                    if c.co_name == '__annotate__':
+                        continue
                     yield from Slipcover.branches_from_code(c)
 
             yield from (br.decode_branch(line) for _, line in findlinestarts(co) if br.is_branch(line))
@@ -315,7 +397,9 @@ class Slipcover:
                     yield from Slipcover.lines_from_code(c)
 
             # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
-            yield from (line for _, line in findlinestarts(co))
+            # Exclude annotation-only lines (Python < 3.14 evaluates annotations eagerly)
+            annotation_only = _get_annotation_only_lines(co)
+            yield from (line for _, line in findlinestarts(co) if line not in annotation_only)
 
 
         @staticmethod
@@ -329,8 +413,8 @@ class Slipcover:
                 yield co.co_consts[br_index]
 
 
-    if sys.version_info[0:2] >= (3,12):
-        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+    if sys.version_info >= (3,12):
+        def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
             If invoked on a function, instruments its code.
@@ -347,6 +431,9 @@ class Slipcover:
             # handle functions-within-functions
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+)
+                    if c.co_name == '__annotate__':
+                        continue
                     self.instrument(c, co)
 
             if not parent:
@@ -357,7 +444,7 @@ class Slipcover:
             return co
 
     else:
-        def instrument(self, co: types.CodeType, parent: types.CodeType = 0) -> types.CodeType:
+        def instrument(self, co: types.CodeType, parent: Optional[types.CodeType] = None) -> types.CodeType:
             """Instruments a code object for coverage detection.
 
             If invoked on a function, instruments its code.
@@ -450,60 +537,61 @@ class Slipcover:
             return new_code
 
 
-    def deinstrument(self, co, lines: set) -> types.CodeType:
-        """De-instruments a code object previously instrumented for coverage detection.
+    if sys.version_info < (3,12):
+        def deinstrument(self, co, lines: set) -> types.CodeType:
+            """De-instruments a code object previously instrumented for coverage detection.
 
-        If invoked on a function, de-instruments its code.
-        """
+            If invoked on a function, de-instruments its code.
+            """
 
-        assert not self.immediate
+            assert not self.immediate
 
-        if isinstance(co, types.FunctionType):
-            co.__code__ = self.deinstrument(co.__code__, lines)
-            return co.__code__
+            if isinstance(co, types.FunctionType):
+                co.__code__ = self.deinstrument(co.__code__, lines)
+                return co.__code__
 
-        assert isinstance(co, types.CodeType)
-        # print(f"de-instrumenting {co.co_name}")
+            assert isinstance(co, types.CodeType)
+            # print(f"de-instrumenting {co.co_name}")
 
-        ed = bc.Editor(co)
+            ed = bc.Editor(co)
 
-        co_consts = co.co_consts
-        for i, c in enumerate(co_consts):
-            if isinstance(c, types.CodeType):
-                nc = self.deinstrument(c, lines)
-                if nc is not c:
-                    ed.set_const(i, nc)
+            co_consts = co.co_consts
+            for i, c in enumerate(co_consts):
+                if isinstance(c, types.CodeType):
+                    nc = self.deinstrument(c, lines)
+                    if nc is not c:
+                        ed.set_const(i, nc)
 
-        index = self.code2index[co]
+            index = self.code2index[co]
 
-        for (offset, lineno) in index:
-            if lineno in lines and (func := ed.get_inserted_function(offset)):
-                func_index, func_arg_index, *_ = func
-                if co_consts[func_index] == probe.signal:
-                    probe.mark_removed(co_consts[func_arg_index])
-                    ed.disable_inserted_function(offset)
+            for (offset, lineno) in index:
+                if lineno in lines and (func := ed.get_inserted_function(offset)):
+                    func_index, func_arg_index, *_ = func
+                    if co_consts[func_index] == probe.signal:
+                        probe.mark_removed(co_consts[func_arg_index])
+                        ed.disable_inserted_function(offset)
 
-        new_code = ed.finish()
-        if new_code is co:
-            return co
+            new_code = ed.finish()
+            if new_code is co:
+                return co
 
-        # no offsets changed, so the old code's index is still usable
-        self.code2index[new_code] = index
+            # no offsets changed, so the old code's index is still usable
+            self.code2index[new_code] = index
 
-        with self.lock:
-            self.replace_map[co] = new_code
+            with self.lock:
+                self.replace_map[co] = new_code
 
-            if co in self.instrumented[co.co_filename]:
-                self.instrumented[co.co_filename].remove(co)
-                self.instrumented[co.co_filename].add(new_code)
+                if co in self.instrumented[co.co_filename]:
+                    self.instrumented[co.co_filename].remove(co)
+                    self.instrumented[co.co_filename].add(new_code)
 
-        return new_code
+            return new_code
 
 
-    def _add_unseen_source_files(self):
+    def _add_unseen_source_files(self, source: List[str]):
         import ast
 
-        dirs = [Path(d).resolve() for d in self.source]
+        dirs = [Path(d).resolve() for d in source]
 
         while dirs:
             p = dirs.pop()
@@ -559,7 +647,7 @@ class Slipcover:
                 self.all_seen[file].update(lines)
 
             if self.source:
-                self._add_unseen_source_files()
+                self._add_unseen_source_files(self.source)
 
             simp = PathSimplifier()
 
@@ -567,7 +655,8 @@ class Slipcover:
             for f, f_code_lines in self.code_lines.items():
                 if f in self.all_seen:
                     branches_seen = {x for x in self.all_seen[f] if isinstance(x, tuple)}
-                    lines_seen = self.all_seen[f] - branches_seen
+                    # Only count lines that are in code_lines (excludes annotation-only lines)
+                    lines_seen = (self.all_seen[f] - branches_seen) & f_code_lines
                 else:
                     lines_seen = branches_seen = set()
 
@@ -599,12 +688,13 @@ class Slipcover:
 
     @staticmethod
     def find_functions(items, visited : set):
-        import inspect
+        # Don't use isinstance() or inspect.isfunction, as isinstance as may call __class__,
+        # which may have side effects (e.g., using Celery https://github.com/celery/celery).
         def is_patchable_function(func):
             # PyPy has no "builtin functions" like CPython. instead, it uses
             # regular functions, with a special type of code object.
             # the second condition is always True on CPython
-            return inspect.isfunction(func) and type(func.__code__) is types.CodeType
+            return issubclass(type(func), types.FunctionType) and type(func.__code__) is types.CodeType
 
         def find_funcs(root):
             if is_patchable_function(root):
@@ -614,7 +704,7 @@ class Slipcover:
 
             # Prefer isinstance(x,type) over isclass(x) because many many
             # things, such as str(), are classes
-            elif isinstance(root, type):
+            elif issubclass(type(root), type):
                 if root not in visited:
                     visited.add(root)
 
@@ -630,7 +720,7 @@ class Slipcover:
                                 yield from find_funcs(base.__dict__[obj_key])
                                 break
 
-            elif (isinstance(root, classmethod) or isinstance(root, staticmethod)) and \
+            elif (issubclass(type(root), classmethod) or issubclass(type(root), staticmethod)) and \
                  is_patchable_function(root.__func__):
                 if root.__func__ not in visited:
                     visited.add(root.__func__)
@@ -644,41 +734,42 @@ class Slipcover:
         self.modules.append(m)
 
 
-    def deinstrument_seen(self) -> None:
-        with self.lock:
-            newly_seen = self._get_newly_seen()
+    if sys.version_info < (3,12):
+        def deinstrument_seen(self) -> None:
+            with self.lock:
+                newly_seen = self._get_newly_seen()
 
-            for file, new_set in newly_seen.items():
-                for co in self.instrumented[file]:
-                    self.deinstrument(co, new_set)
+                for file, new_set in newly_seen.items():
+                    for co in self.instrumented[file]:
+                        self.deinstrument(co, new_set)
 
-                self.all_seen[file].update(new_set)
+                    self.all_seen[file].update(new_set)
 
-            # Replace references to code
-            if self.replace_map:
-                visited = set()
+                # Replace references to code
+                if self.replace_map:
+                    visited : set = set()
 
-                # XXX the set of function objects could be pre-computed at register_module;
-                # also, the same could be done for functions objects in globals()
-                for m in self.modules:
-                    for f in Slipcover.find_functions(m.__dict__.values(), visited):
-                        if f.__code__ in self.replace_map:
-                            f.__code__ = self.replace_map[f.__code__]
-
-                globals_seen = []
-                for frame in sys._current_frames().values():
-                    while frame:
-                        if not frame.f_globals in globals_seen:
-                            globals_seen.append(frame.f_globals)
-                            for f in Slipcover.find_functions(frame.f_globals.values(), visited):
-                                if f.__code__ in self.replace_map:
-                                    f.__code__ = self.replace_map[f.__code__]
-
-                        for f in Slipcover.find_functions(frame.f_locals.values(), visited):
+                    # XXX the set of function objects could be pre-computed at register_module;
+                    # also, the same could be done for functions objects in globals()
+                    for m in self.modules:
+                        for f in Slipcover.find_functions(m.__dict__.values(), visited):
                             if f.__code__ in self.replace_map:
                                 f.__code__ = self.replace_map[f.__code__]
 
-                        frame = frame.f_back
+                    globals_seen = []
+                    for frame in sys._current_frames().values():
+                        while frame:
+                            if not frame.f_globals in globals_seen:
+                                globals_seen.append(frame.f_globals)
+                                for f in Slipcover.find_functions(frame.f_globals.values(), visited):
+                                    if f.__code__ in self.replace_map:
+                                        f.__code__ = self.replace_map[f.__code__]
 
-                # all references should have been replaced now... right?
-                self.replace_map.clear()
+                            for f in Slipcover.find_functions(frame.f_locals.values(), visited):
+                                if f.__code__ in self.replace_map:
+                                    f.__code__ = self.replace_map[f.__code__]
+
+                            frame = frame.f_back # type: ignore[assignment]
+
+                    # all references should have been replaced now... right?
+                    self.replace_map.clear()

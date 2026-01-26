@@ -11,6 +11,7 @@ import os
 import tempfile
 import json
 import warnings
+import shutil
 
 # Used for fork() support
 input_tmpfiles = []
@@ -43,10 +44,12 @@ def fork_shim(sci):
 
 
 def get_coverage(sci):
-    """Combines this process' coverage with that of any previously forked children."""
+    """Combines this process' coverage with that of any previously forked children and xdist workers."""
     global input_tmpfiles, output_tmpfile
 
     cov = sci.get_coverage()
+
+    # Merge coverage from forked children (pytest-forked)
     if input_tmpfiles:
         for f in input_tmpfiles:
             try:
@@ -64,6 +67,24 @@ def get_coverage(sci):
                     os.remove(fname)
                 except FileNotFoundError:
                     pass
+
+    # Merge coverage from xdist workers (pytest-xdist)
+    coverage_dir = os.environ.get("SLIPCOVER_COVERAGE_DIR")
+    if coverage_dir:
+        coverage_dir = Path(coverage_dir)
+        merged_file = coverage_dir / "merged.json"
+        if merged_file.exists():
+            try:
+                with open(merged_file) as f:
+                    xdist_cov = json.load(f)
+                sc.merge_coverage(cov, xdist_cov)
+            except Exception as e:
+                warnings.warn(f"Error reading xdist coverage: {e}")
+        # Clean up the xdist coverage directory
+        try:
+            shutil.rmtree(coverage_dir)
+        except Exception:
+            pass
 
     return cov
 
@@ -87,7 +108,7 @@ def exit_shim(sci):
     return wrapper
 
 
-def merge_files(args):
+def merge_files(args, base_path):
     """Merges coverage files."""
 
     try:
@@ -107,10 +128,24 @@ def merge_files(args):
 
     try:
         with args.out.open("w", encoding='utf-8') as jf:
-            json.dump(merged, jf)
+            if args.xml:
+                sc.print_xml(merged, source_paths=[str(base_path)], with_branches=args.branch,
+                             xml_package_depth=args.xml_package_depth, outfile=jf)
+            else:
+                json.dump(merged, jf, indent=(4 if args.pretty_print else None))
+
+        # print human-readable table for merge results
+        if not args.silent:
+            sc.print_coverage(merged, outfile=sys.stdout, skip_covered=args.skip_covered,
+                              missing_width=args.missing_width)
+
     except Exception as e:
-        warnings.warn(e)
+        warnings.warn(str(e))
         return 1
+
+    if args.fail_under:
+        if merged['summary']['percent_covered'] < args.fail_under:
+            return 2
 
     return 0
 
@@ -130,6 +165,11 @@ def main():
     ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
     ap.add_argument('--json', action='store_true', help="select JSON output")
     ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
+    ap.add_argument('--xml', action='store_true', help="select XML output")
+    ap.add_argument('--xml-package-depth', type=int, default=99, help=(
+        "Controls which directories are identified as packages in the report. "
+        "Directories deeper than this depth are not reported as packages. "
+        "The default is that all directories are reported as packages."))
     ap.add_argument('--out', type=Path, help="specify output file name")
     ap.add_argument('--source', help="specify directories to cover")
     ap.add_argument('--omit', help="specify file(s) to omit")
@@ -163,13 +203,13 @@ def main():
         args = ap.parse_args(sys.argv[1:])
 
 
-    if args.merge:
-        if not args.out: ap.error("--out is required with --merge")
-        return merge_files(args)
-
-
     base_path = Path(args.script).resolve().parent if args.script \
                 else Path('.').resolve()
+
+
+    if args.merge:
+        if not args.out: ap.error("--out is required with --merge")
+        return merge_files(args, base_path=base_path)
 
 
     file_matcher = sc.FileMatcher()
@@ -194,6 +234,16 @@ def main():
     if not args.dont_wrap_pytest:
         sc.wrap_pytest(sci, file_matcher)
 
+    # Set environment variables for pytest-xdist workers to pick up
+    if args.module and args.module[0] == 'pytest':
+        os.environ["SLIPCOVER_ENABLED"] = "1"
+        if args.branch:
+            os.environ["SLIPCOVER_BRANCH"] = "1"
+        if args.source:
+            source_str = ",".join(args.source) if isinstance(args.source, list) else args.source
+            os.environ["SLIPCOVER_SOURCE"] = source_str
+        if args.omit:
+            os.environ["SLIPCOVER_OMIT"] = args.omit
 
     if platform.system() != 'Windows':
         os.fork = fork_shim(sci)
@@ -205,6 +255,9 @@ def main():
         def printit(coverage, outfile):
             if args.json:
                 print(json.dumps(coverage, indent=(4 if args.pretty_print else None)), file=outfile)
+            elif args.xml:
+                sc.print_xml(coverage, source_paths=[str(base_path)], with_branches=args.branch,
+                             xml_package_depth=args.xml_package_depth, outfile=outfile)
             else:
                 sc.print_coverage(coverage, outfile=outfile, skip_covered=args.skip_covered,
                                   missing_width=args.missing_width)

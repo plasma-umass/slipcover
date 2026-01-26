@@ -14,18 +14,22 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows :: Windows 10"
 ]
-requires-python = ">=3.8,<3.14"
+requires-python = ">=3.8,<3.15"
 dependencies = [
     "tabulate"
 ]
 
 [project.scripts]
 slipcover = "slipcover.__main__:main"
+
+[project.entry-points.pytest11]
+slipcover = "slipcover.pytest_plugin"
 
 [project.urls]
 "Homepage" = "https://github.com/plasma-umass/slipcover"
@@ -35,6 +39,7 @@ slipcover = "slipcover.__main__:main"
 # see https://peps.python.org/pep-0508/#environment-markers for conditional syntax
 requires = [
     "setuptools>61",
+    "setuptools<72.2; implementation_name == 'pypy'", # https://github.com/pypa/distutils/issues/283
     "wheel",
     "tomli; python_version < '3.11'" # tomllib alternative
 ]
@@ -42,3 +47,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]
 "" = "src"
+
+[project.optional-dependencies]
+test = [
+    'pytest',
+    'pytest-forked',
+    'pytest-xdist'
+]
+

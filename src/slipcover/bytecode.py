@@ -2,7 +2,7 @@ from __future__ import annotations
 import sys
 import dis
 import types
-from typing import List, Tuple
+from typing import List, Tuple, Iterator
 
 # FIXME provide __all__
 
@@ -34,7 +34,7 @@ if sys.version_info >= (3,11):
     op_PRECALL = dis.opmap["PRECALL"]
     op_CALL = dis.opmap["CALL"]
     op_CACHE = dis.opmap["CACHE"]
-    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"])
+    is_EXTENDED_ARG.append(dis._all_opmap["EXTENDED_ARG_QUICK"]) # type: ignore[attr-defined]
 else:
     op_RESUME = None
     op_PUSH_NULL = None
@@ -63,11 +63,11 @@ def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
         )
     bytecode.extend([opcode, arg & 0xFF])
     if sys.version_info >= (3,11):
-        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])
+        bytecode.extend([op_CACHE, 0] * dis._inline_cache_entries[opcode])  # type: ignore[attr-defined]
     return bytecode
 
 
-def unpack_opargs(code: bytes) -> Tuple[int, int, int, int]:
+def unpack_opargs(code: bytes) -> Iterator[Tuple[int, int, int, int]]:
     """Unpacks opcodes and their arguments, returning:
 
     - the beginning offset, including that of the first EXTENDED_ARG, if any
@@ -209,6 +209,14 @@ def read_varint_be(it):
     return value
 
 
+def append_pypy_varuint(data: List[int], n: int) -> None:
+    """Appends a pypy3.10-style encoded variable length unsigned integer to 'data'"""
+    while n > 0x7f:
+        data.append(0x80|(n&0x7f))
+        n = n >> 7
+    data.append(n)
+
+
 class ExceptionTableEntry:
     """Represents an entry from Python 3.11+'s exception table."""
 
@@ -282,6 +290,9 @@ class LineEntry:
         self.end = end
         self.number = number
 
+    def __repr__(self):
+        return f"LineEntry(start={self.start},end={self.end},number={self.number})"
+
     # FIXME tests missing
     def adjust(self, insert_offset : int, insert_length : int) -> None:
         """Adjusts this line after a code insertion."""
@@ -346,7 +357,7 @@ class LineEntry:
     if sys.version_info >= (3,9) and sys.version_info < (3,11): # 3.10
         @staticmethod
         def make_linetable(firstlineno : int, lines : List[LineEntry]) -> bytes:
-            """Generates the line number table used by Python 3.10 to map offsets to line numbers."""
+            """Generates the line number table used by CPython 3.10 to map offsets to line numbers."""
 
             linetable = []
 
@@ -387,6 +398,34 @@ class LineEntry:
                 prev_number = l.number
 
                 prev_end = l.end
+
+            return bytes(linetable)
+
+    if sys.implementation.name == 'pypy' and sys.version_info >= (3,9) and sys.version_info < (3,11): #type: ignore
+        @staticmethod
+        def make_linetable(firstlineno: int, lines: List[LineEntry]) -> bytes:
+            """Generates the positions table used by PyPy 3.10 map offsets to line numbers."""
+
+            linetable = []
+
+            prev_end = 0
+
+            for l in lines:
+                while prev_end < l.start:
+                    linetable.append(0)
+                    prev_end += 2
+
+                if l.number is None:
+                    while prev_end < l.end:
+                        linetable.append(0)
+                        prev_end += 2
+                else:
+                    lineno_delta = l.number - firstlineno + 1
+
+                    while prev_end < l.end:
+                        append_pypy_varuint(linetable, lineno_delta)
+                        linetable.append(0)
+                        prev_end += 2
 
             return bytes(linetable)
 
@@ -444,8 +483,8 @@ class Editor:
         self.patch = None
 
         self.branches = None
-        self.ex_table = None
-        self.lines = None
+        self.ex_table = []
+        self.lines = []
         self.inserts = []
 
         self.max_addtl_stack = 0
@@ -641,7 +680,7 @@ class Editor:
         if not self.patch and not self.consts:
             return self.orig_code
 
-        replace = {}
+        replace : dict = {}
         if self.consts is not None:
             replace["co_consts"] = tuple(self.consts)
 
