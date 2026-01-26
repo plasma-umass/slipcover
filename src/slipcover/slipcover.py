@@ -303,12 +303,33 @@ def merge_coverage(a: dict, b: dict) -> dict:
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
-                 disassemble: bool = False, source: Optional[List[str]] = None):
+                 disassemble: bool = False, source: Optional[List[str]] = None,
+                 # Agent mode options
+                 agent_mode: bool = False,
+                 track_hits: bool = False,
+                 track_timestamps: bool = False,
+                 trace_execution: bool = False):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.disassemble = disassemble
         self.source = source
+
+        # Agent mode settings
+        self.agent_mode = agent_mode
+        self.track_hits = track_hits or agent_mode  # Agent mode implies hit tracking
+        self.track_timestamps = track_timestamps
+        self.trace_execution = trace_execution
+
+        # Agent metrics (only created if agent features are enabled)
+        self.agent_metrics = None
+        if self.track_hits or self.track_timestamps or self.trace_execution:
+            from .agent import AgentMetrics
+            self.agent_metrics = AgentMetrics(
+                track_hits=self.track_hits,
+                track_timestamps=self.track_timestamps,
+                trace_execution=self.trace_execution
+            )
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -324,12 +345,27 @@ class Slipcover:
         self._get_newly_seen()
 
         if sys.version_info >= (3,12):
+            # Determine if we should disable monitoring after first hit
+            # If tracking execution, we need every hit; otherwise disable for performance
+            should_disable = not self.trace_execution
+
             def handle_line(code, line):
+                filename = code.co_filename
                 if br.is_branch(line):
-                    self.newly_seen[code.co_filename].add(br.decode_branch(line))
+                    branch_tuple = br.decode_branch(line)
+                    self.newly_seen[filename].add(branch_tuple)
+                    # Record to agent metrics if enabled
+                    if self.agent_metrics:
+                        self.agent_metrics.record_branch(filename, branch_tuple)
                 elif line:
-                    self.newly_seen[code.co_filename].add(line)
-                return sys.monitoring.DISABLE
+                    self.newly_seen[filename].add(line)
+                    # Record to agent metrics if enabled
+                    if self.agent_metrics:
+                        self.agent_metrics.record_line(filename, line)
+
+                if should_disable:
+                    return sys.monitoring.DISABLE
+                return None  # Continue monitoring
 
             if sys.monitoring.get_tool(sys.monitoring.COVERAGE_ID) != "SlipCover":
                 sys.monitoring.use_tool_id(sys.monitoring.COVERAGE_ID, "SlipCover") # FIXME add free_tool_id
@@ -773,3 +809,290 @@ class Slipcover:
 
                     # all references should have been replaced now... right?
                     self.replace_map.clear()
+
+
+    def get_agent_coverage(self, detail: str = 'modified',
+                           session_id: Optional[str] = None,
+                           git_baseline: Optional[str] = None,
+                           include_git: bool = True) -> dict:
+        """Returns coverage information in agent-oriented format.
+
+        This method extends get_coverage() with additional metadata useful for
+        AI coding agents, including hit counts, timestamps, execution sequences,
+        git integration, and code structure information.
+
+        Args:
+            detail: Level of detail to include:
+                - 'summary': File-level summaries only
+                - 'modified': Line details for modified lines only (default)
+                - 'full': All line/branch details
+            session_id: Optional session identifier for this coverage run
+            git_baseline: Git ref to compare against for modified lines (default: HEAD~1)
+            include_git: Whether to include git blame/modification data (default: True)
+
+        Returns:
+            Dictionary with agent coverage format (see schemas.AgentCoverage)
+        """
+        import datetime
+        import uuid
+
+        if not self.agent_mode and not self.agent_metrics:
+            # Fall back to standard coverage if agent mode not enabled
+            return self.get_coverage()
+
+        with self.lock:
+            # Get standard coverage first
+            base_cov = self.get_coverage()
+
+            # Generate session ID if not provided
+            if session_id is None:
+                session_id = str(uuid.uuid4())[:8]
+
+            # Initialize git tracker if git integration is enabled
+            git_tracker = None
+            if include_git:
+                try:
+                    from .git_utils import GitTracker
+                    git_tracker = GitTracker(baseline=git_baseline or 'HEAD~1')
+                except Exception:
+                    pass  # Git integration is optional
+
+            # Build agent meta
+            meta = {
+                'software': 'slipcover',
+                'version': __version__,
+                'timestamp': datetime.datetime.now().isoformat(),
+                'branch_coverage': self.branch,
+                'show_contexts': False,
+                'session_id': session_id,
+                'track_hits': self.track_hits,
+                'track_timestamps': self.track_timestamps,
+                'trace_execution': self.trace_execution,
+            }
+
+            if self.agent_metrics:
+                meta['total_executions'] = self.agent_metrics.total_executions
+
+            # Add git info to meta
+            if git_tracker:
+                meta['git_head'] = git_tracker.git_head
+                meta['git_dirty'] = git_tracker.git_dirty
+
+            simp = PathSimplifier()
+            files = {}
+
+            for f, f_cov in base_cov['files'].items():
+                # Start with base coverage data
+                agent_file = dict(f_cov)
+
+                # Build extended summary
+                summary = dict(f_cov.get('summary', {}))
+
+                # Get original filename for lookup
+                orig_f = None
+                for orig_path in self.code_lines.keys():
+                    if simp.simplify(orig_path) == f:
+                        orig_f = orig_path
+                        break
+
+                # Get git info for this file
+                git_file_info = None
+                if git_tracker and orig_f:
+                    git_file_info = git_tracker.get_file_info(orig_f)
+                    if git_file_info:
+                        agent_file['git_blame_available'] = True
+                        # Add git summary fields
+                        covered_lines = set(f_cov.get('executed_lines', []))
+                        modified_lines = set(git_file_info.modified_lines)
+                        modified_covered = len(modified_lines & covered_lines)
+                        modified_uncovered = len(modified_lines - covered_lines)
+                        summary['modified_since_baseline'] = len(modified_lines)
+                        summary['modified_covered'] = modified_covered
+                        summary['modified_uncovered'] = modified_uncovered
+                    else:
+                        agent_file['git_blame_available'] = False
+
+                # Add agent-specific summary fields
+                if self.agent_metrics and orig_f:
+                        file_metrics = self.agent_metrics.get_file_metrics(orig_f)
+                        if file_metrics:
+                            total_hits = sum(m.hit_count for m in file_metrics.lines.values())
+                            summary['total_hits'] = total_hits
+
+                            # Find hottest line
+                            if file_metrics.lines:
+                                hottest = max(file_metrics.lines.items(),
+                                            key=lambda x: x[1].hit_count)
+                                summary['hottest_line'] = hottest[0]
+                                summary['hottest_hits'] = hottest[1].hit_count
+
+                            # Add line details if requested
+                            if detail in ('full', 'modified'):
+                                line_details = {}
+                                total_execs = self.agent_metrics.total_executions
+
+                                for line, metrics in file_metrics.lines.items():
+                                    line_detail = {
+                                        'covered': True,
+                                        'hit_count': metrics.hit_count,
+                                    }
+
+                                    if metrics.last_sequence > 0:
+                                        line_detail['sequence'] = metrics.last_sequence
+                                        line_detail['recency'] = (
+                                            metrics.last_sequence / total_execs
+                                            if total_execs > 0 else 0.0
+                                        )
+
+                                    if self.track_timestamps:
+                                        if metrics.first_hit:
+                                            line_detail['first_hit'] = datetime.datetime.fromtimestamp(
+                                                metrics.first_hit).isoformat()
+                                        if metrics.last_hit:
+                                            line_detail['last_hit'] = datetime.datetime.fromtimestamp(
+                                                metrics.last_hit).isoformat()
+
+                                    # Add git info for this line
+                                    if git_file_info and line in git_file_info.lines:
+                                        git_line = git_file_info.lines[line]
+                                        line_detail['git_commit'] = git_line.commit
+                                        if git_line.author:
+                                            line_detail['git_author'] = git_line.author
+                                        # Line is covered since modification if it's covered
+                                        line_detail['covered_since_modification'] = True
+
+                                    line_details[str(line)] = line_detail
+
+                                # Add uncovered lines with covered=False
+                                for line in f_cov.get('missing_lines', []):
+                                    if str(line) not in line_details:
+                                        line_detail = {
+                                            'covered': False,
+                                            'hit_count': 0,
+                                        }
+                                        # Add git info for uncovered lines
+                                        if git_file_info and line in git_file_info.lines:
+                                            git_line = git_file_info.lines[line]
+                                            line_detail['git_commit'] = git_line.commit
+                                            if git_line.author:
+                                                line_detail['git_author'] = git_line.author
+                                            # Uncovered line is not covered since modification
+                                            line_detail['covered_since_modification'] = False
+                                        line_details[str(line)] = line_detail
+
+                                agent_file['line_details'] = line_details
+
+                            # Add branch details if branch coverage enabled
+                            if self.branch and detail in ('full', 'modified'):
+                                branch_details = {}
+                                total_execs = self.agent_metrics.total_executions
+
+                                for branch, metrics in file_metrics.branches.items():
+                                    br_key = f"{branch[0]}->{branch[1]}"
+                                    branch_detail = {
+                                        'from_line': branch[0],
+                                        'to_line': branch[1],
+                                        'covered': True,
+                                        'hit_count': metrics.hit_count,
+                                    }
+
+                                    if metrics.last_sequence > 0:
+                                        branch_detail['sequence'] = metrics.last_sequence
+                                        branch_detail['recency'] = (
+                                            metrics.last_sequence / total_execs
+                                            if total_execs > 0 else 0.0
+                                        )
+
+                                    if self.track_timestamps:
+                                        if metrics.first_hit:
+                                            branch_detail['first_hit'] = datetime.datetime.fromtimestamp(
+                                                metrics.first_hit).isoformat()
+                                        if metrics.last_hit:
+                                            branch_detail['last_hit'] = datetime.datetime.fromtimestamp(
+                                                metrics.last_hit).isoformat()
+
+                                    branch_details[br_key] = branch_detail
+
+                                # Add uncovered branches
+                                for branch in f_cov.get('missing_branches', []):
+                                    br_key = f"{branch[0]}->{branch[1]}"
+                                    if br_key not in branch_details:
+                                        branch_details[br_key] = {
+                                            'from_line': branch[0],
+                                            'to_line': branch[1],
+                                            'covered': False,
+                                            'hit_count': 0,
+                                        }
+
+                                agent_file['branch_details'] = branch_details
+
+                # Add structure information (classes, functions) if file is readable
+                if detail in ('full', 'modified') and orig_f:
+                    try:
+                        from .agent import (
+                            extract_structure, compute_structure_coverage, structure_to_dict
+                        )
+                        from pathlib import Path
+
+                        source_path = Path(orig_f)
+                        if source_path.exists():
+                            source = source_path.read_text()
+                            structure = extract_structure(orig_f, source)
+
+                            # Compute coverage for structure
+                            code_lines_set = self.code_lines.get(orig_f, set())
+                            covered_lines_set = set(f_cov.get('executed_lines', []))
+
+                            # Get line hits if available
+                            line_hits = None
+                            if file_metrics:
+                                line_hits = {
+                                    line: m.hit_count
+                                    for line, m in file_metrics.lines.items()
+                                }
+
+                            compute_structure_coverage(
+                                structure, code_lines_set, covered_lines_set, line_hits
+                            )
+
+                            # Convert to dict and add to output
+                            struct_dict = structure_to_dict(structure)
+                            if struct_dict['classes']:
+                                agent_file['classes'] = struct_dict['classes']
+                            if struct_dict['functions']:
+                                agent_file['functions'] = struct_dict['functions']
+                    except Exception:
+                        pass  # Structure extraction is optional
+
+                agent_file['summary'] = summary
+                files[f] = agent_file
+
+            # Build result
+            result = {
+                'meta': meta,
+                'files': files,
+                'summary': base_cov.get('summary', {}),
+            }
+
+            # Add execution trail if trace_execution enabled
+            if self.trace_execution and self.agent_metrics:
+                trail = self.agent_metrics.get_execution_trail()
+                total_execs = self.agent_metrics.total_executions
+
+                execution_trail = []
+                for filename, line_or_branch, seq in trail:
+                    event = {
+                        'file': simp.simplify(filename),
+                        'sequence': seq,
+                        'recency': seq / total_execs if total_execs > 0 else 0.0,
+                    }
+                    if isinstance(line_or_branch, tuple):
+                        event['line'] = line_or_branch[0]
+                        event['branch'] = list(line_or_branch)
+                    else:
+                        event['line'] = line_or_branch
+                    execution_trail.append(event)
+
+                result['execution_trail'] = execution_trail
+
+            return result

@@ -43,11 +43,38 @@ def fork_shim(sci):
     return wrapper
 
 
-def get_coverage(sci):
+def get_coverage(sci, agent_mode=False, detail='modified', git_baseline=None,
+                 include_git=True, history_file=None, show_trends=False):
     """Combines this process' coverage with that of any previously forked children and xdist workers."""
     global input_tmpfiles, output_tmpfile
 
-    cov = sci.get_coverage()
+    if agent_mode:
+        cov = sci.get_agent_coverage(
+            detail=detail,
+            git_baseline=git_baseline,
+            include_git=include_git
+        )
+
+        # Add trend analysis if requested
+        if show_trends and history_file:
+            try:
+                from .session_history import (
+                    SessionTracker, create_session_from_coverage, trends_to_dict
+                )
+                tracker = SessionTracker(history_file)
+                session_id = cov.get('meta', {}).get('session_id', 'unknown')
+
+                # Compute and add trends
+                trends = tracker.get_trends(cov, session_id)
+                cov['trends'] = trends_to_dict(trends)
+
+                # Record this session for future trend analysis
+                session = create_session_from_coverage(cov, session_id)
+                tracker.record_session(session)
+            except Exception:
+                pass  # Trend analysis is optional
+    else:
+        cov = sci.get_coverage()
 
     # Merge coverage from forked children (pytest-forked)
     if input_tmpfiles:
@@ -181,6 +208,26 @@ def main():
                     help="threshold for de-instrumentation (if not immediate)")
     ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
 
+    # Agent mode options for AI coding agents
+    ap.add_argument('--agent-mode', action='store_true',
+                    help="enable agent-oriented output with extended metrics")
+    ap.add_argument('--track-hits', action='store_true',
+                    help="track hit counts per line/branch")
+    ap.add_argument('--track-timestamps', action='store_true',
+                    help="track first/last execution timestamps")
+    ap.add_argument('--trace-execution', action='store_true',
+                    help="track full execution sequence (enables hit tracking)")
+    ap.add_argument('--detail', choices=['summary', 'modified', 'full'], default='modified',
+                    help="level of detail for agent mode output (default: modified)")
+    ap.add_argument('--git-baseline', type=str, default=None,
+                    help="git ref to compare against for modified lines (default: HEAD~1)")
+    ap.add_argument('--no-git', action='store_true',
+                    help="disable git integration in agent mode")
+    ap.add_argument('--history-file', type=str, default=None,
+                    help="path to session history file for trend analysis")
+    ap.add_argument('--show-trends', action='store_true',
+                    help="include trend analysis in agent mode output")
+
     # intended for slipcover development only
     ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
     ap.add_argument('--dis', action='store_true', help=argparse.SUPPRESS)
@@ -228,7 +275,11 @@ def main():
 
     sci = sc.Slipcover(immediate=args.immediate,
                        d_miss_threshold=args.threshold, branch=args.branch,
-                       disassemble=args.dis, source=args.source)
+                       disassemble=args.dis, source=args.source,
+                       agent_mode=args.agent_mode,
+                       track_hits=args.track_hits,
+                       track_timestamps=args.track_timestamps,
+                       trace_execution=args.trace_execution)
 
 
     if not args.dont_wrap_pytest:
@@ -263,7 +314,15 @@ def main():
                                   missing_width=args.missing_width)
 
         if not args.silent:
-            coverage = get_coverage(sci)
+            coverage = get_coverage(
+                sci,
+                agent_mode=args.agent_mode,
+                detail=args.detail,
+                git_baseline=args.git_baseline,
+                include_git=not args.no_git,
+                history_file=args.history_file,
+                show_trends=args.show_trends
+            )
             if args.out:
                 with open(args.out, "w") as outfile:
                     printit(coverage, outfile)
