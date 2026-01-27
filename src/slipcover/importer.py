@@ -279,3 +279,43 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
         pyrewrite._read_pyc = read_pyc
         pyrewrite._write_pyc = write_pyc
         pyrewrite.rewrite_asserts = rewrite_asserts_wrapper
+
+
+def wrap_spec_from_file_location(sci: Slipcover, file_matcher: FileMatcher):
+    """Wraps importlib.util.spec_from_file_location() to instrument dynamically loaded files.
+
+    This provides coverage for tools like Alembic, and any other code that uses
+    spec_from_file_location() to dynamically load Python files.
+    """
+    import importlib.util
+
+    orig_spec_from_file_location = importlib.util.spec_from_file_location
+
+    def spec_from_file_location_wrapper(name, location=None, *, loader=None, submodule_search_locations=None):
+        spec = orig_spec_from_file_location(
+            name, location, loader=loader,
+            submodule_search_locations=submodule_search_locations
+        )
+
+        if spec is None or spec.loader is None:
+            return spec
+
+        # Skip pytest's assertion rewriting hook - wrap_pytest handles those.
+        # AssertionRewritingHook doesn't have get_code() method.
+        loader_type = type(spec.loader).__name__
+        if loader_type == 'AssertionRewritingHook':
+            return spec
+
+        # Skip extension file loaders - can't instrument native extensions
+        if isinstance(spec.loader, machinery.ExtensionFileLoader):
+            return spec
+
+        # Check if this file should be instrumented
+        origin = spec.origin or (str(location) if location else None)
+        if origin and file_matcher.matches(origin):
+            # Wrap the loader with our instrumented loader
+            spec.loader = SlipcoverLoader(sci, spec.loader, origin)
+
+        return spec
+
+    importlib.util.spec_from_file_location = spec_from_file_location_wrapper
