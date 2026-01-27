@@ -403,11 +403,11 @@ revision = '001'
 down_revision = None
 
 def upgrade():
-    x = 1  # line 8
-    y = 2  # line 9
+    x = 1
+    y = 2
 
 def downgrade():
-    pass  # line 12
+    pass
 ''')
 
     # Create a script that runs the alembic migration
