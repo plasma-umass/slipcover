@@ -293,8 +293,65 @@ assert isinstance(sys.argv[0], str)
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError')
-def test_wrap_alembic(tmp_path, monkeypatch):
-    """Test that Alembic migrations are covered when using wrap_alembic."""
+def test_wrap_spec_from_file_location(tmp_path, monkeypatch):
+    """Test that files loaded via spec_from_file_location are covered."""
+    import json
+
+    # Create a Python file to be loaded dynamically
+    dynamic_module = tmp_path / "dynamic_module.py"
+    dynamic_module.write_text('''
+x = 1  # line 2
+y = 2  # line 3
+z = x + y  # line 4
+''')
+
+    # Create a script that loads the module via spec_from_file_location
+    script = tmp_path / "main_script.py"
+    script.write_text(f"""
+import importlib.util
+spec = importlib.util.spec_from_file_location("dynamic_module", "{dynamic_module}")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert module.z == 3
+""")
+
+    monkeypatch.chdir(tmp_path)
+
+    out = tmp_path / "coverage.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "slipcover", "--json", "--out", str(out),
+         "--source", str(tmp_path), str(script)],
+        capture_output=True,
+        text=True
+    )
+
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+
+    # Check that the dynamically loaded file was covered
+    dynamic_files = [k for k in cov['files'].keys() if 'dynamic_module.py' in k]
+    assert dynamic_files, f"Dynamic module not in coverage: {list(cov['files'].keys())}"
+
+    # Check that lines were executed
+    file_cov = cov['files'][dynamic_files[0]]
+    executed_lines = file_cov['executed_lines']
+    assert 2 in executed_lines and 3 in executed_lines and 4 in executed_lines, \
+        f"Lines not executed, got: {executed_lines}"
+
+
+try:
+    import alembic
+    HAS_ALEMBIC = True
+except ImportError:
+    HAS_ALEMBIC = False
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError')
+@pytest.mark.skipif(not HAS_ALEMBIC, reason='Alembic not installed')
+def test_wrap_spec_from_file_location_alembic(tmp_path, monkeypatch):
+    """Test that Alembic migrations are covered (integration test for spec_from_file_location)."""
     import json
 
     # Create a minimal alembic setup
@@ -394,8 +451,59 @@ command.upgrade(alembic_cfg, 'head')
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError')
-def test_wrap_alembic_with_branch(tmp_path, monkeypatch):
-    """Test that Alembic migrations are covered with branch coverage enabled."""
+def test_wrap_spec_from_file_location_with_branch(tmp_path, monkeypatch):
+    """Test that files loaded via spec_from_file_location get branch coverage."""
+    import json
+
+    # Create a Python file with a branch to be loaded dynamically
+    dynamic_module = tmp_path / "dynamic_module.py"
+    dynamic_module.write_text('''
+x = 1
+if x > 0:  # branch
+    y = 2
+else:
+    y = 3
+z = y
+''')
+
+    # Create a script that loads the module via spec_from_file_location
+    script = tmp_path / "main_script.py"
+    script.write_text(f"""
+import importlib.util
+spec = importlib.util.spec_from_file_location("dynamic_module", "{dynamic_module}")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert module.z == 2
+""")
+
+    monkeypatch.chdir(tmp_path)
+
+    out = tmp_path / "coverage.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "slipcover", "--branch", "--json", "--out", str(out),
+         "--source", str(tmp_path), str(script)],
+        capture_output=True,
+        text=True
+    )
+
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+
+    # Check that the dynamically loaded file was covered
+    dynamic_files = [k for k in cov['files'].keys() if 'dynamic_module.py' in k]
+    assert dynamic_files, f"Dynamic module not in coverage: {list(cov['files'].keys())}"
+
+    # Check that branch info is present
+    file_cov = cov['files'][dynamic_files[0]]
+    assert 'executed_branches' in file_cov, "Branch coverage not recorded"
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError')
+@pytest.mark.skipif(not HAS_ALEMBIC, reason='Alembic not installed')
+def test_wrap_spec_from_file_location_with_branch_alembic(tmp_path, monkeypatch):
+    """Test that Alembic migrations get branch coverage (integration test)."""
     import json
 
     # Create a minimal alembic setup

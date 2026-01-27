@@ -234,7 +234,7 @@ def main():
     if not args.dont_wrap_pytest:
         sc.wrap_pytest(sci, file_matcher)
 
-    sc.wrap_alembic(sci, file_matcher)
+    sc.wrap_spec_from_file_location(sci, file_matcher)
 
     # Set environment variables for pytest-xdist workers to pick up
     if args.module and args.module[0] == 'pytest':

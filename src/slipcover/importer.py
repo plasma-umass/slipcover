@@ -281,43 +281,41 @@ def wrap_pytest(sci: Slipcover, file_matcher: FileMatcher):
         pyrewrite.rewrite_asserts = rewrite_asserts_wrapper
 
 
-def wrap_alembic(sci: Slipcover, file_matcher: FileMatcher):
-    """Wraps Alembic's module loading to instrument migration files."""
-    try:
-        import alembic.util.pyfiles as pyfiles
-    except ModuleNotFoundError:
-        return
+def wrap_spec_from_file_location(sci: Slipcover, file_matcher: FileMatcher):
+    """Wraps importlib.util.spec_from_file_location() to instrument dynamically loaded files.
 
+    This provides coverage for tools like Alembic, and any other code that uses
+    spec_from_file_location() to dynamically load Python files.
+    """
     import importlib.util
-    import ast
-    from importlib import machinery
 
-    orig_load_module_py = pyfiles.load_module_py
+    orig_spec_from_file_location = importlib.util.spec_from_file_location
 
-    def load_module_py_wrapper(module_id, path):
-        path = Path(path)
-        if not file_matcher.matches(path):
-            return orig_load_module_py(module_id, path)
+    def spec_from_file_location_wrapper(name, location=None, *, loader=None, submodule_search_locations=None):
+        spec = orig_spec_from_file_location(
+            name, location, loader=loader,
+            submodule_search_locations=submodule_search_locations
+        )
 
-        # Load and instrument the module
-        spec = importlib.util.spec_from_file_location(module_id, path)
-        assert spec and spec.loader
-        module = importlib.util.module_from_spec(spec)
+        if spec is None or spec.loader is None:
+            return spec
 
-        # Get the code object - handle branch pre-instrumentation if needed
-        if sci.branch and isinstance(spec.loader, machinery.SourceFileLoader) and path.exists():
-            t = br.preinstrument(ast.parse(path.read_bytes()))
-            code = compile(t, str(path), "exec")
-        else:
-            code = spec.loader.get_code(module_id)  # type: ignore[attr-defined]
+        # Skip pytest's assertion rewriting hook - wrap_pytest handles those.
+        # AssertionRewritingHook doesn't have get_code() method.
+        loader_type = type(spec.loader).__name__
+        if loader_type == 'AssertionRewritingHook':
+            return spec
 
-        if code is not None:
-            code = sci.instrument(code)
-            exec(code, module.__dict__)
-        else:
-            # Fallback to original if we can't get the code
-            spec.loader.exec_module(module)  # type: ignore[union-attr]
+        # Skip extension file loaders - can't instrument native extensions
+        if isinstance(spec.loader, machinery.ExtensionFileLoader):
+            return spec
 
-        return module
+        # Check if this file should be instrumented
+        origin = spec.origin or (str(location) if location else None)
+        if origin and file_matcher.matches(origin):
+            # Wrap the loader with our instrumented loader
+            spec.loader = SlipcoverLoader(sci, spec.loader, origin)
 
-    pyfiles.load_module_py = load_module_py_wrapper
+        return spec
+
+    importlib.util.spec_from_file_location = spec_from_file_location_wrapper
