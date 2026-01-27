@@ -597,12 +597,12 @@ class Slipcover:
         # Prepare omit patterns (same logic as FileMatcher.addOmit)
         omit_patterns = []
         if self.omit:
-            cwd = Path.cwd()
+            cwd = Path.cwd().resolve()
             for o in self.omit:
                 if o.startswith('*'):
                     omit_patterns.append(o)
                 else:
-                    omit_patterns.append(str((cwd / o).resolve()))
+                    omit_patterns.append(str(cwd / o))
 
         def is_omitted(filepath: Path) -> bool:
             if not omit_patterns:
