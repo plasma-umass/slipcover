@@ -310,6 +310,10 @@ def wrap_spec_from_file_location(sci: Slipcover, file_matcher: FileMatcher):
         if isinstance(spec.loader, machinery.ExtensionFileLoader):
             return spec
 
+        # Skip if already wrapped - prevent double-wrapping
+        if isinstance(spec.loader, SlipcoverLoader):
+            return spec
+
         # Check if this file should be instrumented
         origin = spec.origin or (str(location) if location else None)
         if origin and file_matcher.matches(origin):

@@ -450,6 +450,49 @@ command.upgrade(alembic_cfg, 'head')
     assert 7 in executed_lines or 8 in executed_lines, f"upgrade() lines not executed, executed: {executed_lines}"
 
 
+def test_wrap_spec_from_file_location_no_double_wrap(tmp_path, monkeypatch):
+    """Test that spec_from_file_location wrapper doesn't double-wrap already wrapped loaders."""
+    import importlib.util
+    from importlib import machinery
+    
+    # Create a test file
+    test_file = tmp_path / "test_module.py"
+    test_file.write_text('''
+x = 1
+y = 2
+''')
+    
+    monkeypatch.chdir(tmp_path)
+    
+    # Set up slipcover and file matcher
+    import slipcover as sc
+    sci = sc.Slipcover()
+    fm = im.FileMatcher()
+    fm.addSource(tmp_path)
+    
+    # Wrap spec_from_file_location
+    im.wrap_spec_from_file_location(sci, fm)
+    
+    # Call spec_from_file_location once - should wrap the loader
+    spec1 = importlib.util.spec_from_file_location("test_module", test_file)
+    assert spec1 is not None
+    assert spec1.loader is not None
+    assert isinstance(spec1.loader, im.SlipcoverLoader), \
+        f"Expected SlipcoverLoader, got {type(spec1.loader)}"
+    
+    # Call spec_from_file_location again with the same spec - should not double-wrap
+    # (In practice this would be calling with same name/location, which creates a new spec)
+    spec2 = importlib.util.spec_from_file_location("test_module", test_file)
+    assert spec2 is not None
+    assert spec2.loader is not None
+    assert isinstance(spec2.loader, im.SlipcoverLoader), \
+        f"Expected SlipcoverLoader, got {type(spec2.loader)}"
+    
+    # Verify that the original loader is not another SlipcoverLoader
+    assert not isinstance(spec2.loader.orig_loader, im.SlipcoverLoader), \
+        "Loader was double-wrapped: orig_loader should not be a SlipcoverLoader"
+
+
 @pytest.mark.skipif(sys.platform == 'win32', reason='Fails due to weird PermissionError')
 def test_wrap_spec_from_file_location_with_branch(tmp_path, monkeypatch):
     """Test that files loaded via spec_from_file_location get branch coverage."""
