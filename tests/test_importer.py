@@ -453,7 +453,6 @@ command.upgrade(alembic_cfg, 'head')
 def test_wrap_spec_from_file_location_no_double_wrap(tmp_path, monkeypatch):
     """Test that spec_from_file_location wrapper doesn't double-wrap already wrapped loaders."""
     import importlib.util
-    from importlib import machinery
     
     # Create a test file
     test_file = tmp_path / "test_module.py"
@@ -473,23 +472,37 @@ y = 2
     # Wrap spec_from_file_location
     im.wrap_spec_from_file_location(sci, fm)
     
-    # Call spec_from_file_location once - should wrap the loader
-    spec1 = importlib.util.spec_from_file_location("test_module", test_file)
-    assert spec1 is not None
-    assert spec1.loader is not None
-    assert isinstance(spec1.loader, im.SlipcoverLoader), \
-        f"Expected SlipcoverLoader, got {type(spec1.loader)}"
+    # Get the current (wrapped) spec_from_file_location
+    wrapped_spec_from_file_location = importlib.util.spec_from_file_location
     
-    # Call spec_from_file_location again with the same spec - should not double-wrap
-    # (In practice this would be calling with same name/location, which creates a new spec)
-    spec2 = importlib.util.spec_from_file_location("test_module", test_file)
+    # Call wrapped function to get a spec with a wrapped loader
+    spec = wrapped_spec_from_file_location("test_module", test_file)
+    assert spec is not None
+    assert spec.loader is not None
+    assert isinstance(spec.loader, im.SlipcoverLoader), \
+        f"Expected SlipcoverLoader, got {type(spec.loader)}"
+    
+    # Save the wrapped loader
+    first_wrapper = spec.loader
+    
+    # Simulate the defensive check scenario: pass the spec with already-wrapped loader
+    # back through the wrapper by manipulating what the original function returns.
+    # We do this by calling spec_from_file_location with the already-wrapped loader
+    # as the loader parameter.
+    spec2 = wrapped_spec_from_file_location(
+        "test_module2", test_file, loader=first_wrapper
+    )
     assert spec2 is not None
     assert spec2.loader is not None
+    
+    # The defensive check should have prevented double-wrapping
     assert isinstance(spec2.loader, im.SlipcoverLoader), \
         f"Expected SlipcoverLoader, got {type(spec2.loader)}"
+    assert spec2.loader is first_wrapper, \
+        "Defensive check failed: loader should not be wrapped again"
     
     # Verify that the original loader is not another SlipcoverLoader
-    assert not isinstance(spec2.loader.orig_loader, im.SlipcoverLoader), \
+    assert not isinstance(first_wrapper.orig_loader, im.SlipcoverLoader), \
         "Loader was double-wrapped: orig_loader should not be a SlipcoverLoader"
 
 
