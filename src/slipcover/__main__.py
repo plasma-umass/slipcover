@@ -275,6 +275,8 @@ def main():
 
     atexit.register(sci_atexit)
 
+    return_code = 0
+
     if args.script:
         # python 'globals' for the script being executed
         script_globals: Dict[Any, Any] = dict()
@@ -300,20 +302,25 @@ def main():
             code = sci.instrument(code)
 
         with sc.ImportManager(sci, file_matcher):
-            exec(code, script_globals)
-
+            try:
+                exec(code, script_globals)
+            except SystemExit as e:
+                return_code = e.code if e.code is not None else 0
     else:
         import runpy
         sys.argv = [*args.module, *args.script_or_module_args]
         with sc.ImportManager(sci, file_matcher):
-            runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
+            try:
+                runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
+            except SystemExit as e:
+                return_code = e.code if e.code is not None else 0
 
     if args.fail_under:
         cov = sci.get_coverage()
         if cov['summary']['percent_covered'] < args.fail_under:
             return 2
     
-    return 0
+    return return_code
 
 
 if __name__ == "__main__":
