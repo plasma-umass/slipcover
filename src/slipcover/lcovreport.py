@@ -19,7 +19,7 @@ def get_missing_branch_arcs(file_data: CoverageFile) -> Dict[int, List[int]]:
 
     """
     mba: Dict[int, List[int]] = {}
-    for branch in file_data["missing_branches"]:
+    for branch in file_data.get("missing_branches", []):
         mba.setdefault(branch[0], []).append(branch[1])
 
     return mba
@@ -33,14 +33,14 @@ def get_branch_info(
     Returns a dict mapping line numbers to a list of (branch_dest, was_taken) tuples.
 
     """
-    all_branches = sorted(file_data["executed_branches"] + file_data["missing_branches"])
+    all_branches = sorted(file_data.get("executed_branches", []) + file_data.get("missing_branches", []))
 
     # Group branches by their source line
     branches_by_line: Dict[int, List[Tuple[int, bool]]] = defaultdict(list)
 
     for branch in all_branches:
         src_line, dest_line = branch
-        is_taken = branch not in file_data["missing_branches"]
+        is_taken = branch not in file_data.get("missing_branches", [])
         branches_by_line[src_line].append((dest_line, is_taken))
 
     return branches_by_line
@@ -91,7 +91,7 @@ class LcovReporter:
         all_lines = sorted(file_data["executed_lines"] + file_data["missing_lines"])
 
         # Write branch coverage data if enabled
-        if self.with_branches and (file_data["executed_branches"] or file_data["missing_branches"]):
+        if self.with_branches and (file_data.get("executed_branches") or file_data.get("missing_branches")):
             missing_arcs = get_missing_branch_arcs(file_data)
             branch_info = get_branch_info(file_data, missing_arcs)
 
@@ -106,11 +106,11 @@ class LcovReporter:
                     outfile.write(f"BRDA:{line_num},{block_num},{branch_num},{taken_str}\n")
 
             # BRF: Branches Found
-            total_branches = len(file_data["executed_branches"]) + len(file_data["missing_branches"])
+            total_branches = len(file_data.get("executed_branches", [])) + len(file_data.get("missing_branches", []))
             outfile.write(f"BRF:{total_branches}\n")
 
             # BRH: Branches Hit
-            branches_hit = len(file_data["executed_branches"])
+            branches_hit = len(file_data.get("executed_branches", []))
             outfile.write(f"BRH:{branches_hit}\n")
 
         # DA: Line coverage data
