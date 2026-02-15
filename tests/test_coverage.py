@@ -772,6 +772,29 @@ def test_resolves_other_sources(tmp_path):
     assert [] == cov['files'][baz_file]['missing_branches']
 
 
+def test_omit_with_source(tmp_path):
+    """Test that --omit works correctly with --source (Issue #74)."""
+    out_file = tmp_path / "out.json"
+
+    # Use --source tests/imported and --omit to exclude foo.py files
+    subprocess.run([sys.executable, '-m', 'slipcover', '--json', '--out', str(out_file),
+                    '--source', 'tests/imported', '--omit', '*/foo.py', 'tests/importer.py'],
+                   check=True)
+    with open(out_file, "r") as f:
+        cov = json.load(f)
+
+    init_file = str(Path('tests') / 'imported' / '__init__.py')
+    foo_file = str(Path('tests') / 'imported' / 'foo.py')
+    baz_file = str(Path('tests') / 'imported' / 'subdir' / 'baz.PY')
+
+    # __init__.py and baz.PY should be included
+    assert init_file in cov['files']
+    assert baz_file in cov['files']
+
+    # foo.py should be omitted due to --omit '*/foo.py'
+    assert foo_file not in cov['files']
+
+
 def check_summaries(cov):
     import copy
 
