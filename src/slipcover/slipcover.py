@@ -16,6 +16,7 @@ from pathlib import Path
 from . import branch as br
 from .version import __version__
 from .xmlreport import XmlReporter
+from .lcovreport import LcovReporter
 
 # FIXME provide __all__
 
@@ -161,6 +162,22 @@ def print_xml(
         source=source_paths,
         with_branches=with_branches,
         xml_package_depth=xml_package_depth,
+    ).report(outfile=outfile)
+
+
+def print_lcov(
+    coverage: Coverage,
+    *,
+    with_branches: bool = False,
+    test_name: Optional[str] = None,
+    comments: Optional[List[str]] = None,
+    outfile=sys.stdout
+) -> None:
+    LcovReporter(
+        coverage=coverage,
+        with_branches=with_branches,
+        test_name=test_name,
+        comments=comments,
     ).report(outfile=outfile)
 
 
