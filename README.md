@@ -91,6 +91,31 @@ which starts `pytest`, passing it any options (`-x -v` in this example)
 after the module name.
 No plug-in is required for pytest.
 
+### Configuration via `pyproject.toml`
+Instead of passing options on every command invocation, you can store them
+in your project's `pyproject.toml` under the `[tool.slipcover]` section.
+SlipCover automatically discovers the nearest `pyproject.toml` by walking up
+from the current working directory.
+
+```toml
+[tool.slipcover]
+branch = true
+source = "src"
+omit = "tests/*"
+fail-under = 80.0
+json = true
+pretty-print = true
+skip-covered = true
+out = "coverage.json"
+threshold = 75
+missing-width = 120
+xml-package-depth = 3
+```
+
+Every command-line flag has a matching key (use hyphens, as shown above).
+Command-line arguments always take precedence over values in `pyproject.toml`,
+so you can override any setting on a per-run basis.
+
 ## Usage example
 ```console
 $ python3 -m slipcover -m pytest
