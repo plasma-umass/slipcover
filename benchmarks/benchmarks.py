@@ -33,14 +33,14 @@ def load_cases():
             Case('coveragepy', "coverage.py line",
                  sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
                  color='orange', get_version=lambda: version('coverage')),
-            Case('coveragepy-sysmon', "coverage.py line",
+            Case('coveragepy-sysmon', "coverage.py line (sysmon)",
                  sys.executable + " -m coverage run {coveragepy_opts} {bench_command}",
                  color='orange', get_version=lambda: version('coverage'),
                  env={'COVERAGE_CORE':'sysmon'}),
-            Case('coveragepy-branch', "coverage.py line+branch, no sysmon",
+            Case('coveragepy-branch', "coverage.py line+branch",
                  sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
                  color='tab:orange', get_version=lambda: version('coverage')),
-            Case('coveragepy-branch-sysmon', "coverage.py line+branch",
+            Case('coveragepy-branch-sysmon', "coverage.py line+branch (sysmon)",
                  sys.executable + " -m coverage run --branch {coveragepy_opts} {bench_command}",
                  color='tab:orange', get_version=lambda: version('coverage'),
                  env={'COVERAGE_CORE':'sysmon'}),
@@ -163,7 +163,9 @@ def parse_args():
         p.add_argument('--omit-bench', action='extend', nargs='+', help='select benchmark(s) to omit from run/plot')
 
     plot_summary.add_argument('--boxplot', action='store_true', help='output a boxplot')
-    plot_summary.add_argument('--case-name', action='append', help='rename cases')
+
+    for p in [plot, plot_summary]:
+        p.add_argument('--case-name', action='append', help='rename cases')
 
     latex.add_argument('--absolute', action='store_true', help='emit absolute numbers')
 
@@ -405,7 +407,7 @@ def plot_results(args):
     times = 'x' if args.speedup else ''
 
     fig, ax = plt.subplots()
-    for case, bar_x in zip(nonbase_cases, bars_x):
+    for case_i, (case, bar_x) in enumerate(zip(nonbase_cases, bars_x)):
         r = [getValue(case.name, b.name) for b in benchmarks if b.name in common_benchmarks]
 
         min_range = min(r + ([] if min_range is None else [min_range]))
@@ -413,7 +415,10 @@ def plot_results(args):
 
         showit = not hide_slipcover or (case.name != 'slipcover')
 
-        case_label = case.label
+        if args.case_name and case_i < len(args.case_name):
+            case_label = args.case_name[case_i]
+        else:
+            case_label = case.label
         if args.rename_slipcover:
             case_label = re.sub('[Ss]lip[Cc]over', args.rename_slipcover, case_label)
 

@@ -226,13 +226,16 @@ def main():
             file_matcher.addOmit(o)
 
 
+    omit_list = args.omit.split(',') if args.omit else None
     sci = sc.Slipcover(immediate=args.immediate,
                        d_miss_threshold=args.threshold, branch=args.branch,
-                       disassemble=args.dis, source=args.source)
+                       disassemble=args.dis, source=args.source, omit=omit_list)
 
 
     if not args.dont_wrap_pytest:
         sc.wrap_pytest(sci, file_matcher)
+
+    sc.wrap_spec_from_file_location(sci, file_matcher)
 
     # Set environment variables for pytest-xdist workers to pick up
     if args.module and args.module[0] == 'pytest':

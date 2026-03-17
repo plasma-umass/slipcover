@@ -303,12 +303,14 @@ def merge_coverage(a: dict, b: dict) -> dict:
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
-                 disassemble: bool = False, source: Optional[List[str]] = None):
+                 disassemble: bool = False, source: Optional[List[str]] = None,
+                 omit: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.disassemble = disassemble
         self.source = source
+        self.omit = omit
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -590,6 +592,23 @@ class Slipcover:
 
     def _add_unseen_source_files(self, source: List[str]):
         import ast
+        from fnmatch import fnmatch
+
+        # Prepare omit patterns (same logic as FileMatcher.addOmit)
+        omit_patterns = []
+        if self.omit:
+            cwd = Path.cwd().resolve()
+            for o in self.omit:
+                if o.startswith('*'):
+                    omit_patterns.append(o)
+                else:
+                    omit_patterns.append(str(cwd / o))
+
+        def is_omitted(filepath: Path) -> bool:
+            if not omit_patterns:
+                return False
+            filepath_str = str(filepath)
+            return any(fnmatch(filepath_str, p) for p in omit_patterns)
 
         dirs = [Path(d).resolve() for d in source]
 
@@ -601,6 +620,8 @@ class Slipcover:
 
                 elif file.is_file() and file.suffix.lower() == '.py':
                     file = file.absolute()
+                    if is_omitted(file):
+                        continue
                     filename = str(file)
                     try:
                         if filename not in self.code_lines:
