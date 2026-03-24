@@ -22,7 +22,8 @@ classifiers = [
 ]
 requires-python = ">=3.8,<3.15"
 dependencies = [
-    "tabulate"
+    "tabulate",
+    "tomli; python_version < '3.11'"
 ]
 
 [project.scripts]

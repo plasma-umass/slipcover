@@ -150,8 +150,40 @@ def merge_files(args, base_path):
     return 0
 
 
+def _detect_explicit_args(ap, argv):
+    """Returns the set of argparse dest names explicitly provided on the command line."""
+    import argparse
+
+    explicit = set()
+
+    class _Track(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            explicit.add(self.dest)
+            setattr(namespace, self.dest, values)
+
+    shadow = argparse.ArgumentParser(add_help=False)
+    for action in ap._actions:
+        if action.option_strings:
+            kwargs = {
+                "dest": action.dest,
+                "nargs": action.nargs,
+                "default": action.default,
+            }
+            if isinstance(action, argparse._StoreTrueAction):
+                kwargs["nargs"] = 0
+                kwargs["const"] = True
+            elif isinstance(action, argparse._VersionAction):
+                continue
+            kwargs["action"] = _Track
+            shadow.add_argument(*action.option_strings, **kwargs)
+
+    shadow.parse_known_args(argv)
+    return explicit
+
+
 def main():
     import argparse
+    from slipcover.config import read_config, apply_config
 
     #
     # The intended usage is:
@@ -195,12 +227,27 @@ def main():
     g.add_argument('script', nargs='?', type=Path, help="the script to run")
     ap.add_argument('script_or_module_args', nargs=argparse.REMAINDER)
 
+    # Figure out which CLI flags were explicitly provided, so that
+    # pyproject.toml values don't override them.
+    if '-m' in sys.argv:
+        minus_m = sys.argv.index('-m')
+        cli_argv = sys.argv[1:minus_m+2]
+    else:
+        cli_argv = sys.argv[1:]
+
+    explicit_args = _detect_explicit_args(ap, cli_argv)
+
     if '-m' in sys.argv: # work around exclusive group not handled properly
         minus_m = sys.argv.index('-m')
         args = ap.parse_args(sys.argv[1:minus_m+2])
         args.script_or_module_args = sys.argv[minus_m+2:]
     else:
         args = ap.parse_args(sys.argv[1:])
+
+    # Apply [tool.slipcover] from pyproject.toml; CLI flags take precedence
+    config = read_config()
+    if config:
+        apply_config(config, args, explicit_args)
 
 
     base_path = Path(args.script).resolve().parent if args.script \
