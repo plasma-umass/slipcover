@@ -142,6 +142,86 @@ def test_xdist_fail_under_uses_merged_coverage(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Test: --fail-under works when pytest raises SystemExit
+# ---------------------------------------------------------------------------
+
+
+def test_fail_under_not_bypassed_by_systemexit(tmp_path):
+    """--fail-under must still trigger even when pytest raises SystemExit(0).
+
+    pytest's __main__.py does `raise SystemExit(...)` which, without special
+    handling, propagates past the fail_under check in slipcover's main().
+    """
+    src, tests = _setup_project(
+        tmp_path,
+        module_code="""\
+            def covered():
+                return "yes"
+
+            def not_covered():
+                return "no"
+        """,
+        test_code="""\
+            import sys
+            sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "src"))
+            from target import covered
+
+            def test_covered():
+                assert covered() == "yes"
+        """,
+    )
+
+    # Without xdist (single process) - fail-under 100 should fail
+    # because not_covered() is never called
+    result = _run_slipcover(
+        ["--source", str(src), "--fail-under", "100",
+         "-m", "pytest", "-q", str(tests)],
+        cwd=tmp_path, env={"PYTHONPATH": str(src)},
+    )
+    assert result.returncode == 2, (
+        f"fail-under 100 should fail when not all lines are covered.\nstdout: {result.stdout}"
+    )
+
+    # With xdist - same scenario, should also fail
+    result = _run_slipcover(
+        ["--source", str(src), "--fail-under", "100",
+         "-m", "pytest", "-n", "1", "-q", str(tests)],
+        cwd=tmp_path, env={"PYTHONPATH": str(src)},
+    )
+    assert result.returncode == 2, (
+        f"fail-under 100 should fail with xdist when not all lines are covered.\nstdout: {result.stdout}"
+    )
+
+
+def test_fail_under_preserves_pytest_failure_exit_code(tmp_path):
+    """When pytest itself fails (RC 1), that exit code should be preserved."""
+    src, tests = _setup_project(
+        tmp_path,
+        module_code="""\
+            def func():
+                return "value"
+        """,
+        test_code="""\
+            import sys
+            sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "src"))
+            from target import func
+
+            def test_failing():
+                assert func() == "wrong"
+        """,
+    )
+
+    result = _run_slipcover(
+        ["--source", str(src),
+         "-m", "pytest", "-q", str(tests)],
+        cwd=tmp_path, env={"PYTHONPATH": str(src)},
+    )
+    assert result.returncode == 1, (
+        f"pytest failure exit code should be preserved.\nstdout: {result.stdout}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test: retroactive instrumentation of pre-imported modules
 # ---------------------------------------------------------------------------
 

@@ -280,45 +280,51 @@ def main():
 
     atexit.register(sci_atexit)
 
-    if args.script:
-        # python 'globals' for the script being executed
-        script_globals: Dict[Any, Any] = dict()
+    exit_code = 0
 
-        # needed so that the script being invoked behaves like the main one
-        script_globals['__name__'] = '__main__'
-        script_globals['__file__'] = args.script
+    try:
+        if args.script:
+            # python 'globals' for the script being executed
+            script_globals: Dict[Any, Any] = dict()
 
-        sys.argv = [str(args.script), *args.script_or_module_args]
+            # needed so that the script being invoked behaves like the main one
+            script_globals['__name__'] = '__main__'
+            script_globals['__file__'] = args.script
 
-        # the 1st item in sys.path is always the main script's directory
-        sys.path.pop(0)
-        sys.path.insert(0, str(base_path))
+            sys.argv = [str(args.script), *args.script_or_module_args]
 
-        with open(args.script, "r") as f:
-            t = ast.parse(f.read())
-            if args.branch and file_matcher.matches(args.script):
-                t = br.preinstrument(t)
-            code = compile(t, str(Path(args.script).resolve()), "exec")
+            # the 1st item in sys.path is always the main script's directory
+            sys.path.pop(0)
+            sys.path.insert(0, str(base_path))
+
+            with open(args.script, "r") as f:
+                t = ast.parse(f.read())
+                if args.branch and file_matcher.matches(args.script):
+                    t = br.preinstrument(t)
+                code = compile(t, str(Path(args.script).resolve()), "exec")
 
 
-        if file_matcher.matches(args.script):
-            code = sci.instrument(code)
+            if file_matcher.matches(args.script):
+                code = sci.instrument(code)
 
-        with sc.ImportManager(sci, file_matcher):
-            exec(code, script_globals)
+            with sc.ImportManager(sci, file_matcher):
+                exec(code, script_globals)
 
-    else:
-        import runpy
-        sys.argv = [*args.module, *args.script_or_module_args]
-        with sc.ImportManager(sci, file_matcher):
-            runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
+        else:
+            import runpy
+            sys.argv = [*args.module, *args.script_or_module_args]
+            with sc.ImportManager(sci, file_matcher):
+                runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
+
+    except SystemExit as e:
+        exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
 
     if args.fail_under:
         cov = get_coverage(sci)
         if cov['summary']['percent_covered'] < args.fail_under:
             return 2
 
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
