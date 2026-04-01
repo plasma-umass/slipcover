@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dis
+import re
 import sys
 import threading
 import types
@@ -304,13 +305,15 @@ class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
                  disassemble: bool = False, source: Optional[List[str]] = None,
-                 omit: Optional[List[str]] = None):
+                 omit: Optional[List[str]] = None,
+                 exclude_lines: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.disassemble = disassemble
         self.source = source
         self.omit = omit
+        self.exclude_lines = [re.compile(p) for p in exclude_lines] if exclude_lines else None
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -657,6 +660,148 @@ class Slipcover:
             self.all_seen.clear()
 
 
+    @staticmethod
+    def _exclude_def_signature_lines(files: dict) -> None:
+        """Exclude continuation lines of multi-line function/class signatures.
+
+        In Python < 3.14, parameter type annotations are evaluated eagerly
+        and generate bytecodes at module level.  Lines that only hold
+        parameter declarations (between ``def foo(`` and the body) are not
+        meaningful executable statements.  coverage.py silently drops them;
+        we do the same so the two tools agree.
+        """
+        import ast
+
+        _ast_cache: dict = {}
+
+        def _get_tree(path: str):
+            if path not in _ast_cache:
+                try:
+                    p = Path(path)
+                    if not p.is_absolute():
+                        p = Path.cwd() / p
+                    _ast_cache[path] = ast.parse(p.read_text())
+                except Exception:
+                    _ast_cache[path] = None
+            return _ast_cache[path]
+
+        for fname, fdata in files.items():
+            tree = _get_tree(fname)
+            if tree is None:
+                continue
+
+            sig_lines: set = set()
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    def_line = node.lineno
+                    if node.body:
+                        body_start = node.body[0].lineno
+                        # Decorators precede node.lineno, so def_line+1
+                        # through body_start-1 are signature continuation lines
+                        for ln in range(def_line + 1, body_start):
+                            sig_lines.add(ln)
+
+            if sig_lines:
+                fdata['executed_lines'] = [l for l in fdata['executed_lines'] if l not in sig_lines]
+                fdata['missing_lines'] = [l for l in fdata['missing_lines'] if l not in sig_lines]
+
+    def _filter_excluded_lines(self, files: dict) -> None:
+        """Remove lines matching exclude_lines patterns from coverage data.
+
+        Like coverage.py, when an excluded line is a control structure (if,
+        for, while, with, try, class, def, etc.), the entire indented body
+        is also excluded.
+        """
+        file_cache: dict = {}
+
+        def read_source(path: str) -> List[str]:
+            if path not in file_cache:
+                try:
+                    p = Path(path)
+                    if not p.is_absolute():
+                        p = Path.cwd() / p
+                    with open(p) as f:
+                        file_cache[path] = f.readlines()
+                except OSError:
+                    file_cache[path] = []
+            return file_cache[path]
+
+        # Keywords that start a block whose body should be excluded
+        _BLOCK_KW = re.compile(r'^\s*(if|elif|else|for|while|with|try|except|finally|class|def|case|match|async\s+def|async\s+for|async\s+with)\b')
+
+        def _indent(line: str) -> int:
+            return len(line) - len(line.lstrip())
+
+        def _exclude_block_body(source_lines, start_idx, base_indent, excluded):
+            """Exclude all lines indented deeper than base_indent."""
+            total = len(source_lines)
+            i = start_idx
+            while i < total:
+                body_line = source_lines[i]
+                stripped = body_line.strip()
+                if stripped == '' or stripped.startswith('#'):
+                    excluded.add(i + 1)
+                    i += 1
+                    continue
+                if _indent(body_line) > base_indent:
+                    excluded.add(i + 1)
+                    i += 1
+                else:
+                    break
+            return i
+
+        def _get_excluded_set(source_lines: List[str]) -> set:
+            excluded = set()
+            total = len(source_lines)
+            i = 0
+            while i < total:
+                line = source_lines[i]
+                lineno = i + 1
+                if any(rx.search(line) for rx in self.exclude_lines):
+                    excluded.add(lineno)
+                    stripped = line.strip()
+
+                    if stripped.startswith('@'):
+                        # Decorator match: skip forward past more decorators
+                        # to the def/class, then exclude it and its body
+                        base_indent = _indent(line)
+                        i += 1
+                        while i < total:
+                            nxt = source_lines[i]
+                            nxt_stripped = nxt.strip()
+                            if nxt_stripped == '' or nxt_stripped.startswith('#'):
+                                excluded.add(i + 1)
+                                i += 1
+                                continue
+                            if nxt_stripped.startswith('@'):
+                                excluded.add(i + 1)
+                                i += 1
+                                continue
+                            # Should be the def/class line
+                            if _BLOCK_KW.search(nxt):
+                                excluded.add(i + 1)
+                                i = _exclude_block_body(source_lines, i + 1, base_indent, excluded)
+                            break
+                        continue
+
+                    if _BLOCK_KW.search(line):
+                        base_indent = _indent(line)
+                        i = _exclude_block_body(source_lines, i + 1, base_indent, excluded)
+                        continue
+                i += 1
+            return excluded
+
+        for fname, fdata in files.items():
+            source_lines = read_source(fname)
+            if not source_lines:
+                continue
+
+            excluded = _get_excluded_set(source_lines)
+
+            if excluded:
+                fdata['executed_lines'] = [l for l in fdata['executed_lines'] if l not in excluded]
+                fdata['missing_lines'] = [l for l in fdata['missing_lines'] if l not in excluded]
+
     def get_coverage(self):
         """Returns coverage information collected."""
 
@@ -691,6 +836,11 @@ class Slipcover:
                     f_files['missing_branches'] = sorted(self.code_branches[f] - branches_seen)
 
                 files[simp.simplify(f)] = f_files
+
+            self._exclude_def_signature_lines(files)
+
+            if self.exclude_lines:
+                self._filter_excluded_lines(files)
 
             cov = {
                 'meta': Slipcover._make_meta(self.branch),
@@ -746,6 +896,15 @@ class Slipcover:
                 if root.__func__ not in visited:
                     visited.add(root.__func__)
                     yield root.__func__
+
+            elif issubclass(type(root), property):
+                for accessor in (root.fget, root.fset, root.fdel):
+                    if accessor is not None:
+                        yield from find_funcs(accessor)
+
+            # Follow __wrapped__ for decorated functions (functools.wraps, etc.)
+            if hasattr(root, '__wrapped__') and root.__wrapped__ is not root:
+                yield from find_funcs(root.__wrapped__)
 
         # FIXME this may yield "dictionary changed size during iteration"
         return [f for it in items for f in find_funcs(it)]
