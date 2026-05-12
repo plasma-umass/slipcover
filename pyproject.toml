@@ -8,7 +8,6 @@ authors = [
     { name="Emery Berger", email="emery.berger@gmail.com" }
 ]
 classifiers = [
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -20,7 +19,7 @@ classifiers = [
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows :: Windows 10"
 ]
-requires-python = ">=3.8,<3.15"
+requires-python = ">=3.9,<3.15"
 dependencies = [
     "tabulate"
 ]
