@@ -256,8 +256,29 @@ def add_summaries(cov: dict) -> None:
     cov['summary'] = g_summary
 
 
+def _canonical_path(p: str) -> str:
+    """Resolve a path key to a canonical form for cross-step equivalence.
+
+    The same physical file can be recorded under different path spellings
+    across steps of a workload — most commonly a cwd-relative form when one
+    step runs a script directly and an absolute editable-install form when
+    another step imports it as a package. Without canonicalization the merge
+    treats them as separate files and the headline percentage is halved.
+    """
+    try:
+        return str(Path(p).resolve())
+    except OSError:
+        return p
+
+
 def merge_coverage(a: dict, b: dict) -> dict:
-    """Merges coverage result 'b' into 'a'."""
+    """Merges coverage result 'b' into 'a'.
+
+    File entries are grouped by canonical path so that aliases of the same
+    physical file (relative vs absolute, symlinked, etc.) collapse into a
+    single merged entry. The shortest original spelling is used as the
+    display key for each group.
+    """
 
     if a.get('meta', {}).get('software', None) != 'slipcover':
         raise SlipcoverError('Cannot merge coverage: only SlipCover format supported.')
@@ -273,28 +294,53 @@ def merge_coverage(a: dict, b: dict) -> dict:
     a_files = a['files']
     b_files = b['files']
 
-    def both(f, field):
-        return (a_files[f][field] if f in a_files else []) + b_files[f][field]
+    # Group aliases by canonical path.
+    groups: dict = defaultdict(lambda: {'a': [], 'b': []})
+    for k in a_files:
+        groups[_canonical_path(k)]['a'].append(k)
+    for k in b_files:
+        groups[_canonical_path(k)]['b'].append(k)
 
-    for f in b_files:
-        executed_lines = set(both(f, 'executed_lines'))
-        missing_lines = set(both(f, 'missing_lines'))
+    new_files: dict = {}
+    for aliases in groups.values():
+        executed_lines: set = set()
+        missing_lines: set = set()
+        executed_branches: set = set()
+        missing_branches: set = set()
+
+        for k in aliases['a']:
+            entry = a_files[k]
+            executed_lines.update(entry.get('executed_lines', ()))
+            missing_lines.update(entry.get('missing_lines', ()))
+            if branch_coverage:
+                executed_branches.update(tuple(br) for br in entry.get('executed_branches', ()))
+                missing_branches.update(tuple(br) for br in entry.get('missing_branches', ()))
+        for k in aliases['b']:
+            entry = b_files[k]
+            executed_lines.update(entry.get('executed_lines', ()))
+            missing_lines.update(entry.get('missing_lines', ()))
+            if branch_coverage:
+                executed_branches.update(tuple(br) for br in entry.get('executed_branches', ()))
+                missing_branches.update(tuple(br) for br in entry.get('missing_branches', ()))
+
         missing_lines -= executed_lines
-        update = {
+        missing_branches -= executed_branches
+
+        # Prefer the shortest original spelling as the display key (typically
+        # the cwd-relative form when both relative and absolute are present).
+        display = min(aliases['a'] + aliases['b'], key=lambda s: (len(s), s))
+
+        update: dict = {
             'executed_lines': sorted(executed_lines),
-            'missing_lines': sorted(missing_lines)
+            'missing_lines': sorted(missing_lines),
         }
-
         if branch_coverage:
-            executed_branches = set(tuple(br) for br in both(f, 'executed_branches'))
-            missing_branches = set(tuple(br) for br in both(f, 'missing_branches'))
-            missing_branches -= executed_branches
-            update.update({
-                'executed_branches': sorted(list(br) for br in executed_branches),
-                'missing_branches': sorted(list(br) for br in missing_branches)
-            })
+            update['executed_branches'] = sorted(list(br) for br in executed_branches)
+            update['missing_branches'] = sorted(list(br) for br in missing_branches)
+        new_files[display] = update
 
-        a_files[f] = update
+    a_files.clear()
+    a_files.update(new_files)
 
     add_summaries(a)
     return a

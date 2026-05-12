@@ -880,6 +880,70 @@ print("in t2!")
     check_summaries(a)
 
 
+@pytest.mark.parametrize("do_branch", [True, False])
+def test_merge_coverage_canonicalizes_paths(tmp_path, monkeypatch, do_branch):
+    """When the same physical file is recorded under two different path
+    spellings (e.g. relative + absolute, or via a symlink), merge_coverage
+    should canonicalize the paths and collapse the entries into one.
+
+    This happens in practice when one workload step records files via a
+    cwd-relative path (e.g. running `python -m pkg pkg/`) while another step
+    imports the same files as a package, causing Python's import machinery
+    to expose them via their editable-install absolute path.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "t.py").write_text("""\
+import sys
+if len(sys.argv) < 2:   # 2
+    print("A branch")
+else:
+    print("B branch")   # 5
+""")
+
+    subprocess.run([sys.executable, '-m', 'slipcover'] +
+                   (['--branch'] if do_branch else []) +
+                   ['--json', '--out', tmp_path / "a.json", "t.py"], check=True)
+    subprocess.run([sys.executable, '-m', 'slipcover'] +
+                   (['--branch'] if do_branch else []) +
+                   ['--json', '--out', tmp_path / "b.json", "t.py", "X"], check=True)
+
+    with (tmp_path / "a.json").open() as f:
+        a = json.load(f)
+    with (tmp_path / "b.json").open() as f:
+        b = json.load(f)
+
+    # Re-key b's entry to the absolute path that the same file resolves to.
+    abs_path = str((tmp_path / "t.py").resolve())
+    assert abs_path != "t.py"
+    b['files'][abs_path] = b['files'].pop('t.py')
+
+    assert 't.py' in a['files']
+    assert abs_path in b['files']
+
+    sc.merge_coverage(a, b)
+
+    # Aliases collapse into a single entry.
+    t_keys = [k for k in a['files'] if k.endswith('t.py')]
+    assert len(t_keys) == 1, f"expected one entry for t.py, got: {t_keys}"
+
+    # The shorter (relative) display form wins when both forms exist.
+    assert t_keys[0] == 't.py'
+
+    # Coverage from both runs is unioned.
+    # Run a (no extra arg) executes lines 1,2,3; run b (with arg) executes 1,2,5.
+    assert {1, 2, 3, 5} <= set(a['files']['t.py']['executed_lines'])
+    assert [] == a['files']['t.py']['missing_lines']
+
+    if do_branch:
+        # Both branches of the `if` at line 2 should be covered.
+        assert [2, 3] in a['files']['t.py']['executed_branches']
+        assert [2, 5] in a['files']['t.py']['executed_branches']
+        assert [] == a['files']['t.py']['missing_branches']
+
+    check_summaries(a)
+
+
 @pytest.fixture
 def cov_merge_fixture(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
