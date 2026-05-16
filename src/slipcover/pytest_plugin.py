@@ -71,6 +71,8 @@ def pytest_configure(config):
     branch = os.environ.get("SLIPCOVER_BRANCH") == "1"
     source = os.environ.get("SLIPCOVER_SOURCE")
     omit = os.environ.get("SLIPCOVER_OMIT")
+    exclude_lines_str = os.environ.get("SLIPCOVER_EXCLUDE_LINES")
+    exclude_lines = exclude_lines_str.split("\n") if exclude_lines_str else None
 
     # Set up file matcher
     _file_matcher = sc.FileMatcher()
@@ -85,9 +87,13 @@ def pytest_configure(config):
             if o:
                 _file_matcher.addOmit(o)
 
-    # Create Slipcover instance
-    source_list = [s.strip() for s in source.split(",")] if source else None
-    _slipcover_instance = sc.Slipcover(branch=branch, source=source_list)
+    # Create Slipcover instance — workers don't pass source to avoid
+    # _add_unseen_source_files adding files with AST-parsed line counts
+    # that differ from bytecode-parsed counts.  The main process (via
+    # __main__.py) handles unseen-file scanning instead.
+    omit_list = [o.strip() for o in omit.split(",") if o.strip()] if omit else None
+    _slipcover_instance = sc.Slipcover(branch=branch, omit=omit_list,
+                                       exclude_lines=exclude_lines)
 
     # Wrap pytest's assertion rewriter for instrumentation
     sc.wrap_pytest(_slipcover_instance, _file_matcher)
@@ -95,6 +101,109 @@ def pytest_configure(config):
     # Start import instrumentation
     _import_manager = sc.ImportManager(_slipcover_instance, _file_matcher)
     _import_manager.__enter__()
+
+    # Retroactively instrument modules already in sys.modules (inherited
+    # from the main process via execnet fork).  Without this, those modules
+    # bypass the ImportManager and their coverage is never recorded.
+    #
+    # On Python 3.12+, sys.monitoring.set_local_events must be called on
+    # the actual live code objects, not freshly compiled ones.  We find
+    # all function/method objects in each module and instrument their
+    # __code__ attributes directly.
+    import ast
+    import sys as _sys
+    import types
+
+    def _instrument_func(func):
+        if isinstance(func, types.FunctionType) and _file_matcher.matches(func.__code__.co_filename):
+            _slipcover_instance.instrument(func.__code__)
+
+    visited: set = set()
+    for mod in list(_sys.modules.values()):
+        if not hasattr(mod, '__file__'):
+            continue
+        origin = getattr(mod, '__file__', None)
+        if origin and _file_matcher.matches(origin):
+            _slipcover_instance.register_module(mod)
+
+            # Populate code_lines with ALL source lines (module-level +
+            # function bodies) so the merge with the main process works
+            # correctly.  The main process has module-level executed_lines
+            # from import; workers supply function body executed_lines.
+            abs_origin = str(Path(origin).resolve())
+            if abs_origin not in _slipcover_instance.code_lines:
+                try:
+                    source_text = Path(origin).read_text()
+                    code = compile(ast.parse(source_text), abs_origin, "exec")
+                    _slipcover_instance.code_lines[abs_origin].update(
+                        sc.Slipcover.lines_from_code(code)
+                    )
+                except Exception:
+                    pass
+
+            for func in sc.Slipcover.find_functions(mod.__dict__.values(), visited):
+                _instrument_func(func)
+            # Scan instance attributes of module-level objects for hidden
+            # function references (e.g., Hatchet task wrappers store the
+            # original function in obj._task.fn).
+            _deep_scan_visited: set = set()
+            for val in mod.__dict__.values():
+                _deep_scan_functions(val, _instrument_func, _deep_scan_visited, _file_matcher, depth=3)
+            # Scan containers (dicts, lists) in module and class dicts for
+            # lambdas (e.g., column_formatters = {"key": lambda ...}).
+            _scan_containers_for_functions(mod, _instrument_func, _file_matcher)
+
+
+def _instrument_container_functions(container, instrument_fn, visited):
+    """Instrument functions found in a dict/list/tuple/set, recursing into nested containers."""
+    import types
+
+    items = container.values() if isinstance(container, dict) else container
+    for val in items:
+        if isinstance(val, types.FunctionType):
+            if id(val) not in visited:
+                visited.add(id(val))
+                instrument_fn(val)
+        elif isinstance(val, (dict, list, tuple)):
+            _instrument_container_functions(val, instrument_fn, visited)
+
+
+def _scan_containers_for_functions(mod, instrument_fn, file_matcher):
+    """Find functions stored in containers at module and class level."""
+    visited: set = set()
+    for val in mod.__dict__.values():
+        # Module-level containers (dicts, lists)
+        if isinstance(val, (dict, list, tuple)):
+            _instrument_container_functions(val, instrument_fn, visited)
+        # Class-level containers
+        elif isinstance(val, type):
+            for cls_val in val.__dict__.values():
+                if isinstance(cls_val, (dict, list, tuple)):
+                    _instrument_container_functions(cls_val, instrument_fn, visited)
+
+
+def _deep_scan_functions(obj, instrument_fn, visited, file_matcher, depth):
+    """Recursively scan object attributes for hidden function references."""
+    if depth <= 0 or id(obj) in visited:
+        return
+    visited.add(id(obj))
+
+    import types
+
+    # Skip basic types, modules, and types themselves
+    if isinstance(obj, (str, bytes, int, float, bool, type(None), type, types.ModuleType)):
+        return
+
+    try:
+        obj_vars = vars(obj)
+    except TypeError:
+        return
+
+    for val in obj_vars.values():
+        if isinstance(val, types.FunctionType):
+            instrument_fn(val)
+        elif not isinstance(val, (str, bytes, int, float, bool, type(None), list, dict, set, tuple)):
+            _deep_scan_functions(val, instrument_fn, visited, file_matcher, depth - 1)
 
 
 def pytest_unconfigure(config):
