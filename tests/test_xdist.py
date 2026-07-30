@@ -248,13 +248,13 @@ def test_xdist_fail_under_uses_merged_coverage(tmp_path):
     # real merged coverage is 10/12 = 83.3% (the "return 1"/"return 3"
     # branches are never taken) -- comfortably above 50, so this must pass.
     # The coordinator's own local, unmerged view would incorrectly see 0%
-    # (it discovers the file via --source but never executes it itself,
+    # (it discovers the file via cwd-matching but never executes it itself,
     # since actual test execution happens only in the xdist workers), which
     # would incorrectly fail this same check.
     result = subprocess.run(
-        [sys.executable, '-m', 'slipcover', '--source', str(tmp_path),
-         '--fail-under', '50',
-         '-m', 'pytest', '-n', '2', str(test_file)],
+        [sys.executable, '-m', 'slipcover', '--fail-under', '50',
+         '-m', 'pytest', '-n', '2', test_file.name],
+        cwd=str(tmp_path),
         capture_output=True,
         text=True
     )

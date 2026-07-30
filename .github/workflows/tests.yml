@@ -47,7 +47,7 @@ jobs:
     - name: install prereqs
       run: |
         python3 -m pip install -U pip  # to avoid warnings
-        python3 -m pip install pytest
+        python3 -m pip install pytest pytest-xdist
 
     - name: install Unix dependencies
       if: matrix.os != 'windows-latest'

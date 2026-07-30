@@ -757,12 +757,16 @@ def test_fail_under_precedence_with_failing_pytest_run(tmp_path):
     """))
 
     # coverage is fine -- pytest's own failure exit code (1) must be preserved
-    p = subprocess.run(f"{sys.executable} -m slipcover --source {tmp_path} --fail-under 1 -m pytest {test_file}".split(), check=False)
+    p = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--fail-under', '1', '-m', 'pytest', test_file.name],
+        cwd=str(tmp_path), check=False)
     assert 1 == p.returncode
 
     # coverage is below threshold -- fail-under (2) must override pytest's
     # own exit code
-    p = subprocess.run(f"{sys.executable} -m slipcover --source {tmp_path} --fail-under 100 -m pytest {test_file}".split(), check=False)
+    p = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--fail-under', '100', '-m', 'pytest', test_file.name],
+        cwd=str(tmp_path), check=False)
     assert 2 == p.returncode
 
 
