@@ -43,7 +43,7 @@ def fork_shim(sci):
     return wrapper
 
 
-def get_coverage(sci):
+def merged_coverage(sci):
     """Combines this process' coverage with that of any previously forked children and xdist workers."""
     global input_tmpfiles, output_tmpfile
 
@@ -100,7 +100,7 @@ def exit_shim(sci):
         global output_tmpfile
 
         if output_tmpfile:
-            json.dump(get_coverage(sci), output_tmpfile)
+            json.dump(merged_coverage(sci), output_tmpfile)
             output_tmpfile.flush()
 
         original_exit(*pargs, **kwargs)
@@ -266,7 +266,7 @@ def main():
                                   missing_width=args.missing_width)
 
         if not args.silent:
-            coverage = get_coverage(sci)
+            coverage = merged_coverage(sci)
             if args.out:
                 with open(args.out, "w") as outfile:
                     printit(coverage, outfile)
@@ -274,6 +274,8 @@ def main():
                 printit(coverage, sys.stdout)
 
     atexit.register(sci_atexit)
+
+    return_code = 0
 
     if args.script:
         # python 'globals' for the script being executed
@@ -300,20 +302,25 @@ def main():
             code = sci.instrument(code)
 
         with sc.ImportManager(sci, file_matcher):
-            exec(code, script_globals)
-
+            try:
+                exec(code, script_globals)
+            except SystemExit as e:
+                return_code = e.code if e.code is not None else 0
     else:
         import runpy
         sys.argv = [*args.module, *args.script_or_module_args]
         with sc.ImportManager(sci, file_matcher):
-            runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
+            try:
+                runpy.run_module(*args.module, run_name='__main__', alter_sys=True)
+            except SystemExit as e:
+                return_code = e.code if e.code is not None else 0
 
     if args.fail_under:
-        cov = sci.get_coverage()
+        cov = merged_coverage(sci)
         if cov['summary']['percent_covered'] < args.fail_under:
             return 2
     
-    return 0
+    return return_code
 
 
 if __name__ == "__main__":

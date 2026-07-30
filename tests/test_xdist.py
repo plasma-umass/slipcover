@@ -4,6 +4,7 @@ import subprocess
 import sys
 import json
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -216,3 +217,46 @@ def test_xdist_four_workers(tmp_path):
     # All lines should still be covered with more workers
     assert [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14] == file_cov['executed_lines']
     assert [] == file_cov['missing_lines']
+
+
+def test_xdist_fail_under_uses_merged_coverage(tmp_path):
+    """--fail-under must be checked against the merged (all-workers) coverage,
+    not just the coordinator process' own view. Under xdist, actual test code
+    runs only in worker subprocesses -- the coordinator's own local coverage
+    has no files at all, which trivially (and silently) reports as 100%,
+    defeating --fail-under entirely if the local, unmerged view is used.
+    """
+    test_file = tmp_path / "test_partial.py"
+    test_file.write_text(dedent("""\
+        def foo(x):
+            if x:
+                return 1
+            return 2
+
+        def bar(y):
+            if y:
+                return 3
+            return 4
+
+        def test_foo():
+            assert foo(0) == 2
+
+        def test_bar():
+            assert bar(0) == 4
+    """))
+
+    # real merged coverage is 10/12 = 83.3% (the "return 1"/"return 3"
+    # branches are never taken) -- comfortably above 50, so this must pass.
+    # The coordinator's own local, unmerged view would incorrectly see 0%
+    # (it discovers the file via cwd-matching but never executes it itself,
+    # since actual test execution happens only in the xdist workers), which
+    # would incorrectly fail this same check.
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--fail-under', '50',
+         '-m', 'pytest', '-n', '2', test_file.name],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True
+    )
+
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
