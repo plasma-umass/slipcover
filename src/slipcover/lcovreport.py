@@ -12,35 +12,27 @@ if TYPE_CHECKING:
     from .schemas import Coverage, CoverageFile
 
 
-def get_missing_branch_arcs(file_data: CoverageFile) -> Dict[int, List[int]]:
-    """Return arcs that weren't executed from branch lines.
-
-    Returns {l1:[l2a,l2b,...], ...}
-
-    """
-    mba: Dict[int, List[int]] = {}
-    for branch in file_data.get("missing_branches", []):
-        mba.setdefault(branch[0], []).append(branch[1])
-
-    return mba
-
-
 def get_branch_info(
-    file_data: CoverageFile, missing_arcs: Dict[int, List[int]]
+    file_data: CoverageFile,
 ) -> Dict[int, List[Tuple[int, bool]]]:
     """Get information about branches for LCOV format.
 
     Returns a dict mapping line numbers to a list of (branch_dest, was_taken) tuples.
 
     """
-    all_branches = sorted(file_data.get("executed_branches", []) + file_data.get("missing_branches", []))
+    # Branches may arrive as lists (e.g. after a JSON round-trip via --merge)
+    # rather than tuples, so normalize before hashing into a set.
+    missing_branches = {tuple(b) for b in file_data.get("missing_branches", [])}
+    all_branches = sorted(
+        tuple(b) for b in file_data.get("executed_branches", []) + file_data.get("missing_branches", [])
+    )
 
     # Group branches by their source line
     branches_by_line: Dict[int, List[Tuple[int, bool]]] = defaultdict(list)
 
     for branch in all_branches:
         src_line, dest_line = branch
-        is_taken = branch not in file_data.get("missing_branches", [])
+        is_taken = branch not in missing_branches
         branches_by_line[src_line].append((dest_line, is_taken))
 
     return branches_by_line
@@ -85,15 +77,14 @@ class LcovReporter:
             outfile.write(f"TN:{self.test_name}\n")
 
         # SF: Source File
-        outfile.write(f"SF:{file_path}\n")
+        outfile.write(f"SF:{file_path.replace('\\', '/')}\n")
 
         # Get all lines (both executed and missing)
         all_lines = sorted(file_data["executed_lines"] + file_data["missing_lines"])
 
         # Write branch coverage data if enabled
         if self.with_branches and (file_data.get("executed_branches") or file_data.get("missing_branches")):
-            missing_arcs = get_missing_branch_arcs(file_data)
-            branch_info = get_branch_info(file_data, missing_arcs)
+            branch_info = get_branch_info(file_data)
 
             # BRDA: Branch data
             # Format: BRDA:<line number>,<block number>,<branch number>,<taken count or '-'>

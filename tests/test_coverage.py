@@ -1514,6 +1514,26 @@ def test_lcov_flag_with_branches(cov_merge_fixture: Path):
     assert 'end_of_record' in lines
 
 
+def test_lcov_flag_branch_taken_status_is_specific(cov_merge_fixture: Path):
+    """BRF/BRH aggregate counts alone can't tell a correctly-mapped result
+    from one with taken/not-taken inverted (a fixture with a symmetric
+    hit/miss split, like this one, would still show the same BRH count
+    either way) -- assert each individual BRDA line instead.
+    """
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--branch', '--lcov', '--out', "out.lcov", "t.py"], check=True)
+    assert 0 == p.returncode
+
+    lcov_text = (cov_merge_fixture / 'out.lcov').read_text(encoding='utf8')
+    brda_lines = [line for line in lcov_text.strip().split('\n') if line.startswith('BRDA:')]
+
+    # line 3 ("if len(sys.argv) < 2:"): 3->4 taken, 3->6 not taken
+    assert 'BRDA:3,0,0,1' in brda_lines
+    assert 'BRDA:3,0,1,-' in brda_lines
+    # line 8 ("if not sys.argv:"): 8->9 not taken, 8->11 taken
+    assert 'BRDA:8,0,0,-' in brda_lines
+    assert 'BRDA:8,0,1,1' in brda_lines
+
+
 def test_lcov_flag_with_test_name(cov_merge_fixture: Path):
     p = subprocess.run([sys.executable, '-m', 'slipcover', '--lcov', '--lcov-test-name', 'MyTestSuite', 
                        '--out', "out.lcov", "t.py"], check=True)
@@ -1558,3 +1578,96 @@ def test_lcov_flag_with_test_name_and_comments(cov_merge_fixture: Path):
     # Check that TN: is present with the test name
     assert 'TN:IntegrationTest' in lines[1]
     assert 'SF:t.py' in lines[2]
+
+
+def test_lcov_normalizes_windows_paths():
+    """LCOV's SF: entry must use forward slashes, matching xmlreport.py's
+    own path normalization (genhtml/lcov tooling expects '/'-style paths).
+    """
+    import io
+
+    coverage = {
+        'meta': {'software': 'slipcover', 'version': '0', 'timestamp': '', 'branch_coverage': False},
+        'files': {
+            r'src\pkg\mod.py': {
+                'executed_lines': [1],
+                'missing_lines': [],
+            }
+        },
+    }
+
+    out = io.StringIO()
+    sc.print_lcov(coverage, outfile=out)
+    lcov_text = out.getvalue()
+
+    assert 'SF:src/pkg/mod.py' in lcov_text
+    assert '\\' not in lcov_text
+
+
+def test_lcov_flag_empty_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "empty.py").write_text("")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--lcov', '--out', "out.lcov", "empty.py"], check=True)
+    assert 0 == p.returncode
+
+    lcov_text = (tmp_path / 'out.lcov').read_text(encoding='utf8')
+    lines = lcov_text.strip().split('\n')
+
+    assert 'SF:empty.py' in lines[0]
+    assert 'LF:0' in lines
+    assert 'LH:0' in lines
+    assert 'end_of_record' in lines
+
+
+def test_lcov_flag_full_coverage(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "full.py").write_text("x = 1\ny = 2\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--lcov', '--out', "out.lcov", "full.py"], check=True)
+    assert 0 == p.returncode
+
+    lcov_text = (tmp_path / 'out.lcov').read_text(encoding='utf8')
+    lines = lcov_text.strip().split('\n')
+
+    assert 'DA:1,1' in lines
+    assert 'DA:2,1' in lines
+    assert 'LF:2' in lines
+    assert 'LH:2' in lines
+
+
+def test_lcov_flag_zero_coverage(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "unused.py").write_text("def foo():\n    return 1\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--lcov', '--out', "out.lcov", "unused.py"], check=True)
+    assert 0 == p.returncode
+
+    lcov_text = (tmp_path / 'out.lcov').read_text(encoding='utf8')
+    lines = lcov_text.strip().split('\n')
+
+    assert 'DA:2,0' in lines  # "return 1" body never executes
+    assert 'LH:0' not in lines or 'LF:0' not in lines  # sanity: file isn't itself empty
+    assert 'LH:1' in lines  # only the "def foo():" line (module-level) executes
+    assert 'LF:2' in lines
+
+
+def test_lcov_flag_with_merge(cov_merge_fixture):
+    subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
+                    '--json', '--out', "a.json", "t.py"], check=True)
+    subprocess.run([sys.executable, '-m', 'slipcover', '--branch',
+                    '--json', '--out', "b.json", "t.py", "X"], check=True)
+
+    subprocess.run([sys.executable, '-m', 'slipcover', '--merge',
+                    'a.json', 'b.json', '--branch', '--lcov', '--out', 'c.lcov'], check=True)
+
+    lcov_text = Path("c.lcov").read_text(encoding='utf8')
+    lines = lcov_text.strip().split('\n')
+
+    assert 'SF:t.py' in lines[0]
+    da_lines = [line for line in lines if line.startswith('DA:')]
+    # merged coverage: both the "A branch" (line 4) and "B branch" (line 6) taken
+    assert 'DA:4,1' in da_lines
+    assert 'DA:6,1' in da_lines
+    assert 'DA:9,0' in da_lines
+    assert 'end_of_record' in lines
