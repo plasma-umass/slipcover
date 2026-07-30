@@ -5,6 +5,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -708,6 +709,60 @@ def test_fail_under(tmp_path, json_flag):
     assert 0 == p.returncode
 
     p = subprocess.run(f"{sys.executable} -m slipcover --branch --fail-under 94 -m pytest tests/pyt.py".split(), check=False)
+    assert 2 == p.returncode
+
+
+def test_fail_under_precedence_with_nonzero_exit(tmp_path):
+    """When the script/pytest run itself fails (nonzero SystemExit) AND
+    coverage is below the fail-under threshold, coverage failure (RC 2)
+    takes precedence. But when coverage is fine, the run's own nonzero
+    exit code must be preserved, not silently replaced with 0.
+    """
+    script = tmp_path / "script.py"
+    script.write_text(dedent("""\
+        def foo(x):
+            if x:
+                return 1
+            return 2
+        foo(0)
+        raise SystemExit(3)
+    """))
+
+    # coverage is fine (line 3 "return 1" never runs, but threshold is low) --
+    # the script's own exit code (3) must be preserved
+    p = subprocess.run(f"{sys.executable} -m slipcover --fail-under 1 {script}".split(), check=False)
+    assert 3 == p.returncode
+
+    # coverage is below threshold -- fail-under (2) must override the
+    # script's own exit code
+    p = subprocess.run(f"{sys.executable} -m slipcover --fail-under 100 {script}".split(), check=False)
+    assert 2 == p.returncode
+
+
+def test_fail_under_precedence_with_failing_pytest_run(tmp_path):
+    """Same precedence check as test_fail_under_precedence_with_nonzero_exit,
+    but through the `-m pytest` path with a genuinely failing test (pytest's
+    own SystemExit(1)), rather than a script raising SystemExit directly.
+    """
+    test_file = tmp_path / "test_mod.py"
+    test_file.write_text(dedent("""\
+        def foo(x):
+            if x:
+                return 1
+            return 2
+
+        def test_fail():
+            assert foo(0) == 2
+            assert False
+    """))
+
+    # coverage is fine -- pytest's own failure exit code (1) must be preserved
+    p = subprocess.run(f"{sys.executable} -m slipcover --source {tmp_path} --fail-under 1 -m pytest {test_file}".split(), check=False)
+    assert 1 == p.returncode
+
+    # coverage is below threshold -- fail-under (2) must override pytest's
+    # own exit code
+    p = subprocess.run(f"{sys.executable} -m slipcover --source {tmp_path} --fail-under 100 -m pytest {test_file}".split(), check=False)
     assert 2 == p.returncode
 
 

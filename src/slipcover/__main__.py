@@ -43,7 +43,7 @@ def fork_shim(sci):
     return wrapper
 
 
-def get_coverage(sci):
+def merged_coverage(sci):
     """Combines this process' coverage with that of any previously forked children and xdist workers."""
     global input_tmpfiles, output_tmpfile
 
@@ -100,7 +100,7 @@ def exit_shim(sci):
         global output_tmpfile
 
         if output_tmpfile:
-            json.dump(get_coverage(sci), output_tmpfile)
+            json.dump(merged_coverage(sci), output_tmpfile)
             output_tmpfile.flush()
 
         original_exit(*pargs, **kwargs)
@@ -263,7 +263,7 @@ def main():
                                   missing_width=args.missing_width)
 
         if not args.silent:
-            coverage = get_coverage(sci)
+            coverage = merged_coverage(sci)
             if args.out:
                 with open(args.out, "w") as outfile:
                     printit(coverage, outfile)
@@ -313,7 +313,7 @@ def main():
                 return_code = e.code if e.code is not None else 0
 
     if args.fail_under:
-        cov = sci.get_coverage()
+        cov = merged_coverage(sci)
         if cov['summary']['percent_covered'] < args.fail_under:
             return 2
     
