@@ -77,7 +77,8 @@ class LcovReporter:
             outfile.write(f"TN:{self.test_name}\n")
 
         # SF: Source File
-        outfile.write(f"SF:{file_path.replace('\\', '/')}\n")
+        sf_path = file_path.replace('\\', '/')
+        outfile.write(f"SF:{sf_path}\n")
 
         # Get all lines (both executed and missing)
         all_lines = sorted(file_data["executed_lines"] + file_data["missing_lines"])
