@@ -53,10 +53,15 @@ def test_find_pyproject_finds_file_at_vcs_root(tmp_path):
 
 
 def test_find_pyproject_stops_at_home(tmp_path, monkeypatch):
-    """Should not walk above the user's home directory."""
+    """Should not walk above the user's home directory.
+
+    Patches Path.home() directly rather than the HOME env var: Path.home()
+    resolves via USERPROFILE on Windows, not HOME, so setting HOME alone
+    has no effect there and doesn't control what find_pyproject() sees.
+    """
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
     # Place pyproject.toml above the fake home — should NOT be found.
     (tmp_path / "pyproject.toml").write_text("")
     child = fake_home / "projects" / "foo"
