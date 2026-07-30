@@ -245,9 +245,13 @@ def main():
         args = ap.parse_args(sys.argv[1:])
 
     # Apply [tool.slipcover] from pyproject.toml; CLI flags take precedence
-    config = read_config()
-    if config:
-        apply_config(config, args, explicit_args)
+    try:
+        config = read_config()
+        if config:
+            apply_config(config, args, explicit_args)
+    except (ValueError, TypeError) as e:
+        print(f"slipcover: error in pyproject.toml configuration: {e}", file=sys.stderr)
+        return 1
 
 
     base_path = Path(args.script).resolve().parent if args.script \

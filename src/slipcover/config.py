@@ -118,6 +118,11 @@ def apply_config(config, parsed_args, explicit_args=None):
             setattr(parsed_args, dest, value)
 
         elif key in _VALUE_KEYS:
+            # TOML's idiomatic way to express multiple values is an array;
+            # join it the way --source/--omit's comma-separated CLI form
+            # expects, rather than stringifying the Python list itself.
+            if key in ("source", "omit") and isinstance(value, list):
+                value = ",".join(str(v) for v in value)
             setattr(parsed_args, dest, _VALUE_KEYS[key](value))
 
         else:

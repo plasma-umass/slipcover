@@ -1,4 +1,6 @@
 import argparse
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -19,11 +21,12 @@ def test_find_pyproject_walks_up(tmp_path):
 
 
 def test_find_pyproject_returns_none(tmp_path):
+    # _MAX_WALK bounds the search to a few levels under tmp_path, which
+    # sits deep under a system temp dir with no pyproject.toml in any
+    # ancestor -- deterministic without needing an explicit VCS marker.
     child = tmp_path / "nowhere"
     child.mkdir()
-    result = find_pyproject(child)
-    # might find the repo's own file if tmp_path is under the repo tree
-    assert result is None or result.name == "pyproject.toml"
+    assert find_pyproject(child) is None
 
 
 def test_find_pyproject_stops_at_vcs_root(tmp_path):
@@ -94,8 +97,9 @@ def test_read_config_missing_section(tmp_path):
     assert read_config(toml) == {}
 
 
-def test_read_config_no_file():
-    assert read_config(None) == {} or True  # auto-discovery may find repo file
+def test_read_config_no_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert read_config(None) == {}
 
 
 def test_read_config_all_keys(tmp_path):
@@ -172,6 +176,23 @@ def test_apply_config_type_error_on_bad_bool():
         apply_config({"branch": "yes"}, args)
 
 
+def test_apply_config_source_array_is_joined():
+    """TOML's idiomatic way to express multiple values is an array;
+    join it the same way --source's comma-separated CLI form expects,
+    instead of stringifying the Python list representation.
+    """
+    args = _make_args()
+    apply_config({"source": ["src", "lib"]}, args)
+    assert args.source == "src,lib"
+
+
+def test_apply_config_omit_array_is_joined():
+    args = _make_args()
+    apply_config({"omit": ["tests/*", "*.pyc"]}, args)
+    assert args.omit == "tests/*,*.pyc"
+
+
+
 def test_apply_config_warns_unknown_key():
     args = _make_args()
     with pytest.warns(UserWarning, match="Unknown.*no-such-key"):
@@ -212,4 +233,49 @@ def test_integration_empty_section(tmp_path):
     apply_config(cfg, args)
     assert args.branch is False
     assert args.fail_under == 0
+
+
+def test_cli_malformed_toml_clean_error(tmp_path, monkeypatch):
+    """A broken pyproject.toml must produce a clean, informative CLI error
+    (matching black/ruff/mypy/pytest convention) -- not an unhandled
+    Python traceback.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text("[tool.slipcover\nbranch = true\n")
+    (tmp_path / "script.py").write_text("x = 1\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', 'script.py'],
+                        capture_output=True, text=True)
+
+    assert p.returncode != 0
+    assert 'Traceback' not in p.stderr
+    assert 'pyproject.toml' in p.stderr
+
+
+def test_cli_bad_config_value_clean_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[tool.slipcover]\nfail-under = "not-a-number"\n')
+    (tmp_path / "script.py").write_text("x = 1\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', 'script.py'],
+                        capture_output=True, text=True)
+
+    assert p.returncode != 0
+    assert 'Traceback' not in p.stderr
+
+
+def test_cli_valid_pyproject_config_applied(tmp_path, monkeypatch):
+    """Sanity check that a real subprocess run actually reads and applies
+    pyproject.toml config end-to-end (no test currently exercises this).
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[tool.slipcover]\nfail-under = 100.0\n')
+    # foo()'s body is never called, so coverage is 50%, below the threshold
+    (tmp_path / "script.py").write_text("def foo():\n    pass\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', 'script.py'],
+                        capture_output=True, text=True)
+
+    assert p.returncode == 2  # fail-under from pyproject.toml kicks in
+    assert 'Traceback' not in p.stderr
 

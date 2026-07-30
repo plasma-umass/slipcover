@@ -100,21 +100,26 @@ from the current working directory.
 ```toml
 [tool.slipcover]
 branch = true
-source = "src"
-omit = "tests/*"
+source = "src"        # or ["src", "lib"]
+omit = "tests/*"       # or ["tests/*", "*.pyc"]
 fail-under = 80.0
 json = true
+xml = false
 pretty-print = true
 skip-covered = true
+immediate = false
 out = "coverage.json"
 threshold = 75
 missing-width = 120
 xml-package-depth = 3
 ```
 
-Every command-line flag has a matching key (use hyphens, as shown above).
-Command-line arguments always take precedence over values in `pyproject.toml`,
-so you can override any setting on a per-run basis.
+Most command-line flags have a matching key (use hyphens, as shown above);
+`source` and `omit` also accept a TOML array instead of a single
+comma-separated string. `--merge`, `-m`/module, the script argument, `--version`,
+and `--help` are per-invocation choices rather than settings, so they aren't
+configurable this way. Command-line arguments always take precedence over
+values in `pyproject.toml`, so you can override any setting on a per-run basis.
 
 ## Usage example
 ```console
