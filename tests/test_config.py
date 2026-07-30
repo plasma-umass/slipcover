@@ -204,6 +204,19 @@ def test_apply_config_warns_unknown_key():
         apply_config({"no-such-key": 42}, args)
 
 
+@pytest.mark.parametrize("key", ["silent", "dis", "debug", "dont-wrap-pytest"])
+def test_apply_config_rejects_dev_only_flags(key):
+    """silent/dis/debug/dont-wrap-pytest are argparse.SUPPRESS'd,
+    dev-only flags (see __main__.py) -- they shouldn't be part of the
+    stable, user-facing [tool.slipcover] config surface, same as
+    --merge/-m/the script argument/--version/--help are already excluded.
+    """
+    args = _make_args()
+    with pytest.warns(UserWarning, match="Unknown"):
+        apply_config({key: True}, args)
+    assert getattr(args, key.replace("-", "_")) is False  # left at default
+
+
 def test_apply_config_int_coercion():
     args = _make_args()
     apply_config({"threshold": 75, "missing-width": 100, "xml-package-depth": 5}, args)

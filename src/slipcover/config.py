@@ -65,7 +65,9 @@ def read_config(path=None):
     return data.get("tool", {}).get("slipcover", {})
 
 
-# Boolean flags (store_true in CLI)
+# Boolean flags (store_true in CLI). Excludes --silent/--dis/--debug/
+# --dont-wrap-pytest: those are argparse.SUPPRESS'd, dev-only flags, not
+# part of the stable, user-facing config surface.
 _BOOL_KEYS = {
     "branch",
     "json",
@@ -73,10 +75,6 @@ _BOOL_KEYS = {
     "xml",
     "immediate",
     "skip-covered",
-    "silent",
-    "dis",
-    "debug",
-    "dont-wrap-pytest",
 }
 
 # Keys that take a value
