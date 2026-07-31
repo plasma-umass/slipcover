@@ -128,10 +128,10 @@ def merge_files(args, base_path):
 
     try:
         with args.out.open("w", encoding='utf-8') as jf:
-            if args.xml:
+            if args.format == 'xml':
                 sc.print_xml(merged, source_paths=[str(base_path)], with_branches=args.branch,
                              xml_package_depth=args.xml_package_depth, outfile=jf)
-            elif args.lcov:
+            elif args.format == 'lcov':
                 sc.print_lcov(merged, with_branches=args.branch,
                              test_name=args.lcov_test_name, comments=args.lcov_comments,
                              outfile=jf)
@@ -199,14 +199,19 @@ def build_parser():
     ap = argparse.ArgumentParser(prog='SlipCover')
     ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
     fmt = ap.add_mutually_exclusive_group()
-    fmt.add_argument('--json', action='store_true', help="select JSON output")
+    fmt.add_argument('--format', choices=['text', 'json', 'xml', 'lcov'], default='text',
+                     help="select output format")
+    fmt.add_argument('--json', dest='format', action='store_const', const='json',
+                     help="select JSON output (shortcut for --format=json)")
     ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
-    fmt.add_argument('--xml', action='store_true', help="select XML output")
+    fmt.add_argument('--xml', dest='format', action='store_const', const='xml',
+                     help="select XML output (shortcut for --format=xml)")
     ap.add_argument('--xml-package-depth', type=int, default=99, help=(
         "Controls which directories are identified as packages in the report. "
         "Directories deeper than this depth are not reported as packages. "
         "The default is that all directories are reported as packages."))
-    fmt.add_argument('--lcov', action='store_true', help="select LCOV output")
+    fmt.add_argument('--lcov', dest='format', action='store_const', const='lcov',
+                     help="select LCOV output (shortcut for --format=lcov)")
     ap.add_argument('--lcov-test-name', type=str, help="test name for LCOV TN: entries")
     ap.add_argument('--lcov-comment', action='append', dest='lcov_comments', help="add comment lines at the beginning of LCOV output (can be used multiple times)")
     ap.add_argument('--out', type=Path, help="specify output file name")
@@ -323,12 +328,12 @@ def main():
         global output_tmpfile
 
         def printit(coverage, outfile):
-            if args.json:
+            if args.format == 'json':
                 print(json.dumps(coverage, indent=(4 if args.pretty_print else None)), file=outfile)
-            elif args.xml:
+            elif args.format == 'xml':
                 sc.print_xml(coverage, source_paths=[str(base_path)], with_branches=args.branch,
                              xml_package_depth=args.xml_package_depth, outfile=outfile)
-            elif args.lcov:
+            elif args.format == 'lcov':
                 sc.print_lcov(coverage, with_branches=args.branch,
                              test_name=args.lcov_test_name, comments=args.lcov_comments,
                              outfile=outfile)

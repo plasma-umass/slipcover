@@ -1,4 +1,5 @@
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -163,8 +164,8 @@ def test_config_keys_match_cli_flags():
 
 def _make_args(**kwargs):
     defaults = dict(
-        branch=False, json=False, pretty_print=False, xml=False,
-        xml_package_depth=99, lcov=False, lcov_test_name=None, lcov_comments=None,
+        branch=False, format='text', pretty_print=False,
+        xml_package_depth=99, lcov_test_name=None, lcov_comments=None,
         out=None, source=None, omit=None,
         immediate=False, skip_covered=False, fail_under=0,
         threshold=50, missing_width=80, silent=False, dis=False,
@@ -176,8 +177,8 @@ def _make_args(**kwargs):
 
 def test_apply_config_lcov_keys():
     args = _make_args()
-    apply_config({"lcov": True, "lcov-test-name": "Suite", "lcov-comments": ["a", "b"]}, args)
-    assert args.lcov is True
+    apply_config({"format": "lcov", "lcov-test-name": "Suite", "lcov-comments": ["a", "b"]}, args)
+    assert args.format == "lcov"
     assert args.lcov_test_name == "Suite"
     assert args.lcov_comments == ["a", "b"]
 
@@ -186,6 +187,22 @@ def test_apply_config_lcov_comments_scalar_becomes_list():
     args = _make_args()
     apply_config({"lcov-comments": "just one"}, args)
     assert args.lcov_comments == ["just one"]
+
+
+def test_apply_config_format_bad_value_raises():
+    args = _make_args()
+    with pytest.raises(ValueError, match="must be one of"):
+        apply_config({"format": "bogus"}, args)
+
+
+@pytest.mark.parametrize("key", ["json", "xml", "lcov"])
+def test_apply_config_old_boolean_format_keys_now_unknown(key):
+    """json/xml/lcov as individual boolean config keys are no longer
+    recognized -- format = "..." replaces them (see build_parser()).
+    """
+    args = _make_args()
+    with pytest.warns(UserWarning, match="Unknown"):
+        apply_config({key: True}, args)
 
 
 def test_apply_config_sets_values():
@@ -341,7 +358,7 @@ def test_cli_lcov_config_applied(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
         '[tool.slipcover]\n'
-        'lcov = true\n'
+        'format = "lcov"\n'
         'lcov-test-name = "MySuite"\n'
         'lcov-comments = ["hello", "world"]\n'
     )
@@ -380,5 +397,50 @@ def test_cli_json_alone_still_works(tmp_path, monkeypatch):
                         capture_output=True, text=True)
 
     assert p.returncode == 0
+    assert 'Traceback' not in p.stderr
+
+
+def test_cli_format_json_equivalent_to_json_flag(tmp_path, monkeypatch):
+    """--format=json is the primary spelling; --json is a shortcut alias
+    for it (dest='format' is shared) -- both must produce identical output.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "script.py").write_text("x = 1\n")
+
+    p_flag = subprocess.run([sys.executable, '-m', 'slipcover', '--json', 'script.py'],
+                             capture_output=True, text=True)
+    p_format = subprocess.run([sys.executable, '-m', 'slipcover', '--format=json', 'script.py'],
+                               capture_output=True, text=True)
+
+    assert p_flag.returncode == 0 == p_format.returncode
+
+    flag_out = json.loads(p_flag.stdout)
+    format_out = json.loads(p_format.stdout)
+    del flag_out['meta']['timestamp'], format_out['meta']['timestamp']
+    assert flag_out == format_out
+
+
+def test_cli_format_and_alias_together_is_an_error(tmp_path, monkeypatch):
+    """--format=json and --xml are different actions sharing the same
+    dest -- mixing the new and old spellings must still be rejected.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "script.py").write_text("x = 1\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--format=json', '--xml', 'script.py'],
+                        capture_output=True, text=True)
+
+    assert p.returncode != 0
+    assert 'Traceback' not in p.stderr
+
+
+def test_cli_format_bad_choice_is_a_clean_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "script.py").write_text("x = 1\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--format=bogus', 'script.py'],
+                        capture_output=True, text=True)
+
+    assert p.returncode != 0
     assert 'Traceback' not in p.stderr
 

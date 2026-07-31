@@ -112,10 +112,7 @@ def derive_configurable_keys(ap):
 # part of the stable, user-facing config surface.
 _BOOL_KEYS = {
     "branch",
-    "json",
     "pretty-print",
-    "xml",
-    "lcov",
     "immediate",
     "skip-covered",
 }
@@ -127,8 +124,16 @@ def _coerce_comments(value):
     return [str(v) for v in value]
 
 
+def _coerce_format(value):
+    choices = ("text", "json", "xml", "lcov")
+    if value not in choices:
+        raise ValueError(f"must be one of {choices}, got {value!r}")
+    return value
+
+
 # Keys that take a value
 _VALUE_KEYS = {
+    "format": _coerce_format,
     "out": Path,
     "source": str,
     "omit": str,
