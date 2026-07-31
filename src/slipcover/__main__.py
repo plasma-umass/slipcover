@@ -199,14 +199,15 @@ def main():
     #
     ap = argparse.ArgumentParser(prog='SlipCover')
     ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
-    ap.add_argument('--json', action='store_true', help="select JSON output")
+    fmt = ap.add_mutually_exclusive_group()
+    fmt.add_argument('--json', action='store_true', help="select JSON output")
     ap.add_argument('--pretty-print', action='store_true', help="pretty-print JSON output")
-    ap.add_argument('--xml', action='store_true', help="select XML output")
+    fmt.add_argument('--xml', action='store_true', help="select XML output")
     ap.add_argument('--xml-package-depth', type=int, default=99, help=(
         "Controls which directories are identified as packages in the report. "
         "Directories deeper than this depth are not reported as packages. "
         "The default is that all directories are reported as packages."))
-    ap.add_argument('--lcov', action='store_true', help="select LCOV output")
+    fmt.add_argument('--lcov', action='store_true', help="select LCOV output")
     ap.add_argument('--lcov-test-name', type=str, help="test name for LCOV TN: entries")
     ap.add_argument('--lcov-comment', action='append', dest='lcov_comments', help="add comment lines at the beginning of LCOV output (can be used multiple times)")
     ap.add_argument('--out', type=Path, help="specify output file name")

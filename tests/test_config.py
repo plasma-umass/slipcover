@@ -297,3 +297,29 @@ def test_cli_valid_pyproject_config_applied(tmp_path, monkeypatch):
     assert p.returncode == 2  # fail-under from pyproject.toml kicks in
     assert 'Traceback' not in p.stderr
 
+
+def test_cli_json_and_xml_together_is_an_error(tmp_path, monkeypatch):
+    """--json and --xml are alternative output formats -- picking both
+    should be a clear CLI error, not a silent pick of whichever the
+    if/elif/else chain in printit() checks first.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "script.py").write_text("x = 1\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--json', '--xml', 'script.py'],
+                        capture_output=True, text=True)
+
+    assert p.returncode != 0
+    assert 'Traceback' not in p.stderr
+
+
+def test_cli_json_alone_still_works(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "script.py").write_text("x = 1\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--json', 'script.py'],
+                        capture_output=True, text=True)
+
+    assert p.returncode == 0
+    assert 'Traceback' not in p.stderr
+
