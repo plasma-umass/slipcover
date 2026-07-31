@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from slipcover.config import apply_config, find_pyproject, read_config
+from slipcover.__main__ import build_parser
+from slipcover.config import apply_config, derive_configurable_keys, find_pyproject, read_config
 
 
 def test_find_pyproject_in_cwd(tmp_path):
@@ -141,16 +142,50 @@ def test_read_config_all_keys(tmp_path):
     assert cfg["missing-width"] == 120
 
 
+def test_config_keys_match_cli_flags():
+    """Catches drift between config.py's hand-maintained _BOOL_KEYS/
+    _VALUE_KEYS and the actual CLI flags in __main__.py -- e.g. --lcov was
+    added to the CLI without a matching config.py update. If this fails:
+    add the new flag to _BOOL_KEYS/_VALUE_KEYS (most common case), or if
+    it's deliberately not configurable, exclude it via argparse.SUPPRESS
+    in build_parser() (matching --silent/--dis/etc), or represent it
+    differently on purpose (e.g. --json/--xml/--lcov could map to a single
+    hand-designed format = ... key instead of one key per flag).
+    """
+    from slipcover.config import _BOOL_KEYS, _VALUE_KEYS
+
+    expected = derive_configurable_keys(build_parser())
+    actual = set(_BOOL_KEYS) | set(_VALUE_KEYS)
+
+    missing = expected - actual
+    assert not missing, f"CLI flags with no matching config.py key: {sorted(missing)}"
+
+
 def _make_args(**kwargs):
     defaults = dict(
         branch=False, json=False, pretty_print=False, xml=False,
-        xml_package_depth=99, out=None, source=None, omit=None,
+        xml_package_depth=99, lcov=False, lcov_test_name=None, lcov_comments=None,
+        out=None, source=None, omit=None,
         immediate=False, skip_covered=False, fail_under=0,
         threshold=50, missing_width=80, silent=False, dis=False,
         debug=False, dont_wrap_pytest=False,
     )
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
+
+
+def test_apply_config_lcov_keys():
+    args = _make_args()
+    apply_config({"lcov": True, "lcov-test-name": "Suite", "lcov-comments": ["a", "b"]}, args)
+    assert args.lcov is True
+    assert args.lcov_test_name == "Suite"
+    assert args.lcov_comments == ["a", "b"]
+
+
+def test_apply_config_lcov_comments_scalar_becomes_list():
+    args = _make_args()
+    apply_config({"lcov-comments": "just one"}, args)
+    assert args.lcov_comments == ["just one"]
 
 
 def test_apply_config_sets_values():
@@ -296,6 +331,30 @@ def test_cli_valid_pyproject_config_applied(tmp_path, monkeypatch):
 
     assert p.returncode == 2  # fail-under from pyproject.toml kicks in
     assert 'Traceback' not in p.stderr
+
+
+def test_cli_lcov_config_applied(tmp_path, monkeypatch):
+    """The lcov/lcov-test-name/lcov-comments keys added to close the drift
+    this test oracle caught actually work end-to-end, not just at the
+    apply_config() unit level.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.slipcover]\n'
+        'lcov = true\n'
+        'lcov-test-name = "MySuite"\n'
+        'lcov-comments = ["hello", "world"]\n'
+    )
+    (tmp_path / "script.py").write_text("x = 1\n")
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', 'script.py'],
+                        capture_output=True, text=True)
+
+    assert p.returncode == 0
+    assert '# hello' in p.stdout
+    assert '# world' in p.stdout
+    assert 'TN:MySuite' in p.stdout
+    assert 'SF:script.py' in p.stdout
 
 
 def test_cli_json_and_xml_together_is_an_error(tmp_path, monkeypatch):

@@ -185,9 +185,8 @@ def _detect_explicit_args(ap, argv):
     return explicit
 
 
-def main():
+def build_parser():
     import argparse
-    from slipcover.config import read_config, apply_config
 
     #
     # The intended usage is:
@@ -234,6 +233,15 @@ def main():
     g.add_argument('--merge', nargs='+', type=Path, help="merge JSON coverage files, saving to --out")
     g.add_argument('script', nargs='?', type=Path, help="the script to run")
     ap.add_argument('script_or_module_args', nargs=argparse.REMAINDER)
+
+    return ap
+
+
+def main():
+    import argparse
+    from slipcover.config import read_config, apply_config
+
+    ap = build_parser()
 
     # Figure out which CLI flags were explicitly provided, so that
     # pyproject.toml values don't override them.

@@ -1,5 +1,6 @@
 """Read and apply [tool.slipcover] configuration from pyproject.toml."""
 
+import argparse
 from pathlib import Path
 
 try:
@@ -65,6 +66,47 @@ def read_config(path=None):
     return data.get("tool", {}).get("slipcover", {})
 
 
+def derive_configurable_keys(ap):
+    """Returns the set of TOML keys that structurally look like they should
+    be configurable via [tool.slipcover], based on a CLI ArgumentParser.
+
+    This is a test oracle (see tests/test_config.py), not apply_config()'s
+    runtime mechanism: the ideal config shape can genuinely diverge from
+    the CLI's own flag shape (e.g. --json/--xml/--lcov as three CLI flags
+    vs. a single hand-designed format = "xml" TOML setting), so the config
+    surface stays hand-maintained in _BOOL_KEYS/_VALUE_KEYS below. This
+    function exists purely to catch drift -- a new CLI flag with no
+    matching entry anywhere in config.py -- as a loud test failure instead
+    of a silently-unsupported key.
+
+    A flag is excluded if it's positional (an invocation target/
+    passthrough, not a setting), is the standard -h/--help or --version
+    action, is argparse.SUPPRESS'd (the existing, deliberate signal this
+    codebase already uses for dev-only or not-applicable-on-this-platform
+    flags), or belongs to a mutually exclusive group that also contains a
+    positional member (a "what to run" mode selector, like -m/--merge/
+    script, not a preference).
+    """
+    positional_dests = {a.dest for a in ap._actions if not a.option_strings}
+
+    keys = set()
+    for action in ap._actions:
+        if not action.option_strings:
+            continue
+        if action.dest in ("help", "version"):
+            continue
+        if action.help == argparse.SUPPRESS:
+            continue
+        keys.add(action.dest.replace("_", "-"))
+
+    for group in ap._mutually_exclusive_groups:
+        dests = {a.dest for a in group._group_actions}
+        if dests & positional_dests:
+            keys -= {d.replace("_", "-") for d in dests}
+
+    return keys
+
+
 # Boolean flags (store_true in CLI). Excludes --silent/--dis/--debug/
 # --dont-wrap-pytest: those are argparse.SUPPRESS'd, dev-only flags, not
 # part of the stable, user-facing config surface.
@@ -73,9 +115,17 @@ _BOOL_KEYS = {
     "json",
     "pretty-print",
     "xml",
+    "lcov",
     "immediate",
     "skip-covered",
 }
+
+
+def _coerce_comments(value):
+    if not isinstance(value, list):
+        value = [value]
+    return [str(v) for v in value]
+
 
 # Keys that take a value
 _VALUE_KEYS = {
@@ -86,6 +136,8 @@ _VALUE_KEYS = {
     "threshold": int,
     "missing-width": int,
     "xml-package-depth": int,
+    "lcov-test-name": str,
+    "lcov-comments": _coerce_comments,
 }
 
 
