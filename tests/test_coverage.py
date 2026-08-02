@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from io import StringIO
 from pathlib import Path
 from textwrap import dedent
 
@@ -1274,6 +1275,37 @@ def test_xml_flag(cov_merge_fixture: Path):
     assert lines[6].get('branch') is None
     assert lines[6].get('condition-coverage') is None
     assert lines[6].get('missing-branches') is None
+
+
+def test_xml_file_outside_cwd(tmp_path: Path, monkeypatch):
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    external_file = tmp_path / "outside" / "external.py"
+    external_file.parent.mkdir()
+    external_file.touch()
+    monkeypatch.chdir(cwd)
+
+    output = StringIO()
+    sc.print_xml(
+        {
+            "files": {
+                str(external_file): {
+                    "executed_lines": [1],
+                    "missing_lines": [],
+                }
+            }
+        },
+        source_paths=[str(cwd)],
+        outfile=output,
+    )
+
+    dom = ET.fromstring(output.getvalue())
+    assert [source.text for source in dom.findall('.//sources/source')] == [
+        str(cwd)
+    ]
+    assert dom.find('.//classes/class').get('filename') == str(external_file).replace(
+        "\\", "/"
+    )
 
 def test_xml_flag_with_branches(cov_merge_fixture: Path):
     p = subprocess.run([sys.executable, '-m', 'slipcover', '--branch', '--xml', '--out', "out.xml", "t.py"], check=True)

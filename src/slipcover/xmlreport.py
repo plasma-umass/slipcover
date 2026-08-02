@@ -258,8 +258,13 @@ class XmlReporter:
                 break
         else:
             full_name = Path(file_path).resolve()
-            rel_name = str(full_name.relative_to(Path.cwd()))
-            self.source_paths.add(str(full_name)[:-len(rel_name)].rstrip(r"\/"))
+            try:
+                rel_name = str(full_name.relative_to(Path.cwd()))
+            except ValueError:
+                # Files outside the current directory cannot be made relative.
+                rel_name = str(full_name)
+            else:
+                self.source_paths.add(str(full_name)[:-len(rel_name)].rstrip(r"\/"))
 
         dirname = os.path.dirname(rel_name) or "."
         dirname = "/".join(dirname.split("/")[: self.xml_package_depth])
