@@ -1804,3 +1804,92 @@ def test_lcov_flag_with_merge(cov_merge_fixture):
     assert 'DA:6,1' in da_lines
     assert 'DA:9,0' in da_lines
     assert 'end_of_record' in lines
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='SIGTERM is Unix-specific')
+def test_sigterm_top_level_writes_single_correct_report(tmp_path, monkeypatch):
+    """A SIGTERM'd top-level process must produce exactly one coverage
+    report. The original bug called sci_atexit() manually and then let
+    atexit run it again via sys.exit(), printing the table twice.
+    """
+    import signal
+    import time
+
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "script.py"
+    script.write_text(dedent("""\
+        import time
+        x = 1
+        time.sleep(10)
+        y = 2  # must never execute -- process is killed during sleep
+    """))
+
+    proc = subprocess.Popen(
+        [sys.executable, '-m', 'slipcover', '--sigterm', 'script.py'],
+        cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+    time.sleep(1)  # let slipcover start up and reach the sleep
+    proc.send_signal(signal.SIGTERM)
+    stdout, stderr = proc.communicate(timeout=10)
+
+    assert proc.returncode == 0, f"stdout={stdout}\nstderr={stderr}"
+    # the report table's header appears exactly once per report -- the
+    # original bug printed it twice
+    assert stdout.count('#lines') == 1, f"expected exactly one report, got:\n{stdout}"
+    assert 'script.py' in stdout
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='SIGTERM/fork are Unix-specific')
+def test_sigterm_forked_child_writes_partial_coverage_safely(tmp_path, monkeypatch):
+    """A forked child killed by SIGTERM must exit through the shimmed
+    os._exit() (writing its own partial coverage to a tempfile for the
+    parent to merge) rather than racing the parent through the top-level
+    report path -- exercised via the real --sigterm flag and a real
+    os.fork() in the target script, not by calling internal functions
+    directly.
+    """
+    import os
+    import signal
+    import time
+
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "script.py"
+    script.write_text(dedent("""\
+        import os, time
+
+        pid = os.fork()
+        if pid == 0:
+            x = 1
+            time.sleep(10)
+            y = 2  # must never execute -- child is killed during sleep
+        else:
+            with open("child_pid.txt", "w") as f:
+                f.write(str(pid))
+            os.waitpid(pid, 0)
+    """))
+
+    proc = subprocess.Popen(
+        [sys.executable, '-m', 'slipcover', '--sigterm', '--json', '--out', 'out.json', 'script.py'],
+        cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+    pid_file = tmp_path / "child_pid.txt"
+    for _ in range(100):  # up to ~5s
+        if pid_file.exists():
+            break
+        time.sleep(0.05)
+    else:
+        proc.kill()
+        pytest.fail("forked child never started")
+
+    child_pid = int(pid_file.read_text())
+    os.kill(child_pid, signal.SIGTERM)
+
+    stdout, stderr = proc.communicate(timeout=10)
+    assert proc.returncode == 0, f"stdout={stdout}\nstderr={stderr}"
+
+    cov = json.loads((tmp_path / "out.json").read_text())
+    file_cov = cov['files']['script.py']
+    assert 5 in file_cov['executed_lines']       # x = 1, in the child
+    assert 7 not in file_cov['executed_lines']   # y = 2, never reached
