@@ -63,7 +63,7 @@ def load_data():
     v2r = {e['system']['python']: e['results'] for e in entries}
 
     for v in args.skip_version:
-        del v2r[v]
+        v2r.pop(v, None)
 
     # sort Python versions semantically
     python_versions = sorted(v2r.keys(), key=lambda x: packaging.version.parse(x))

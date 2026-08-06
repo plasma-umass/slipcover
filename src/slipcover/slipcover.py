@@ -16,6 +16,7 @@ from pathlib import Path
 from . import branch as br
 from .version import __version__
 from .xmlreport import XmlReporter
+from .lcovreport import LcovReporter
 
 # FIXME provide __all__
 
@@ -40,6 +41,55 @@ if sys.version_info >= (3,11):
 
 else:
     findlinestarts = dis.findlinestarts
+
+
+# Opcodes used only for loading type annotations (for function parameter/return annotations)
+# Lines that ONLY contain these ops are annotation-only lines and should be excluded from coverage
+_ANNOTATION_ONLY_OPS = frozenset({'LOAD_NAME', 'LOAD_GLOBAL', 'LOAD_ATTR', 'BINARY_SUBSCR'})
+
+
+def _get_annotation_only_lines(co: types.CodeType) -> frozenset:
+    """Find lines that only contain annotation-loading bytecode.
+
+    In Python < 3.14, function annotations are evaluated eagerly and their bytecode
+    appears in the module code. Lines that ONLY load types (e.g., continuation lines
+    of multi-line function signatures) should be excluded from coverage since they're
+    just metadata, not actual program logic.
+
+    In Python 3.14+, annotations are deferred (PEP 649), so this returns empty.
+    """
+    if sys.version_info >= (3, 14):
+        return frozenset()
+
+    # Collect opcodes per line
+    ops_by_line: dict = {}
+    current_line = None
+    for instr in dis.get_instructions(co):
+        # Python 3.11+ has instr.positions.lineno for every instruction
+        # Python < 3.11 has instr.starts_line only for first instruction on each line
+        if sys.version_info >= (3, 11):
+            if instr.positions and instr.positions.lineno:
+                line = instr.positions.lineno
+            else:
+                continue
+        else:
+            if instr.starts_line is not None:
+                current_line = instr.starts_line
+            line = current_line
+            if line is None:
+                continue
+
+        if line not in ops_by_line:
+            ops_by_line[line] = set()
+        ops_by_line[line].add(instr.opname)
+
+    # Find lines where ALL ops are annotation-only ops
+    annotation_lines = set()
+    for line, ops in ops_by_line.items():
+        if ops and ops.issubset(_ANNOTATION_ONLY_OPS):
+            annotation_lines.add(line)
+
+    return frozenset(annotation_lines)
 
 if TYPE_CHECKING:
     from typing import Dict, Iterable, Iterator, List, Optional, Tuple
@@ -112,6 +162,22 @@ def print_xml(
         source=source_paths,
         with_branches=with_branches,
         xml_package_depth=xml_package_depth,
+    ).report(outfile=outfile)
+
+
+def print_lcov(
+    coverage: Coverage,
+    *,
+    with_branches: bool = False,
+    test_name: Optional[str] = None,
+    comments: Optional[List[str]] = None,
+    outfile=sys.stdout
+) -> None:
+    LcovReporter(
+        coverage=coverage,
+        with_branches=with_branches,
+        test_name=test_name,
+        comments=comments,
     ).report(outfile=outfile)
 
 
@@ -203,11 +269,33 @@ def add_summaries(cov: dict) -> None:
             g_den += den
 
     g_summary['percent_covered'] = 100.0 if g_den == 0 else 100*g_nom/g_den
+    g_summary['percent_covered_display'] = str(int(round(g_summary['percent_covered'], 0)))
     cov['summary'] = g_summary
 
 
+def _canonical_path(p: str) -> str:
+    """Resolve a path key to a canonical form for cross-step equivalence.
+
+    The same physical file can be recorded under different path spellings
+    across steps of a workload — most commonly a cwd-relative form when one
+    step runs a script directly and an absolute editable-install form when
+    another step imports it as a package. Without canonicalization the merge
+    treats them as separate files and the headline percentage is halved.
+    """
+    try:
+        return str(Path(p).resolve())
+    except OSError:
+        return p
+
+
 def merge_coverage(a: dict, b: dict) -> dict:
-    """Merges coverage result 'b' into 'a'."""
+    """Merges coverage result 'b' into 'a'.
+
+    File entries are grouped by canonical path so that aliases of the same
+    physical file (relative vs absolute, symlinked, etc.) collapse into a
+    single merged entry. The shortest original spelling is used as the
+    display key for each group.
+    """
 
     if a.get('meta', {}).get('software', None) != 'slipcover':
         raise SlipcoverError('Cannot merge coverage: only SlipCover format supported.')
@@ -223,28 +311,53 @@ def merge_coverage(a: dict, b: dict) -> dict:
     a_files = a['files']
     b_files = b['files']
 
-    def both(f, field):
-        return (a_files[f][field] if f in a_files else []) + b_files[f][field]
+    # Group aliases by canonical path.
+    groups: dict = defaultdict(lambda: {'a': [], 'b': []})
+    for k in a_files:
+        groups[_canonical_path(k)]['a'].append(k)
+    for k in b_files:
+        groups[_canonical_path(k)]['b'].append(k)
 
-    for f in b_files:
-        executed_lines = set(both(f, 'executed_lines'))
-        missing_lines = set(both(f, 'missing_lines'))
+    new_files: dict = {}
+    for aliases in groups.values():
+        executed_lines: set = set()
+        missing_lines: set = set()
+        executed_branches: set = set()
+        missing_branches: set = set()
+
+        for k in aliases['a']:
+            entry = a_files[k]
+            executed_lines.update(entry.get('executed_lines', ()))
+            missing_lines.update(entry.get('missing_lines', ()))
+            if branch_coverage:
+                executed_branches.update(tuple(br) for br in entry.get('executed_branches', ()))
+                missing_branches.update(tuple(br) for br in entry.get('missing_branches', ()))
+        for k in aliases['b']:
+            entry = b_files[k]
+            executed_lines.update(entry.get('executed_lines', ()))
+            missing_lines.update(entry.get('missing_lines', ()))
+            if branch_coverage:
+                executed_branches.update(tuple(br) for br in entry.get('executed_branches', ()))
+                missing_branches.update(tuple(br) for br in entry.get('missing_branches', ()))
+
         missing_lines -= executed_lines
-        update = {
+        missing_branches -= executed_branches
+
+        # Prefer the shortest original spelling as the display key (typically
+        # the cwd-relative form when both relative and absolute are present).
+        display = min(aliases['a'] + aliases['b'], key=lambda s: (len(s), s))
+
+        update: dict = {
             'executed_lines': sorted(executed_lines),
-            'missing_lines': sorted(missing_lines)
+            'missing_lines': sorted(missing_lines),
         }
-
         if branch_coverage:
-            executed_branches = set(tuple(br) for br in both(f, 'executed_branches'))
-            missing_branches = set(tuple(br) for br in both(f, 'missing_branches'))
-            missing_branches -= executed_branches
-            update.update({
-                'executed_branches': sorted(list(br) for br in executed_branches),
-                'missing_branches': sorted(list(br) for br in missing_branches)
-            })
+            update['executed_branches'] = sorted(list(br) for br in executed_branches)
+            update['missing_branches'] = sorted(list(br) for br in missing_branches)
+        new_files[display] = update
 
-        a_files[f] = update
+    a_files.clear()
+    a_files.update(new_files)
 
     add_summaries(a)
     return a
@@ -253,12 +366,14 @@ def merge_coverage(a: dict, b: dict) -> dict:
 class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
-                 disassemble: bool = False, source: Optional[List[str]] = None):
+                 disassemble: bool = False, source: Optional[List[str]] = None,
+                 omit: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.disassemble = disassemble
         self.source = source
+        self.omit = omit
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -316,15 +431,25 @@ class Slipcover:
         def lines_from_code(co: types.CodeType) -> Iterator[int]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+) - they're only
+                    # called when annotations are explicitly accessed, not during normal execution
+                    if c.co_name == '__annotate__':
+                        continue
                     yield from Slipcover.lines_from_code(c)
 
-            yield from (line for _, line in findlinestarts(co) if not br.is_branch(line))
+            # Exclude annotation-only lines (Python < 3.14 evaluates annotations eagerly)
+            annotation_only = _get_annotation_only_lines(co)
+            yield from (line for _, line in findlinestarts(co)
+                        if not br.is_branch(line) and line not in annotation_only)
 
 
         @staticmethod
         def branches_from_code(co: types.CodeType) -> Iterator[Tuple[int, int]]:
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+)
+                    if c.co_name == '__annotate__':
+                        continue
                     yield from Slipcover.branches_from_code(c)
 
             yield from (br.decode_branch(line) for _, line in findlinestarts(co) if br.is_branch(line))
@@ -337,7 +462,9 @@ class Slipcover:
                     yield from Slipcover.lines_from_code(c)
 
             # Python 3.11 generates a 0th line; 3.11+ generates a line just for RESUME
-            yield from (line for _, line in findlinestarts(co))
+            # Exclude annotation-only lines (Python < 3.14 evaluates annotations eagerly)
+            annotation_only = _get_annotation_only_lines(co)
+            yield from (line for _, line in findlinestarts(co) if line not in annotation_only)
 
 
         @staticmethod
@@ -369,6 +496,9 @@ class Slipcover:
             # handle functions-within-functions
             for c in co.co_consts:
                 if isinstance(c, types.CodeType):
+                    # Skip __annotate__ functions (PEP 649, Python 3.14+)
+                    if c.co_name == '__annotate__':
+                        continue
                     self.instrument(c, co)
 
             if not parent:
@@ -525,6 +655,23 @@ class Slipcover:
 
     def _add_unseen_source_files(self, source: List[str]):
         import ast
+        from fnmatch import fnmatch
+
+        # Prepare omit patterns (same logic as FileMatcher.addOmit)
+        omit_patterns = []
+        if self.omit:
+            cwd = Path.cwd().resolve()
+            for o in self.omit:
+                if o.startswith('*'):
+                    omit_patterns.append(o)
+                else:
+                    omit_patterns.append(str(cwd / o))
+
+        def is_omitted(filepath: Path) -> bool:
+            if not omit_patterns:
+                return False
+            filepath_str = str(filepath)
+            return any(fnmatch(filepath_str, p) for p in omit_patterns)
 
         dirs = [Path(d).resolve() for d in source]
 
@@ -536,6 +683,8 @@ class Slipcover:
 
                 elif file.is_file() and file.suffix.lower() == '.py':
                     file = file.absolute()
+                    if is_omitted(file):
+                        continue
                     filename = str(file)
                     try:
                         if filename not in self.code_lines:
@@ -590,7 +739,8 @@ class Slipcover:
             for f, f_code_lines in self.code_lines.items():
                 if f in self.all_seen:
                     branches_seen = {x for x in self.all_seen[f] if isinstance(x, tuple)}
-                    lines_seen = self.all_seen[f] - branches_seen
+                    # Only count lines that are in code_lines (excludes annotation-only lines)
+                    lines_seen = (self.all_seen[f] - branches_seen) & f_code_lines
                 else:
                     lines_seen = branches_seen = set()
 

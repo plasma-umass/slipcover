@@ -17,25 +17,11 @@ jobs:
   run-tests:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
-        python: [ '3.8', '3.9', 'pypy-3.9', '3.10', 'pypy-3.10', '3.11', '3.12', '3.13' ]
-        include:
-          - os: macos-13
-            python: '3.8'
-          - os: macos-13
-            python: '3.9'
-          - os: macos-13
-            python: 'pypy-3.9'
-          - os: macos-13
-            python: '3.10'
-          - os: macos-13
-            python: 'pypy-3.10'
-          - os: macos-13
-            python: '3.11'
+        python: [ '3.9', 'pypy-3.9', '3.10', 'pypy-3.10', '3.11', '3.12', '3.13', '3.14' ]
         exclude:
-          - os: macos-latest  # Python 3.8 unavailable on macos-14
-            python: '3.8'
           - os: macos-latest  # Python 3.9 unavailable on macos-14
             python: '3.9'
 
@@ -59,7 +45,7 @@ jobs:
     - name: install prereqs
       run: |
         python3 -m pip install -U pip  # to avoid warnings
-        python3 -m pip install pytest
+        python3 -m pip install pytest pytest-xdist
 
     - name: install Unix dependencies
       if: matrix.os != 'windows-latest'
@@ -78,7 +64,7 @@ jobs:
     container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_tag: ['cp311', 'pp310']
+        python_tag: ['cp311']  # PyPy not available in manylinux container; tested via run-tests job
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux_2_28_x86_64 # https://github.com/pypa/manylinux
@@ -109,7 +95,7 @@ jobs:
     container: ${{ matrix.container }}
     strategy:
       matrix:
-        python_version: ['3.8', '3.9', '3.10', '3.11']  # 3.12+ are "pure Python", no need to build on manylinux
+        python_version: ['3.9', '3.10', '3.11']  # 3.12+ are "pure Python", no need to build on manylinux; 3.8 was removed from the manylinux image (2026-05-07)
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux_2_28_x86_64 # https://github.com/pypa/manylinux
