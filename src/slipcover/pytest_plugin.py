@@ -36,36 +36,28 @@ def _get_worker_id() -> str:
     return os.environ.get("PYTEST_XDIST_WORKER", "main")
 
 
-def pytest_configure(config):
-    """Initialize slipcover in xdist workers.
+def _activate_worker():
+    """Activates instrumentation for an xdist worker as early as possible.
 
-    This hook runs in both the controller and worker processes.
-    We only activate slipcover if SLIPCOVER_ENABLED is set AND we're in an xdist worker.
-    The controller (main process) is already handled by __main__.py.
+    This runs at module import time (see the call at the bottom of this file),
+    not inside pytest_configure(): pytest_configure() only fires after pytest
+    has already auto-loaded every pytest11 entry-point plugin and read the
+    initial conftest.py files, so anything they import would already have
+    bypassed ImportManager by the time pytest_configure() ran. This module is
+    itself imported via that same entry-point autoload mechanism, so
+    top-level code here runs before conftest.py is ever read.
     """
     global _slipcover_instance, _file_matcher, _import_manager, _coverage_dir
 
-    # Only activate if SLIPCOVER_ENABLED is set (by __main__.py when running pytest)
-    if not os.environ.get("SLIPCOVER_ENABLED"):
+    # Only activate if SLIPCOVER_ENABLED is set (by __main__.py when running
+    # pytest) and we're in an xdist worker -- the controller is already
+    # handled by __main__.py, and this same guard is what pytest_configure()
+    # used before, just evaluated earlier.
+    if not (os.environ.get("SLIPCOVER_ENABLED") and _is_xdist_worker()):
         return
 
-    # Check if xdist is being used (look for -n option or xdist plugin config)
-    # Note: PYTEST_XDIST_TESTRUNUID is set later, so we check numprocesses
-    is_xdist = hasattr(config.option, 'numprocesses') and config.option.numprocesses
-
-    # Controller creates shared coverage directory for workers to write to
-    # We detect controller as: xdist is being used AND we're not a worker
-    if is_xdist and not _is_xdist_worker():
-        _coverage_dir = tempfile.mkdtemp(prefix="slipcover-xdist-")
-        os.environ["SLIPCOVER_COVERAGE_DIR"] = _coverage_dir
-        return  # Controller's slipcover is already set up by __main__.py
-
-    # Get coverage directory (workers inherit this from controller)
+    # Coverage directory (workers inherit this from the controller's env)
     _coverage_dir = os.environ.get("SLIPCOVER_COVERAGE_DIR")
-
-    # Only set up slipcover in workers - controller is handled by __main__.py
-    if not _is_xdist_worker():
-        return
 
     # Parse configuration from environment (set by __main__.py)
     branch = os.environ.get("SLIPCOVER_BRANCH") == "1"
@@ -95,6 +87,33 @@ def pytest_configure(config):
     # Start import instrumentation
     _import_manager = sc.ImportManager(_slipcover_instance, _file_matcher)
     _import_manager.__enter__()
+
+
+_activate_worker()
+
+
+def pytest_configure(config):
+    """Sets up the shared coverage directory in the controller.
+
+    Worker activation itself already happened at import time, above -- this
+    hook now only handles the controller side, which does need the `config`
+    object (to detect xdist via config.option.numprocesses).
+    """
+    global _coverage_dir
+
+    # Only activate if SLIPCOVER_ENABLED is set (by __main__.py when running pytest)
+    if not os.environ.get("SLIPCOVER_ENABLED"):
+        return
+
+    # Check if xdist is being used (look for -n option or xdist plugin config)
+    # Note: PYTEST_XDIST_TESTRUNUID is set later, so we check numprocesses
+    is_xdist = hasattr(config.option, 'numprocesses') and config.option.numprocesses
+
+    # Controller creates shared coverage directory for workers to write to
+    # We detect controller as: xdist is being used AND we're not a worker
+    if is_xdist and not _is_xdist_worker():
+        _coverage_dir = tempfile.mkdtemp(prefix="slipcover-xdist-")
+        os.environ["SLIPCOVER_COVERAGE_DIR"] = _coverage_dir
 
 
 def pytest_unconfigure(config):

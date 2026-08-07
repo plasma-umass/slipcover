@@ -219,6 +219,244 @@ def test_xdist_four_workers(tmp_path):
     assert [] == file_cov['missing_lines']
 
 
+# ---------------------------------------------------------------------------
+# Regression tests for modules imported by a conftest.py before pytest_configure()
+# runs in an xdist worker (issue #84's "pre-imported modules" report). Adapted
+# from PR #85 (https://github.com/plasma-umass/slipcover/pull/85, author @nurikk),
+# who first diagnosed this gap and prototyped a fix by retroactively instrumenting
+# already-imported objects after the fact. Unfortunately, that approach has some
+# significant issues: on Python <3.12 the rewritten bytecode wasn't reinstalled,
+# and on 3.12+ branch coverage came back as a false 100% (no AST-level branch
+# preinstrumentation for modules that were already compiled). The fix here takes
+# a different angle: activate ImportManager earlier, before conftest.py is ever
+# read, so these modules go through the normal instrumentation path from the
+# start and need no after-the-fact repair.
+# ---------------------------------------------------------------------------
+
+
+_CONFTEST_PREIMPORT = """\
+import sys
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
+import target  # noqa: F401 -- imported before pytest_configure() runs in the worker
+"""
+
+
+def test_xdist_preimported_module_covered(tmp_path, monkeypatch):
+    """A module imported by conftest.py before collection should still be covered."""
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "target.py").write_text("""\
+def greet(name):
+    return f"hello {name}"
+""")
+    (tmp_path / "conftest.py").write_text(_CONFTEST_PREIMPORT)
+    (tmp_path / "test_it.py").write_text("""\
+from target import greet
+
+def test_greet():
+    assert greet("world") == "hello world"
+""")
+
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--source', str(tmp_path),
+         '--json', '--out', str(out),
+         '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
+        cwd=str(tmp_path), capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+    check_summaries(cov)
+
+    keys = [k for k in cov['files'] if 'target.py' in k]
+    assert keys, f"target.py not in coverage: {list(cov['files'].keys())}"
+    assert cov['files'][keys[0]]['missing_lines'] == []
+
+
+def test_xdist_preimported_property_covered(tmp_path, monkeypatch):
+    """Property getter bodies in a pre-imported module should be covered."""
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "target.py").write_text("""\
+class Config:
+    @property
+    def name(self):
+        return "test"
+
+    @property
+    def value(self):
+        return 42
+""")
+    (tmp_path / "conftest.py").write_text(_CONFTEST_PREIMPORT)
+    (tmp_path / "test_it.py").write_text("""\
+from target import Config
+
+def test_name():
+    assert Config().name == "test"
+
+def test_value():
+    assert Config().value == 42
+""")
+
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--source', str(tmp_path),
+         '--json', '--out', str(out),
+         '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
+        cwd=str(tmp_path), capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+    check_summaries(cov)
+
+    keys = [k for k in cov['files'] if 'target.py' in k]
+    assert keys, f"target.py not in coverage: {list(cov['files'].keys())}"
+    assert cov['files'][keys[0]]['missing_lines'] == []
+
+
+def test_xdist_preimported_wrapped_function_covered(tmp_path, monkeypatch):
+    """functools.wraps-decorated function bodies in a pre-imported module should be covered."""
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "target.py").write_text("""\
+import functools
+
+def decorator(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        return fn(*args, **kwargs)
+    return wrapper
+
+@decorator
+def compute(x):
+    return x * 2
+""")
+    (tmp_path / "conftest.py").write_text(_CONFTEST_PREIMPORT)
+    (tmp_path / "test_it.py").write_text("""\
+from target import compute
+
+def test_compute():
+    assert compute(21) == 42
+""")
+
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--source', str(tmp_path),
+         '--json', '--out', str(out),
+         '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
+        cwd=str(tmp_path), capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+    check_summaries(cov)
+
+    keys = [k for k in cov['files'] if 'target.py' in k]
+    assert keys, f"target.py not in coverage: {list(cov['files'].keys())}"
+    # line 6: "return fn(*args, **kwargs)" inside the wrapped function body
+    assert 6 not in cov['files'][keys[0]]['missing_lines']
+
+
+def test_xdist_preimported_nested_attr_covered(tmp_path, monkeypatch):
+    """A function stashed on a nested object attribute in a pre-imported module
+    should be covered -- demonstrating early activation needs no bespoke
+    object-graph walking to handle shapes like this."""
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "target.py").write_text("""\
+class Task:
+    def __init__(self, fn):
+        self.fn = fn
+
+class Workflow:
+    def __init__(self, task):
+        self._task = task
+
+def _impl(x):
+    return x + 1
+
+workflow = Workflow(Task(_impl))
+""")
+    (tmp_path / "conftest.py").write_text(_CONFTEST_PREIMPORT)
+    (tmp_path / "test_it.py").write_text("""\
+from target import workflow
+
+def test_workflow():
+    assert workflow._task.fn(41) == 42
+""")
+
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--source', str(tmp_path),
+         '--json', '--out', str(out),
+         '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
+        cwd=str(tmp_path), capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+    check_summaries(cov)
+
+    keys = [k for k in cov['files'] if 'target.py' in k]
+    assert keys, f"target.py not in coverage: {list(cov['files'].keys())}"
+    # line 10: "return x + 1" inside _impl
+    assert 10 not in cov['files'][keys[0]]['missing_lines']
+
+
+def test_xdist_preimported_module_branch_coverage(tmp_path, monkeypatch):
+    """Branch coverage for a pre-imported module must reflect real, not vacuous,
+    coverage: only the branch actually exercised should be covered, and the
+    untaken branch must show up in missing_branches rather than a false 100%."""
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "target.py").write_text("""\
+def check(x):
+    if x > 0:
+        return "positive"
+    else:
+        return "non-positive"
+""")
+    (tmp_path / "conftest.py").write_text(_CONFTEST_PREIMPORT)
+    (tmp_path / "test_it.py").write_text("""\
+from target import check
+
+def test_positive():
+    assert check(1) == "positive"
+""")
+
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--branch', '--source', str(tmp_path),
+         '--json', '--out', str(out),
+         '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
+        cwd=str(tmp_path), capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+    check_summaries(cov)
+
+    keys = [k for k in cov['files'] if 'target.py' in k]
+    assert keys, f"target.py not in coverage: {list(cov['files'].keys())}"
+    module_cov = cov['files'][keys[0]]
+
+    executed_branches = [tuple(b) for b in module_cov.get('executed_branches', [])]
+    missing_branches = [tuple(b) for b in module_cov.get('missing_branches', [])]
+
+    # Only the true branch (line 2 -> line 3) was exercised; the else branch
+    # (line 2 -> line 5) was never taken and must show up as missing -- a vacuous
+    # "0 missing branches" here is exactly the false-100% bug being guarded against.
+    assert (2, 3) in executed_branches, f"true branch not covered: {executed_branches}"
+    assert (2, 5) in missing_branches, f"else branch should be missing: {missing_branches}"
+
+
 def test_xdist_fail_under_uses_merged_coverage(tmp_path):
     """--fail-under must be checked against the merged (all-workers) coverage,
     not just the coordinator process' own view. Under xdist, actual test code
