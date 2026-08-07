@@ -8,6 +8,7 @@ import atexit
 import platform
 import functools
 import os
+import signal
 import tempfile
 import json
 import warnings
@@ -226,6 +227,7 @@ def build_parser():
     ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
     ap.add_argument('--rcfile', type=Path, metavar="PATH",
                     help="read configuration from this file instead of searching for .slipcoverrc")
+    ap.add_argument('--sigterm', action='store_true', help="if true, register a SIGTERM signal handler to capture data when the process ends due to a SIGTERM signal.")
 
     # intended for slipcover development only
     ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
@@ -372,8 +374,25 @@ def main():
 
     atexit.register(sci_atexit)
 
-    return_code = 0
+    # Windows doesn't have a SIGTERM signal.
+    if args.sigterm and platform.system() != 'Windows':
+        def sci_sigterm_handler(signum, frame):
+            # A forked child's correct exit path is os._exit(), already
+            # shimmed (exit_shim) to write its own coverage to a tempfile
+            # for the parent to merge -- going through sys.exit()/atexit
+            # here instead would run the top-level sci_atexit() in the
+            # child too, racing the real parent for the same --out file.
+            if output_tmpfile:
+                os._exit(0)
+            else:
+                # atexit.register(sci_atexit) above already runs sci_atexit()
+                # on any normal interpreter shutdown, including one
+                # triggered by this SystemExit -- no need to call it here.
+                sys.exit(0)
 
+        signal.signal(signal.SIGTERM, sci_sigterm_handler)
+
+    return_code = 0
     if args.script:
         # python 'globals' for the script being executed
         script_globals: Dict[Any, Any] = dict()

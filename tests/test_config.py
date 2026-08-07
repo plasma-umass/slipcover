@@ -463,10 +463,16 @@ def _make_args(**kwargs):
         out=None, source=None, omit=None,
         immediate=False, skip_covered=False, fail_under=0,
         threshold=50, missing_width=80, silent=False, dis=False,
-        debug=False, dont_wrap_pytest=False,
+        debug=False, dont_wrap_pytest=False, sigterm=False,
     )
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
+
+
+def test_apply_config_sigterm():
+    args = _make_args()
+    apply_config({"sigterm": True}, args)
+    assert args.sigterm is True
 
 
 def test_apply_config_lcov_keys():

@@ -141,6 +141,7 @@ _BOOL_KEYS = {
     "pretty-print",
     "immediate",
     "skip-covered",
+    "sigterm",
 }
 
 
