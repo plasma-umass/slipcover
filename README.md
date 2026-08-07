@@ -116,10 +116,53 @@ xml-package-depth = 3
 
 Most command-line flags have a matching key (use hyphens, as shown above);
 `source` and `omit` also accept a TOML array instead of a single
-comma-separated string. `--merge`, `-m`/module, the script argument, `--version`,
-and `--help` are per-invocation choices rather than settings, so they aren't
-configurable this way. Command-line arguments always take precedence over
+comma-separated string. `--merge`, `-m`/module, the script argument, `--rcfile`,
+`--version`, and `--help` are per-invocation choices rather than settings, so
+they aren't configurable this way. Command-line arguments always take precedence over
 values in `pyproject.toml`, so you can override any setting on a per-run basis.
+
+### Configuration via `.slipcoverrc`
+If you prefer coverage.py's INI style, you can instead put the same settings in
+a `.slipcoverrc` file, which SlipCover discovers the same way it discovers
+`pyproject.toml`.
+
+```ini
+[run]
+branch = true
+source = src
+    lib
+omit = tests/*
+immediate = false
+threshold = 75
+
+[report]
+fail-under = 80.0
+json = true
+xml = false
+pretty-print = true
+skip-covered = true
+out = coverage.json
+missing-width = 120
+xml-package-depth = 3
+```
+
+Keys may be written with either hyphens or underscores (`fail-under` and
+`fail_under` both work), though giving the same key both spellings within one
+section is an error. Keys may appear in either section — the split between
+`[run]` and `[report]` mirrors coverage.py's, but SlipCover doesn't enforce it.
+Only those two sections are read; any other, including `[DEFAULT]`, is reported
+as unknown and ignored.
+Booleans accept `true`/`false`, `yes`/`no`, `on`/`off` and `1`/`0`; `source` and
+`omit` accept either a comma-separated string or one entry per line.
+
+Use `--rcfile PATH` to point at a specific file instead of searching for one.
+
+Both files are read when both exist, and settings are merged key by key: a key
+set in `.slipcoverrc` overrides the same key in `[tool.slipcover]`, while keys
+the rc file doesn't mention keep their `pyproject.toml` values. Command-line
+arguments still take precedence over both. The two files are searched for
+independently, so a `.slipcoverrc` found further up the directory tree still
+overrides a `pyproject.toml` in the current directory.
 
 ## Usage example
 ```console

@@ -225,6 +225,8 @@ def build_parser():
     ap.add_argument('--threshold', type=int, default=50, metavar="T",
                     help="threshold for de-instrumentation (if not immediate)")
     ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
+    ap.add_argument('--rcfile', type=Path, metavar="PATH",
+                    help="read configuration from this file instead of searching for .slipcoverrc")
     ap.add_argument('--sigterm', action='store_true', help="if true, register a SIGTERM signal handler to capture data when the process ends due to a SIGTERM signal.")
 
     # intended for slipcover development only
@@ -246,7 +248,8 @@ def build_parser():
 
 def main():
     import argparse
-    from slipcover.config import read_config, apply_config
+    import configparser
+    from slipcover.config import find_pyproject, find_rcfile, read_config, read_rcfile, apply_config
 
     ap = build_parser()
 
@@ -267,13 +270,31 @@ def main():
     else:
         args = ap.parse_args(sys.argv[1:])
 
-    # Apply [tool.slipcover] from pyproject.toml; CLI flags take precedence
+    # Apply [tool.slipcover] from pyproject.toml, then .slipcoverrc on top, so
+    # that a key set in both is taken from the rc file; CLI flags beat either.
+    # Applying per key rather than letting one file replace the other keeps an
+    # rc file that sets a single key from discarding the rest of pyproject.toml.
+    if args.rcfile is not None and not args.rcfile.is_file():
+        print(f"slipcover: no such file: {args.rcfile}", file=sys.stderr)
+        return 1
+
+    rcfile = args.rcfile if args.rcfile is not None else find_rcfile()
+    pyproject = find_pyproject()
+
+    config_file = pyproject
     try:
-        config = read_config()
-        if config:
-            apply_config(config, args, explicit_args)
-    except (ValueError, TypeError) as e:
-        print(f"slipcover: error in pyproject.toml configuration: {e}", file=sys.stderr)
+        if pyproject is not None:
+            config = read_config(pyproject)
+            if config:
+                apply_config(config, args, explicit_args, source="[tool.slipcover]")
+
+        if rcfile is not None:
+            config_file = rcfile
+            config = read_rcfile(rcfile)
+            if config:
+                apply_config(config, args, explicit_args, source=str(rcfile))
+    except (ValueError, TypeError, configparser.Error) as e:
+        print(f"slipcover: error in {config_file} configuration: {e}", file=sys.stderr)
         return 1
 
 

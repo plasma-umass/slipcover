@@ -1,6 +1,7 @@
-"""Read and apply [tool.slipcover] configuration from pyproject.toml."""
+"""Read and apply slipcover configuration from .slipcoverrc or pyproject.toml."""
 
 import argparse
+import configparser
 from pathlib import Path
 
 try:
@@ -15,9 +16,15 @@ _ROOT_MARKERS = frozenset({".git", ".hg", ".svn", "setup.py", "setup.cfg"})
 # Maximum number of parent directories to walk up from the start.
 _MAX_WALK = 3
 
+_RCFILE_NAME = ".slipcoverrc"
 
-def find_pyproject(start=None):
-    """Walks up from 'start' (default cwd) looking for pyproject.toml.
+# coverage.py splits its settings between these two sections, and users
+# reasonably guess either one; both are read, and neither is enforced.
+_RCFILE_SECTIONS = ("run", "report")
+
+
+def _find_upwards(filename, start):
+    """Walks up from 'start' (default cwd) looking for 'filename'.
 
     The search stops and returns None when any of these boundaries is
     reached without finding the file:
@@ -34,7 +41,7 @@ def find_pyproject(start=None):
     home = Path.home()
 
     for depth, directory in enumerate((start, *start.parents)):
-        candidate = directory / "pyproject.toml"
+        candidate = directory / filename
         if candidate.is_file():
             return candidate
 
@@ -46,6 +53,22 @@ def find_pyproject(start=None):
             break
 
     return None
+
+
+def find_pyproject(start=None):
+    """Walks up from 'start' (default cwd) looking for pyproject.toml.
+
+    See _find_upwards() for the boundaries that stop the search.
+    """
+    return _find_upwards("pyproject.toml", start)
+
+
+def find_rcfile(start=None):
+    """Walks up from 'start' (default cwd) looking for .slipcoverrc.
+
+    Uses the same boundaries as find_pyproject().
+    """
+    return _find_upwards(_RCFILE_NAME, start)
 
 
 def read_config(path=None):
@@ -83,9 +106,12 @@ def derive_configurable_keys(ap):
     passthrough, not a setting), is the standard -h/--help or --version
     action, is argparse.SUPPRESS'd (the existing, deliberate signal this
     codebase already uses for dev-only or not-applicable-on-this-platform
-    flags), or belongs to a mutually exclusive group that also contains a
+    flags), belongs to a mutually exclusive group that also contains a
     positional member (a "what to run" mode selector, like -m/--merge/
-    script, not a preference).
+    script, not a preference), or is --rcfile -- like --merge/-m/script,
+    it picks which file to read rather than being a setting itself, but
+    it isn't in a mutex group with a positional so the group-based check
+    above doesn't catch it.
     """
     positional_dests = {a.dest for a in ap._actions if not a.option_strings}
 
@@ -93,7 +119,7 @@ def derive_configurable_keys(ap):
     for action in ap._actions:
         if not action.option_strings:
             continue
-        if action.dest in ("help", "version"):
+        if action.dest in ("help", "version", "rcfile"):
             continue
         if action.help == argparse.SUPPRESS:
             continue
@@ -147,13 +173,102 @@ _VALUE_KEYS = {
 }
 
 
-def apply_config(config, parsed_args, explicit_args=None):
+def _parse_rcfile_bool(key, value):
+    try:
+        return configparser.ConfigParser.BOOLEAN_STATES[value.strip().lower()]
+    except KeyError:
+        raise ValueError(
+            f"key '{key}' must be a boolean, got '{value}'"
+        ) from None
+
+
+def read_rcfile(path=None):
+    """Returns the slipcover settings held in a .slipcoverrc (INI) file.
+
+    If 'path' is None, find_rcfile() is used to locate the file.
+    The [run] and [report] sections are merged into a single dict shaped
+    like read_config()'s, ready to hand to apply_config().
+    Returns an empty dict when no file is found.
+    """
+    if path is None:
+        path = find_rcfile()
+
+    if path is None:
+        return {}
+
+    # No interpolation: a literal '%' in a value (an omit pattern, an
+    # output name) is a plain character, not syntax to escape.
+    # The default section is renamed out of the way so [DEFAULT] is read as
+    # an ordinary -- and thus unknown -- section, rather than seeding every
+    # other section's options and colliding with the duplicate check below.
+    parser = configparser.ConfigParser(interpolation=None,
+                                       default_section="__slipcover_no_default__")
+    # utf-8-sig also accepts the BOM Notepad and PowerShell 5.1 write; it
+    # is plain utf-8 otherwise.
+    with open(path, encoding="utf-8-sig") as f:
+        parser.read_file(f)
+
+    for section in parser.sections():
+        if section not in _RCFILE_SECTIONS:
+            import warnings
+            warnings.warn(f"Unknown {path} section: '[{section}]'")
+
+    config = {}
+
+    # A key repeated across the two sections is a legitimate override --
+    # [report] is read last and wins -- so only same-section duplicates
+    # are checked below.
+    for section in _RCFILE_SECTIONS:
+        if not parser.has_section(section):
+            continue
+
+        spellings = {}
+
+        for name, value in parser.items(section):
+            # configparser lowercases names; accept coverage.py's
+            # underscores as well as slipcover's own hyphens.
+            key = name.replace("_", "-")
+
+            # configparser keeps 'fail-under' and 'fail_under' as distinct
+            # options, so normalizing would let the second silently win;
+            # an identically-spelled duplicate is a DuplicateOptionError.
+            if key in spellings:
+                raise ValueError(
+                    f"[{section}] key '{key}' given twice, "
+                    f"as '{spellings[key]}' and '{name}'"
+                )
+            spellings[key] = name
+
+            if key in _BOOL_KEYS:
+                # apply_config() requires a real bool, and INI has no types.
+                config[key] = _parse_rcfile_bool(key, value)
+            elif key in ("source", "omit"):
+                # coverage.py writes these one per line; the CLI wants them
+                # comma-separated.
+                config[key] = ",".join(
+                    item
+                    for line in value.splitlines()
+                    for item in (part.strip() for part in line.split(","))
+                    if item
+                )
+            else:
+                # Left as a string: apply_config() coerces known keys and
+                # warns about the rest.
+                config[key] = value
+
+    return config
+
+
+def apply_config(config, parsed_args, explicit_args=None,
+                 source="[tool.slipcover]"):
     """Merges config values into parsed_args.
 
     Keys whose dest name appears in 'explicit_args' are skipped so that
     command-line flags always take precedence over the config file.
+    'source' names where the config came from, for diagnostics.
 
-    Raises TypeError if a boolean key has a non-boolean value.
+    Raises TypeError if a value's type is wrong for its key, and
+    ValueError if a value can't be coerced to the key's type.
     Emits a UserWarning for unrecognised keys.
     """
     if explicit_args is None:
@@ -169,7 +284,7 @@ def apply_config(config, parsed_args, explicit_args=None):
         if key in _BOOL_KEYS:
             if not isinstance(value, bool):
                 raise TypeError(
-                    f"[tool.slipcover] key '{key}' must be a boolean, got {type(value).__name__}"
+                    f"{source} key '{key}' must be a boolean, got {type(value).__name__}"
                 )
             setattr(parsed_args, dest, value)
 
@@ -179,8 +294,16 @@ def apply_config(config, parsed_args, explicit_args=None):
             # expects, rather than stringifying the Python list itself.
             if key in ("source", "omit") and isinstance(value, list):
                 value = ",".join(str(v) for v in value)
-            setattr(parsed_args, dest, _VALUE_KEYS[key](value))
+            # Path("") is Path('.'), so an empty 'out' would only surface much
+            # later, as an IsADirectoryError while writing the report.
+            if key == "out" and isinstance(value, str) and not value.strip():
+                raise ValueError(f"key '{key}': must not be empty")
+            try:
+                coerced = _VALUE_KEYS[key](value)
+            except (ValueError, TypeError) as e:
+                raise type(e)(f"key '{key}': {e}") from None
+            setattr(parsed_args, dest, coerced)
 
         else:
             import warnings
-            warnings.warn(f"Unknown [tool.slipcover] key: '{key}'")
+            warnings.warn(f"Unknown {source} key: '{key}'")
