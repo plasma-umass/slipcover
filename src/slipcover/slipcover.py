@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import dis
+import re
 import sys
 import threading
 import types
@@ -19,6 +21,17 @@ from .xmlreport import XmlReporter
 from .lcovreport import LcovReporter
 
 # FIXME provide __all__
+
+# Default exclude_lines patterns, matching coverage.py's own zero-config
+# defaults (coverage/config.py's DEFAULT_EXCLUDE, copied verbatim for the
+# two reused here) so the most common idiom, `# pragma: no cover`, works
+# without any configuration. coverage.py's third default -- excluding
+# stub-like `def foo(): ...` one-liners -- is intentionally not included;
+# that's a distinct feature, not what issue #26 asks for.
+DEFAULT_EXCLUDE = [
+    r"#\s*(pragma|PRAGMA)[:\s]?\s*(no|NO)\s*(cover|COVER)",
+    r"if (typing\.)?TYPE_CHECKING:",
+]
 
 # Counter.total() is new in 3.10
 if sys.version_info < (3,10):
@@ -367,13 +380,24 @@ class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
                  disassemble: bool = False, source: Optional[List[str]] = None,
-                 omit: Optional[List[str]] = None):
+                 omit: Optional[List[str]] = None,
+                 exclude_lines: Optional[List[str]] = None,
+                 exclude_also: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.disassemble = disassemble
         self.source = source
         self.omit = omit
+        # Matching coverage.py's exclude_lines: user-supplied patterns
+        # replace DEFAULT_EXCLUDE, they don't add to it. None (not given at
+        # all) means "use the defaults"; an explicit [] disables exclusion
+        # entirely, including the defaults -- the natural way to express
+        # "no exclusion" via [tool.slipcover] exclude-lines = [] in config.
+        # exclude_also, matching coverage.py's own separate setting, is
+        # always additive to whatever that resolves to.
+        base = DEFAULT_EXCLUDE if exclude_lines is None else exclude_lines
+        self._exclude_patterns = [re.compile(p) for p in list(base) + list(exclude_also or [])]
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -700,6 +724,166 @@ class Slipcover:
                         print(f"Warning: unable to include {filename}: {e}")
 
 
+    # Statement types whose primary clause (`body`) must be bounded
+    # separately from a trailing elif/else/except/finally clause: ast.If/
+    # For/While/Try's own end_lineno reaches through ALL of those, so using
+    # it directly for the "if"/"for"/"while"/"try" line's own span would
+    # incorrectly sweep a sibling clause the pattern never matched. `elif`
+    # needs no special handling: it's just a nested If inside orelse,
+    # walked (and correctly bounded) like any other If. Built via getattr
+    # since TryStar (3.11+) doesn't exist on every Python version
+    # slipcover supports.
+    _MULTI_CLAUSE_TYPES = tuple(t for t in (
+        ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, getattr(ast, 'TryStar', None),
+    ) if t is not None)
+
+    def _compute_excluded_lines(self, source: str) -> set:
+        """Computes the set of 1-based line numbers excluded by self._exclude_patterns.
+
+        A match on a block's own header line excludes the whole block; a
+        match on a decorator, or the decorated def/class line itself,
+        excludes from the *first* decorator onward (matching coverage.py:
+        verified against coverage/parser.py, which computes
+        first_line = min(d.lineno for d in decorator_list) regardless of
+        which decorator actually matched, and confirmed by running
+        coverage.py against this exact scenario); any other match excludes
+        just that line/statement.
+
+        Each candidate gets a (full_start, full_end, trigger_start,
+        trigger_end): a match anywhere in [trigger_start, trigger_end]
+        excludes the whole [full_start, full_end]. For a plain statement
+        these coincide -- a match anywhere in a multi-line statement
+        excludes that whole statement. For a block/decorator/clause header,
+        the trigger is bounded to just the header (not the body), matching
+        coverage.py's own check (which only looks through the header's
+        closing colon, never into the body) -- so a match buried inside a
+        block's body is never mistakenly attributed to the enclosing block;
+        only its own, smaller, more specific statement claims it. Spans are
+        tried smallest-full-range first, so the most specific match always
+        wins.
+
+        A bare `else:`/`finally:` line has no dedicated AST node of its own
+        to anchor on (`elif` doesn't need special handling: it's just a
+        nested If, with its own real `lineno`). But the *gap* between where
+        the preceding clause's body ends and the next clause's body begins
+        -- both real AST positions -- can only ever contain that keyword
+        itself, plus blank lines or comments, so it's used directly as the
+        trigger region with no need to locate the keyword's exact line via
+        source-text scanning. A match with no statement of its own and no
+        such gap to claim it (e.g. a standalone comment) excludes just that
+        single physical line, never whatever larger span happens to
+        numerically contain it.
+        """
+        lines = source.splitlines()
+        matched = {
+            i + 1 for i, text in enumerate(lines)
+            if any(p.search(text) for p in self._exclude_patterns)
+        }
+        if not matched:
+            return set()
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return matched  # best-effort: at least exclude the matched lines themselves
+
+        spans = []  # (full_start, full_end, trigger_start, trigger_end)
+
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                first = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+                spans.append((first, node.end_lineno, first, node.lineno))
+                continue  # handled fully here -- skip the generic stmt case below
+
+            if isinstance(node, ast.ExceptHandler):
+                spans.append((node.lineno, node.end_lineno, node.lineno, node.body[0].lineno - 1))
+
+            elif hasattr(ast, 'Match') and isinstance(node, ast.Match):
+                for case in node.cases:
+                    spans.append((case.pattern.lineno, case.body[-1].end_lineno,
+                                  case.pattern.lineno, case.body[0].lineno - 1))
+
+            if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES) and node.orelse:
+                gap_start = node.body[-1].end_lineno + 1
+                gap_end = node.orelse[0].lineno - 1
+                if gap_start <= gap_end:
+                    spans.append((gap_start, node.orelse[-1].end_lineno, gap_start, gap_end))
+
+            finalbody = getattr(node, 'finalbody', None)
+            if finalbody:
+                prev_end = (node.orelse[-1].end_lineno if node.orelse
+                            else node.handlers[-1].end_lineno if node.handlers
+                            else node.body[-1].end_lineno)
+                gap_start = prev_end + 1
+                gap_end = finalbody[0].lineno - 1
+                if gap_start <= gap_end:
+                    spans.append((gap_start, finalbody[-1].end_lineno, gap_start, gap_end))
+
+            if isinstance(node, ast.stmt):
+                body = getattr(node, 'body', None)
+                if body:
+                    header_end = max(body[0].lineno - 1, node.lineno)
+                    if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES):
+                        full_end = body[-1].end_lineno
+                    else:
+                        full_end = node.end_lineno or node.lineno
+                    spans.append((node.lineno, full_end, node.lineno, header_end))
+                else:
+                    end = node.end_lineno or node.lineno
+                    spans.append((node.lineno, end, node.lineno, end))
+
+        # Smallest full-range first, so a matched line is always attributed
+        # to its most specific enclosing construct.
+        spans.sort(key=lambda s: s[1] - s[0])
+
+        excluded: set = set()
+        claimed: set = set()
+        for full_start, full_end, trig_start, trig_end in spans:
+            trigger_lines = set(range(trig_start, trig_end + 1))
+            if (matched & trigger_lines) - claimed:
+                span_lines = set(range(full_start, full_end + 1))
+                excluded.update(span_lines)
+                claimed.update(matched & span_lines)
+
+        # any matched line nothing above accounts for (e.g. a standalone
+        # comment line) is still excluded on its own.
+        excluded.update(matched - claimed)
+        return excluded
+
+    def _filter_excluded_lines(self, files: dict) -> None:
+        """Removes excluded lines, and any branch tuple originating from one,
+        from the coverage data -- a decision point on an excluded line
+        shouldn't leave stray executed/missing branch entries behind even
+        though the line itself is gone."""
+        source_cache: Dict[str, str] = {}
+
+        for fname, fdata in files.items():
+            if fname not in source_cache:
+                path = Path(fname)
+                if not path.is_absolute():
+                    path = Path.cwd() / path
+                try:
+                    source_cache[fname] = path.read_text()
+                except OSError:
+                    source_cache[fname] = ""
+
+            source = source_cache[fname]
+            if not source:
+                continue
+
+            excluded = self._compute_excluded_lines(source)
+            if not excluded:
+                continue
+
+            fdata['executed_lines'] = [l for l in fdata['executed_lines'] if l not in excluded]
+            fdata['missing_lines'] = [l for l in fdata['missing_lines'] if l not in excluded]
+
+            if 'executed_branches' in fdata:
+                fdata['executed_branches'] = [b for b in fdata['executed_branches'] if b[0] not in excluded]
+            if 'missing_branches' in fdata:
+                fdata['missing_branches'] = [b for b in fdata['missing_branches'] if b[0] not in excluded]
+
+
     @staticmethod
     def _make_meta(branch_coverage: bool) -> dict:
         import datetime
@@ -754,6 +938,8 @@ class Slipcover:
                     f_files['missing_branches'] = sorted(self.code_branches[f] - branches_seen)
 
                 files[simp.simplify(f)] = f_files
+
+            self._filter_excluded_lines(files)
 
             cov = {
                 'meta': Slipcover._make_meta(self.branch),

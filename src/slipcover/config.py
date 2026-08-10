@@ -144,6 +144,8 @@ _VALUE_KEYS = {
     "xml-package-depth": int,
     "lcov-test-name": str,
     "lcov-comments": _coerce_comments,
+    "exclude-lines": _coerce_comments,
+    "exclude-also": _coerce_comments,
 }
 
 

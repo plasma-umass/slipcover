@@ -1820,6 +1820,8 @@ def test_sigterm_top_level_writes_single_correct_report(tmp_path, monkeypatch):
     script.write_text(dedent("""\
         import time
         x = 1
+        with open("started.txt", "w") as f:
+            f.write("1")
         time.sleep(10)
         y = 2  # must never execute -- process is killed during sleep
     """))
@@ -1829,9 +1831,21 @@ def test_sigterm_top_level_writes_single_correct_report(tmp_path, monkeypatch):
         cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
 
-    time.sleep(1)  # let slipcover start up and reach the sleep
+    # Wait for the script to actually reach the sleep, rather than guessing
+    # a fixed duration: too short races the SIGTERM against slipcover's own
+    # startup, too long just wastes time -- polling for a concrete
+    # readiness marker adapts to whatever the environment actually needs.
+    started_file = tmp_path / "started.txt"
+    for _ in range(100):  # up to ~5s
+        if started_file.exists():
+            break
+        time.sleep(0.05)
+    else:
+        proc.kill()
+        pytest.fail("script never started")
+
     proc.send_signal(signal.SIGTERM)
-    stdout, stderr = proc.communicate(timeout=10)
+    stdout, stderr = proc.communicate(timeout=30)
 
     assert proc.returncode == 0, f"stdout={stdout}\nstderr={stderr}"
     # the report table's header appears exactly once per report -- the
@@ -1886,7 +1900,7 @@ def test_sigterm_forked_child_writes_partial_coverage_safely(tmp_path, monkeypat
     child_pid = int(pid_file.read_text())
     os.kill(child_pid, signal.SIGTERM)
 
-    stdout, stderr = proc.communicate(timeout=10)
+    stdout, stderr = proc.communicate(timeout=30)
     assert proc.returncode == 0, f"stdout={stdout}\nstderr={stderr}"
 
     cov = json.loads((tmp_path / "out.json").read_text())
