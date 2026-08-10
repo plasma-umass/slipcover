@@ -495,10 +495,15 @@ def test_xdist_fail_under_uses_merged_coverage(tmp_path):
 
 
 def test_xdist_exclude_lines_propagation(tmp_path, monkeypatch):
-    """--exclude-lines must propagate to xdist workers via
+    """[tool.slipcover] exclude-lines must propagate to xdist workers via
     SLIPCOVER_EXCLUDE_LINES (newline-joined, not comma-joined, since regex
     patterns can themselves contain commas)."""
     monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.slipcover]\n'
+        'exclude-lines = ["custom-nocov"]\n'
+    )
 
     module_file = tmp_path / "target.py"
     module_file.write_text(dedent("""\
@@ -518,8 +523,7 @@ def test_xdist_exclude_lines_propagation(tmp_path, monkeypatch):
 
     out = tmp_path / "out.json"
     result = subprocess.run(
-        [sys.executable, '-m', 'slipcover', '--exclude-lines', 'custom-nocov',
-         '--json', '--out', str(out),
+        [sys.executable, '-m', 'slipcover', '--json', '--out', str(out),
          '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
         capture_output=True, text=True
     )

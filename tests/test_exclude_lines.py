@@ -41,6 +41,23 @@ def _run(tmp_path, source, *, branch=False, exclude_lines=None):
     return cov['files'][str(code_path)]
 
 
+def test_empty_exclude_lines_list_disables_all_exclusion(tmp_path):
+    """An explicitly empty list (as opposed to None, meaning "not given at
+    all") disables exclusion entirely, including the built-in defaults --
+    the natural way to express "no exclusion" in config (exclude-lines = []
+    in pyproject.toml), matching how coverage.py's exclude_lines works."""
+    cov = _run(tmp_path, """\
+        def foo(x):
+            if x < 0:  # pragma: no cover
+                return -1
+            return 1
+
+        foo(-1)
+        """, exclude_lines=[])
+    assert 2 in cov['executed_lines']
+    assert 3 in cov['executed_lines']
+
+
 def test_default_pragma_excludes_if_block(tmp_path):
     cov = _run(tmp_path, """\
         def foo(x):
@@ -93,7 +110,11 @@ def test_default_type_checking_block_excluded(tmp_path):
     assert 6 in cov['executed_lines']
 
 
-def test_custom_pattern_is_additive_to_defaults(tmp_path):
+def test_custom_pattern_replaces_defaults(tmp_path):
+    """Matches coverage.py's exclude_lines setting exactly: providing custom
+    patterns replaces the built-in defaults, it doesn't add to them. (A
+    future exclude_also, matching coverage.py's own separate additive
+    setting, could add the additive behavior back later if wanted.)"""
     cov = _run(tmp_path, """\
         def foo(x):
             if x < 0:  # pragma: no cover
@@ -105,7 +126,11 @@ def test_custom_pattern_is_additive_to_defaults(tmp_path):
         foo(1)
         """, exclude_lines=["custom-exclude"])
 
-    for ln in (2, 3, 4, 5):
+    # the default pragma no longer applies once custom patterns are given
+    assert 2 in cov['executed_lines']
+    assert 3 in cov['missing_lines']
+    # the custom pattern is still honored
+    for ln in (4, 5):
         assert ln not in cov['executed_lines'] and ln not in cov['missing_lines']
     assert 6 in cov['executed_lines']
 
@@ -360,33 +385,6 @@ def test_standalone_comment_match_does_not_sweep_enclosing_function(tmp_path):
     assert excluded == {3}
 
 
-def test_cli_exclude_lines_flag_end_to_end(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "script.py").write_text(
-        "def foo(x):\n"
-        "    if x < 0:  # custom-nocov\n"
-        "        return 1\n"
-        "    return 2\n"
-        "foo(1)\n"
-    )
-
-    p = subprocess.run(
-        [sys.executable, '-m', 'slipcover', '--exclude-lines', 'custom-nocov',
-         '--json', 'script.py'],
-        capture_output=True, text=True
-    )
-    assert p.returncode == 0, f"stderr: {p.stderr}"
-
-    cov = json.loads(p.stdout)
-    keys = [k for k in cov['files'] if 'script.py' in k]
-    assert keys, f"script.py not in coverage: {list(cov['files'].keys())}"
-    # line 2 ("if x < 0:") always executes regardless of exclusion, so it's
-    # never a meaningful signal here -- line 3 ("return 1") is genuinely
-    # dead code (foo(1) never takes this branch) and would show up as
-    # missing without the fix.
-    assert 3 not in cov['files'][keys[0]]['missing_lines']
-
-
 def test_cli_exclude_lines_config_applied(tmp_path, monkeypatch):
     """[tool.slipcover] exclude-lines is what issue #26 literally asks for
     ("the exclude_lines configuration file setting") -- confirm it actually
@@ -416,3 +414,29 @@ def test_cli_exclude_lines_config_applied(tmp_path, monkeypatch):
     # dead code (foo(1) never takes this branch) and would show up as
     # missing without the fix.
     assert 3 not in cov['files'][keys[0]]['missing_lines']
+
+
+def test_cli_exclude_lines_empty_config_disables_defaults(tmp_path, monkeypatch):
+    """[tool.slipcover] exclude-lines = [] is the way to express "no
+    exclusion at all"."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.slipcover]\n'
+        'exclude-lines = []\n'
+    )
+    (tmp_path / "script.py").write_text(
+        "def foo(x):\n"
+        "    if x < 0:  # pragma: no cover\n"
+        "        return 1\n"
+        "    return 2\n"
+        "foo(-1)\n"
+    )
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--json', 'script.py'],
+                        capture_output=True, text=True)
+    assert p.returncode == 0, f"stderr: {p.stderr}"
+
+    cov = json.loads(p.stdout)
+    keys = [k for k in cov['files'] if 'script.py' in k]
+    assert keys, f"script.py not in coverage: {list(cov['files'].keys())}"
+    assert 3 in cov['files'][keys[0]]['executed_lines']

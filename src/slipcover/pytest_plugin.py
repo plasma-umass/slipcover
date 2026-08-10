@@ -63,8 +63,15 @@ def _activate_worker():
     branch = os.environ.get("SLIPCOVER_BRANCH") == "1"
     source = os.environ.get("SLIPCOVER_SOURCE")
     omit = os.environ.get("SLIPCOVER_OMIT")
-    exclude_lines_str = os.environ.get("SLIPCOVER_EXCLUDE_LINES")
-    exclude_lines = exclude_lines_str.split("\n") if exclude_lines_str else None
+    # The var's mere presence -- not its truthiness -- distinguishes "not
+    # configured, use defaults" (unset -> None) from "explicitly resolved"
+    # (set, even to "" for exclude-lines = [] in config -> []) -- see
+    # __main__.py.
+    if "SLIPCOVER_EXCLUDE_LINES" in os.environ:
+        raw = os.environ["SLIPCOVER_EXCLUDE_LINES"]
+        exclude_lines = raw.split("\n") if raw else []
+    else:
+        exclude_lines = None
 
     # Set up file matcher
     _file_matcher = sc.FileMatcher()

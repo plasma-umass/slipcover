@@ -226,8 +226,6 @@ def build_parser():
                     help="threshold for de-instrumentation (if not immediate)")
     ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
     ap.add_argument('--sigterm', action='store_true', help="if true, register a SIGTERM signal handler to capture data when the process ends due to a SIGTERM signal.")
-    ap.add_argument('--exclude-lines', action='append', metavar="REGEX",
-                    help="regex for lines/blocks to exclude from coverage, in addition to the built-in defaults (may be repeated)")
 
     # intended for slipcover development only
     ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
@@ -303,10 +301,14 @@ def main():
 
 
     omit_list = args.omit.split(',') if args.omit else None
+    # exclude_lines has no CLI flag -- [tool.slipcover] exclude-lines in
+    # pyproject.toml is the only way to set it, so args won't have this
+    # attribute at all unless apply_config() set it from a config file.
+    exclude_lines = getattr(args, 'exclude_lines', None)
     sci = sc.Slipcover(immediate=args.immediate,
                        d_miss_threshold=args.threshold, branch=args.branch,
                        disassemble=args.dis, source=args.source, omit=omit_list,
-                       exclude_lines=args.exclude_lines)
+                       exclude_lines=exclude_lines)
 
 
     if not args.dont_wrap_pytest:
@@ -324,9 +326,13 @@ def main():
             os.environ["SLIPCOVER_SOURCE"] = source_str
         if args.omit:
             os.environ["SLIPCOVER_OMIT"] = args.omit
-        if args.exclude_lines:
-            # newline-joined, not comma-joined: regex patterns can contain commas
-            os.environ["SLIPCOVER_EXCLUDE_LINES"] = "\n".join(args.exclude_lines)
+        if exclude_lines is not None:
+            # newline-joined, not comma-joined: regex patterns can contain
+            # commas. Set even when empty (exclude-lines = [] in config):
+            # the var's mere presence -- not its truthiness -- is what
+            # tells a worker "this was resolved, don't fall back to
+            # defaults" (see pytest_plugin.py's _activate_worker()).
+            os.environ["SLIPCOVER_EXCLUDE_LINES"] = "\n".join(exclude_lines)
 
     if platform.system() != 'Windows':
         os.fork = fork_shim(sci)

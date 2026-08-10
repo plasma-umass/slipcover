@@ -388,10 +388,12 @@ class Slipcover:
         self.disassemble = disassemble
         self.source = source
         self.omit = omit
-        # user-supplied patterns are additive to DEFAULT_EXCLUDE, not a
-        # replacement -- losing "# pragma: no cover" support just by adding
-        # one custom pattern would be a surprising footgun.
-        self._exclude_patterns = [re.compile(p) for p in DEFAULT_EXCLUDE + list(exclude_lines or [])]
+        # Matching coverage.py's exclude_lines: user-supplied patterns
+        # replace DEFAULT_EXCLUDE, they don't add to it. None (not given at
+        # all) means "use the defaults"; an explicit [] disables exclusion
+        # entirely, including the defaults -- the natural way to express
+        # "no exclusion" via [tool.slipcover] exclude-lines = [] in config.
+        self._exclude_patterns = [re.compile(p) for p in (DEFAULT_EXCLUDE if exclude_lines is None else exclude_lines)]
 
         # mutex protecting this state
         self.lock = threading.RLock()
