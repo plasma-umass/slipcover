@@ -732,23 +732,38 @@ class Slipcover:
         """Computes the set of 1-based line numbers excluded by self._exclude_patterns.
 
         A match on a block's own header line excludes the whole block; a
-        match on a decorator excludes it, any decorators stacked after it,
-        and the decorated def/class; any other match excludes just that
-        line/statement. Each candidate line/decorator/except-handler/
-        match-case gets a (start, end) span from its actual AST `lineno`/
-        `end_lineno`, and the smallest enclosing span always wins (see
-        below) -- so a match on any line of a multi-line header (not just
-        its first physical line) correctly sweeps the whole block, and a
-        match anywhere within a multi-line statement excludes that whole
-        statement.
+        match on a decorator, or the decorated def/class line itself,
+        excludes from the *first* decorator onward (matching coverage.py:
+        verified against coverage/parser.py, which computes
+        first_line = min(d.lineno for d in decorator_list) regardless of
+        which decorator actually matched, and confirmed by running
+        coverage.py against this exact scenario); any other match excludes
+        just that line/statement.
 
-        Matching coverage.py: a bare `else:`/`finally:` line has no
-        dedicated AST node -- Python's parser doesn't record its position
-        -- so a pragma placed directly on one only excludes that single
-        physical line, not the clause's body; excluding an else/except/
-        finally block needs its own pragma on a line the AST *does* track
-        (e.g. inside the clause, or on an `except`/`case` line, which do
-        have dedicated nodes).
+        Each candidate gets a (full_start, full_end, trigger_start,
+        trigger_end): a match anywhere in [trigger_start, trigger_end]
+        excludes the whole [full_start, full_end]. For a plain statement
+        these coincide -- a match anywhere in a multi-line statement
+        excludes that whole statement. For a block/decorator/clause header,
+        the trigger is bounded to just the header (not the body), matching
+        coverage.py's own check (which only looks through the header's
+        closing colon, never into the body) -- so a match buried inside a
+        block's body is never mistakenly attributed to the enclosing block;
+        only its own, smaller, more specific statement claims it. Spans are
+        tried smallest-full-range first, so the most specific match always
+        wins.
+
+        A bare `else:`/`finally:` line has no dedicated AST node of its own
+        to anchor on (`elif` doesn't need special handling: it's just a
+        nested If, with its own real `lineno`). But the *gap* between where
+        the preceding clause's body ends and the next clause's body begins
+        -- both real AST positions -- can only ever contain that keyword
+        itself, plus blank lines or comments, so it's used directly as the
+        trigger region with no need to locate the keyword's exact line via
+        source-text scanning. A match with no statement of its own and no
+        such gap to claim it (e.g. a standalone comment) excludes just that
+        single physical line, never whatever larger span happens to
+        numerically contain it.
         """
         lines = source.splitlines()
         matched = {
@@ -763,50 +778,66 @@ class Slipcover:
         except SyntaxError:
             return matched  # best-effort: at least exclude the matched lines themselves
 
-        spans = []  # candidate (start, end) line ranges
+        spans = []  # (full_start, full_end, trigger_start, trigger_end)
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                for dec in node.decorator_list:
-                    # matching a decorator excludes it, any decorators
-                    # stacked after it, and the decorated def/class --
-                    # decorators *before* the matched one are unaffected.
-                    spans.append((dec.lineno, node.end_lineno))
+                first = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+                spans.append((first, node.end_lineno, first, node.lineno))
+                continue  # handled fully here -- skip the generic stmt case below
 
-            elif isinstance(node, ast.ExceptHandler):
-                spans.append((node.lineno, node.end_lineno))
+            if isinstance(node, ast.ExceptHandler):
+                spans.append((node.lineno, node.end_lineno, node.lineno, node.body[0].lineno - 1))
 
             elif hasattr(ast, 'Match') and isinstance(node, ast.Match):
                 for case in node.cases:
-                    spans.append((case.pattern.lineno, case.body[-1].end_lineno))
+                    spans.append((case.pattern.lineno, case.body[-1].end_lineno,
+                                  case.pattern.lineno, case.body[0].lineno - 1))
+
+            if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES) and node.orelse:
+                gap_start = node.body[-1].end_lineno + 1
+                gap_end = node.orelse[0].lineno - 1
+                if gap_start <= gap_end:
+                    spans.append((gap_start, node.orelse[-1].end_lineno, gap_start, gap_end))
+
+            finalbody = getattr(node, 'finalbody', None)
+            if finalbody:
+                prev_end = (node.orelse[-1].end_lineno if node.orelse
+                            else node.handlers[-1].end_lineno if node.handlers
+                            else node.body[-1].end_lineno)
+                gap_start = prev_end + 1
+                gap_end = finalbody[0].lineno - 1
+                if gap_start <= gap_end:
+                    spans.append((gap_start, finalbody[-1].end_lineno, gap_start, gap_end))
 
             if isinstance(node, ast.stmt):
-                if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES):
-                    spans.append((node.lineno, node.body[-1].end_lineno))
+                body = getattr(node, 'body', None)
+                if body:
+                    header_end = max(body[0].lineno - 1, node.lineno)
+                    if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES):
+                        full_end = body[-1].end_lineno
+                    else:
+                        full_end = node.end_lineno or node.lineno
+                    spans.append((node.lineno, full_end, node.lineno, header_end))
                 else:
-                    spans.append((node.lineno, node.end_lineno or node.lineno))
+                    end = node.end_lineno or node.lineno
+                    spans.append((node.lineno, end, node.lineno, end))
 
-        # Smallest span first, so a matched line is always attributed to its
-        # most specific enclosing construct: a match inside a block's body
-        # is claimed by that inner statement before the block's own (larger)
-        # span is even considered, so the block itself is only excluded
-        # when the match is part of its own header/body span with no
-        # smaller statement covering it there -- which also means a match
-        # on any line of a multi-line header (not just its first physical
-        # line) correctly sweeps the whole block.
+        # Smallest full-range first, so a matched line is always attributed
+        # to its most specific enclosing construct.
         spans.sort(key=lambda s: s[1] - s[0])
 
         excluded: set = set()
         claimed: set = set()
-        for start, end in spans:
-            span_lines = set(range(start, end + 1))
-            if (matched & span_lines) - claimed:
+        for full_start, full_end, trig_start, trig_end in spans:
+            trigger_lines = set(range(trig_start, trig_end + 1))
+            if (matched & trigger_lines) - claimed:
+                span_lines = set(range(full_start, full_end + 1))
                 excluded.update(span_lines)
                 claimed.update(matched & span_lines)
 
-        # any matched line the AST doesn't account for (e.g. a standalone
-        # comment line, or a bare else:/finally: line) is still excluded
-        # on its own.
+        # any matched line nothing above accounts for (e.g. a standalone
+        # comment line) is still excluded on its own.
         excluded.update(matched - claimed)
         return excluded
 

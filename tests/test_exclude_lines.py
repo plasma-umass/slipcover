@@ -143,14 +143,20 @@ def test_decorator_cascade_excludes_def_and_body(tmp_path):
     assert 9 in cov['executed_lines']
 
 
-def test_decorator_cascade_excludes_from_match_onward_only(tmp_path):
-    """A decorator's own source line is never independently trackable as a
+def test_decorator_cascade_excludes_from_first_decorator_onward(tmp_path):
+    """Matches real coverage.py (verified against coverage/parser.py and by
+    actually running coverage.py on this exact scenario): matching ANY
+    decorator, or the def/class line itself, excludes from the *first*
+    decorator onward -- not just from the matched one. coverage.py computes
+    first_line = min(d.lineno for d in decorator_list) regardless of which
+    decorator actually matched, then excludes range(first_line, end_lineno).
+
+    A decorator's own source line is never independently trackable as a
     code_line (confirmed empirically: slipcover's line tracking never
     records a distinct line for decorator application, even with two
-    different decorators, not just identical ones) -- so "decorators before
-    the matched one are unaffected" isn't observable through a real
-    coverage run at all, and is verified directly against the excluded-line
-    set instead."""
+    different decorators, not just identical ones), so this is verified
+    directly against the excluded-line set rather than through a real
+    coverage run."""
     code_path = tmp_path / "target.py"
     code_path.write_text(dedent("""\
         def deco(f):
@@ -166,8 +172,7 @@ def test_decorator_cascade_excludes_from_match_onward_only(tmp_path):
     sci = sc.Slipcover(exclude_lines=["exclude-here"])
     excluded = sci._compute_excluded_lines(code_path.read_text())
 
-    assert 4 not in excluded  # decorator preceding the match is unaffected
-    assert excluded == {5, 6, 7}
+    assert excluded == {4, 5, 6, 7}
 
 
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match/case requires 3.10+")
@@ -260,6 +265,75 @@ def test_try_exclusion_does_not_sweep_except_or_finally(tmp_path):
         assert ln not in cov['executed_lines'] and ln not in cov['missing_lines']
     assert 10 in cov['executed_lines']
     assert 12 in cov['executed_lines']
+
+
+def test_bare_else_pragma_excludes_clause_body(tmp_path):
+    """A pragma placed directly on a bare `else:` line has no dedicated AST
+    node to anchor on (Python's parser doesn't record that keyword's own
+    position) -- verified against real coverage.py, which handles this
+    correctly (via its token-based algorithm) and excludes exactly the else
+    clause. This must not fall through to sweeping some larger, unrelated
+    enclosing span (like the whole function) just because nothing smaller
+    claims the line."""
+    cov = _run(tmp_path, """\
+        def check(x):
+            if x > 0:
+                return "positive"
+            else:  # pragma: no cover
+                return "non-positive"
+
+        check(1)
+        """)
+    assert 1 in cov['executed_lines']  # def line -- must not be swept
+    assert 2 in cov['executed_lines']  # if line -- must not be swept
+    assert 3 in cov['executed_lines']  # if body -- must not be swept
+    for ln in (4, 5):
+        assert ln not in cov['executed_lines'] and ln not in cov['missing_lines']
+    assert 7 in cov['executed_lines']  # unrelated code stays tracked
+
+
+def test_bare_finally_pragma_excludes_clause_body(tmp_path):
+    """Same class of bug as the bare else case: `finally:` has no dedicated
+    AST node either."""
+    cov = _run(tmp_path, """\
+        def run(x):
+            try:
+                return 1 / x
+            except ZeroDivisionError:
+                return -1
+            finally:  # pragma: no cover
+                print("done")
+
+        run(1)
+        """)
+    for ln in (1, 2, 3):
+        assert ln in cov['executed_lines']  # must not be swept
+    assert 5 in cov['missing_lines']  # except body never taken
+    for ln in (6, 7):
+        assert ln not in cov['executed_lines'] and ln not in cov['missing_lines']
+    assert 9 in cov['executed_lines']
+
+
+def test_standalone_comment_match_does_not_sweep_enclosing_function(tmp_path):
+    """General regression test for the root cause behind the bare else/
+    finally bug: a matched line with no statement of its own (e.g. a
+    standalone comment) must exclude only itself, never fall through to
+    whatever larger span happens to numerically contain it -- like the
+    entire enclosing function."""
+    code_path = tmp_path / "target.py"
+    code_path.write_text(dedent("""\
+        def foo():
+            x = 1
+            # custom-nocov
+            y = 2
+            return x + y
+
+        foo()
+        """))
+    sci = sc.Slipcover(exclude_lines=["custom-nocov"])
+    excluded = sci._compute_excluded_lines(code_path.read_text())
+
+    assert excluded == {3}
 
 
 def test_cli_exclude_lines_flag_end_to_end(tmp_path, monkeypatch):
