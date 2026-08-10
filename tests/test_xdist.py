@@ -538,3 +538,52 @@ def test_xdist_exclude_lines_propagation(tmp_path, monkeypatch):
     # line 3 ("return 1") is genuinely dead code (foo(1) never takes the
     # excluded branch) and would show up as missing without propagation.
     assert 3 not in cov['files'][keys[0]]['missing_lines']
+
+
+def test_xdist_exclude_also_propagation(tmp_path, monkeypatch):
+    """exclude-also's resolution (default patterns + the extra pattern) must
+    reach xdist workers as one already-merged list, not require the worker
+    to redo the replace-then-add itself."""
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.slipcover]\n'
+        'exclude-also = ["custom-nocov"]\n'
+    )
+
+    module_file = tmp_path / "target.py"
+    module_file.write_text(dedent("""\
+        def foo(x):
+            if x < 0:  # pragma: no cover
+                return 1
+            if x < 0:  # custom-nocov
+                return 2
+            return 3
+    """))
+
+    test_file = tmp_path / "test_it.py"
+    test_file.write_text(dedent("""\
+        from target import foo
+
+        def test_foo():
+            assert foo(1) == 3
+    """))
+
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--json', '--out', str(out),
+         '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
+        capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+    check_summaries(cov)
+
+    keys = [k for k in cov['files'] if 'target.py' in k]
+    assert keys, f"target.py not in coverage: {list(cov['files'].keys())}"
+    # both the default pragma (line 2/3) and the exclude-also pattern
+    # (line 4/5) must be excluded, neither showing up as missing.
+    for ln in (3, 5):
+        assert ln not in cov['files'][keys[0]]['missing_lines']

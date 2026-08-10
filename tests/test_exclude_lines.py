@@ -19,7 +19,7 @@ import slipcover.branch as br
 import slipcover.slipcover as sc
 
 
-def _run(tmp_path, source, *, branch=False, exclude_lines=None):
+def _run(tmp_path, source, *, branch=False, exclude_lines=None, exclude_also=None):
     """Compiles, instruments, and runs a real on-disk module, returning its
     file coverage dict. A real file (not an in-memory filename) is needed
     since exclusion matching reads the source text from disk."""
@@ -30,7 +30,7 @@ def _run(tmp_path, source, *, branch=False, exclude_lines=None):
     if branch:
         t = br.preinstrument(t)
 
-    sci = sc.Slipcover(branch=branch, exclude_lines=exclude_lines)
+    sci = sc.Slipcover(branch=branch, exclude_lines=exclude_lines, exclude_also=exclude_also)
     code = compile(t, str(code_path), "exec")
     code = sci.instrument(code)
 
@@ -112,9 +112,7 @@ def test_default_type_checking_block_excluded(tmp_path):
 
 def test_custom_pattern_replaces_defaults(tmp_path):
     """Matches coverage.py's exclude_lines setting exactly: providing custom
-    patterns replaces the built-in defaults, it doesn't add to them. (A
-    future exclude_also, matching coverage.py's own separate additive
-    setting, could add the additive behavior back later if wanted.)"""
+    patterns replaces the built-in defaults, it doesn't add to them."""
     cov = _run(tmp_path, """\
         def foo(x):
             if x < 0:  # pragma: no cover
@@ -133,6 +131,53 @@ def test_custom_pattern_replaces_defaults(tmp_path):
     for ln in (4, 5):
         assert ln not in cov['executed_lines'] and ln not in cov['missing_lines']
     assert 6 in cov['executed_lines']
+
+
+def test_exclude_also_adds_to_defaults(tmp_path):
+    """Matches coverage.py's exclude_also: unlike exclude_lines, it's always
+    additive to whatever's currently active -- here, the untouched
+    defaults."""
+    cov = _run(tmp_path, """\
+        def foo(x):
+            if x < 0:  # pragma: no cover
+                return 1
+            if x < 0:  # custom-also
+                return 2
+            return 3
+
+        foo(1)
+        """, exclude_also=["custom-also"])
+
+    # both the default pragma and the exclude_also pattern apply
+    for ln in (2, 3, 4, 5):
+        assert ln not in cov['executed_lines'] and ln not in cov['missing_lines']
+    assert 6 in cov['executed_lines']
+
+
+def test_exclude_also_adds_to_custom_exclude_lines(tmp_path):
+    """exclude_also adds on top of exclude_lines too, once exclude_lines has
+    already replaced the defaults -- so the (now inactive) default pragma
+    still doesn't apply, but both custom patterns do."""
+    cov = _run(tmp_path, """\
+        def foo(x):
+            if x < 0:  # pragma: no cover
+                return 1
+            if x < 0:  # custom-a
+                return 2
+            if x < 0:  # custom-b
+                return 3
+            return 4
+
+        foo(1)
+        """, exclude_lines=["custom-a"], exclude_also=["custom-b"])
+
+    # the default pragma is still inactive (exclude_lines replaced it)
+    assert 2 in cov['executed_lines']
+    assert 3 in cov['missing_lines']
+    # both custom-a and custom-b apply
+    for ln in (4, 5, 6, 7):
+        assert ln not in cov['executed_lines'] and ln not in cov['missing_lines']
+    assert 8 in cov['executed_lines']
 
 
 def test_single_line_match_excludes_only_that_line(tmp_path):
@@ -440,3 +485,29 @@ def test_cli_exclude_lines_empty_config_disables_defaults(tmp_path, monkeypatch)
     keys = [k for k in cov['files'] if 'script.py' in k]
     assert keys, f"script.py not in coverage: {list(cov['files'].keys())}"
     assert 3 in cov['files'][keys[0]]['executed_lines']
+
+
+def test_cli_exclude_also_config_applied(tmp_path, monkeypatch):
+    """[tool.slipcover] exclude-also adds a pattern on top of the untouched
+    defaults, confirmed end-to-end, not just at the apply_config() level."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.slipcover]\n'
+        'exclude-also = ["custom-nocov"]\n'
+    )
+    (tmp_path / "script.py").write_text(
+        "def foo(x):\n"
+        "    if x < 0:  # custom-nocov\n"
+        "        return 1\n"
+        "    return 2\n"
+        "foo(1)\n"
+    )
+
+    p = subprocess.run([sys.executable, '-m', 'slipcover', '--json', 'script.py'],
+                        capture_output=True, text=True)
+    assert p.returncode == 0, f"stderr: {p.stderr}"
+
+    cov = json.loads(p.stdout)
+    keys = [k for k in cov['files'] if 'script.py' in k]
+    assert keys, f"script.py not in coverage: {list(cov['files'].keys())}"
+    assert 3 not in cov['files'][keys[0]]['missing_lines']

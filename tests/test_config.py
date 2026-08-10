@@ -170,7 +170,7 @@ def _make_args(**kwargs):
         immediate=False, skip_covered=False, fail_under=0,
         threshold=50, missing_width=80, silent=False, dis=False,
         debug=False, dont_wrap_pytest=False, sigterm=False,
-        exclude_lines=None,
+        exclude_lines=None, exclude_also=None,
     )
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -206,6 +206,12 @@ def test_apply_config_exclude_lines_scalar_becomes_list():
     args = _make_args()
     apply_config({"exclude-lines": "just one"}, args)
     assert args.exclude_lines == ["just one"]
+
+
+def test_apply_config_exclude_also():
+    args = _make_args()
+    apply_config({"exclude-also": ["foo", "bar"]}, args)
+    assert args.exclude_also == ["foo", "bar"]
 
 
 def test_apply_config_format_bad_value_raises():

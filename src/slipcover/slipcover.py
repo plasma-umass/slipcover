@@ -381,7 +381,8 @@ class Slipcover:
                  d_miss_threshold: int = 50, branch: bool = False,
                  disassemble: bool = False, source: Optional[List[str]] = None,
                  omit: Optional[List[str]] = None,
-                 exclude_lines: Optional[List[str]] = None):
+                 exclude_lines: Optional[List[str]] = None,
+                 exclude_also: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
@@ -393,7 +394,10 @@ class Slipcover:
         # all) means "use the defaults"; an explicit [] disables exclusion
         # entirely, including the defaults -- the natural way to express
         # "no exclusion" via [tool.slipcover] exclude-lines = [] in config.
-        self._exclude_patterns = [re.compile(p) for p in (DEFAULT_EXCLUDE if exclude_lines is None else exclude_lines)]
+        # exclude_also, matching coverage.py's own separate setting, is
+        # always additive to whatever that resolves to.
+        base = DEFAULT_EXCLUDE if exclude_lines is None else exclude_lines
+        self._exclude_patterns = [re.compile(p) for p in list(base) + list(exclude_also or [])]
 
         # mutex protecting this state
         self.lock = threading.RLock()
