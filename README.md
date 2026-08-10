@@ -32,7 +32,7 @@ inserting instructions that let it keep track the lines executed by the program.
 As the program executes, SlipCover gradually removes instrumentation that
 is no longer needed, allowing those parts to run at full speed.
 Care is taken throughout SlipCover to keep things as efficient as possible.
-On Python 3.12, rather than rewrite bytecode, SlipCover uses the new
+On Python 3.12 and later, rather than rewrite bytecode, SlipCover uses the
 [`sys.monitoring`](https://docs.python.org/3.12/library/sys.monitoring.html) API
 to collect coverage information.
 
@@ -91,6 +91,14 @@ which starts `pytest`, passing it any options (`-x -v` in this example)
 after the module name.
 No plug-in is required for pytest.
 
+This also works with [pytest-xdist](https://pytest-xdist.readthedocs.io/) for
+parallel test execution:
+```console
+python3 -m slipcover -m pytest -n auto
+```
+SlipCover activates in each worker process and automatically merges the
+coverage collected by every worker into a single report.
+
 ### Configuration via `pyproject.toml`
 Instead of passing options on every command invocation, you can store them
 in your project's `pyproject.toml` under the `[tool.slipcover]` section.
@@ -103,8 +111,7 @@ branch = true
 source = "src"        # or ["src", "lib"]
 omit = "tests/*"       # or ["tests/*", "*.pyc"]
 fail-under = 80.0
-json = true
-xml = false
+format = "json"        # "text" (default), "json", "xml", or "lcov"
 pretty-print = true
 skip-covered = true
 immediate = false
@@ -116,10 +123,22 @@ xml-package-depth = 3
 
 Most command-line flags have a matching key (use hyphens, as shown above);
 `source` and `omit` also accept a TOML array instead of a single
-comma-separated string. `--merge`, `-m`/module, the script argument, `--version`,
-and `--help` are per-invocation choices rather than settings, so they aren't
-configurable this way. Command-line arguments always take precedence over
-values in `pyproject.toml`, so you can override any setting on a per-run basis.
+comma-separated string. `--json`/`--xml`/`--lcov` map to the single `format`
+key shown above rather than one key per flag. `--merge`, `-m`/module, the
+script argument, `--version`, and `--help` are per-invocation choices rather
+than settings, so they aren't configurable this way. Command-line arguments
+always take precedence over values in `pyproject.toml`, so you can override
+any setting on a per-run basis.
+
+`exclude-lines` and `exclude-also` (coverage.py-style regex-based line/block
+exclusion, e.g. `# pragma: no cover`) are the one exception: they're
+configurable only via `pyproject.toml`, with no command-line flag, matching
+coverage.py's own design.
+```toml
+[tool.slipcover]
+exclude-lines = ["# pragma: no cover", "if DEBUG:"]  # replaces the built-in defaults
+exclude-also = ["# my-custom-marker"]                # adds to whichever list is active
+```
 
 ## Usage example
 ```console
@@ -154,6 +173,64 @@ $
 ```
 As can be seen in the coverage report, d2k lacks some coverage, especially in
 its `box.py` and `image.py` components.
+
+## Command-line options
+```console
+$ python3 -m slipcover --help
+usage: SlipCover [-h] [--branch] [--format {text,json,xml,lcov}] [--json]
+                 [--pretty-print] [--xml]
+                 [--xml-package-depth XML_PACKAGE_DEPTH] [--lcov]
+                 [--lcov-test-name LCOV_TEST_NAME]
+                 [--lcov-comment LCOV_COMMENTS] [--out OUT] [--source SOURCE]
+                 [--omit OMIT] [--immediate] [--skip-covered]
+                 [--fail-under FAIL_UNDER] [--threshold T]
+                 [--missing-width WIDTH] [--sigterm] [--version] [-m MODULE]
+                 [--merge MERGE [MERGE ...]]
+                 [script] ...
+
+positional arguments:
+  script                the script to run
+  script_or_module_args
+
+options:
+  -h, --help            show this help message and exit
+  --branch              measure both branch and line coverage
+  --format {text,json,xml,lcov}
+                        select output format
+  --json                select JSON output (shortcut for --format=json)
+  --pretty-print        pretty-print JSON output
+  --xml                 select XML output (shortcut for --format=xml)
+  --xml-package-depth XML_PACKAGE_DEPTH
+                        Controls which directories are identified as packages
+                        in the report. Directories deeper than this depth are
+                        not reported as packages. The default is that all
+                        directories are reported as packages.
+  --lcov                select LCOV output (shortcut for --format=lcov)
+  --lcov-test-name LCOV_TEST_NAME
+                        test name for LCOV TN: entries
+  --lcov-comment LCOV_COMMENTS
+                        add comment lines at the beginning of LCOV output (can
+                        be used multiple times)
+  --out OUT             specify output file name
+  --source SOURCE       specify directories to cover
+  --omit OMIT           specify file(s) to omit
+  --immediate           request immediate de-instrumentation
+  --skip-covered        omit fully covered files (from text, non-JSON output)
+  --fail-under FAIL_UNDER
+                        fail execution with RC 2 if the overall coverage lays
+                        lower than this
+  --threshold T         threshold for de-instrumentation (if not immediate)
+  --missing-width WIDTH
+                        maximum width for `missing' column
+  --sigterm             if true, register a SIGTERM signal handler to capture
+                        data when the process ends due to a SIGTERM signal.
+  --version             show program's version number and exit
+  -m MODULE             run given module as __main__
+  --merge MERGE [MERGE ...]
+                        merge JSON coverage files, saving to --out
+```
+`--exclude-lines`/`--exclude-also` aren't listed here — they're configurable
+only via `pyproject.toml` (see [Configuration via `pyproject.toml`](#configuration-via-pyprojecttoml) above).
 
 ## Platforms
 Our GitHub workflows run the automated test suite on Linux, MacOS and Windows, but
