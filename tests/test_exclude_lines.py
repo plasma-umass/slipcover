@@ -55,6 +55,30 @@ def test_default_pragma_excludes_if_block(tmp_path):
     assert 4 in cov['executed_lines']
 
 
+@pytest.mark.parametrize("pragma", [
+    "# pragma: no cover",
+    "# PRAGMA: NO COVER",
+    "# pragma no cover",
+    "#pragma:no cover",
+])
+def test_default_pragma_matches_coverage_py_variants(tmp_path, pragma):
+    """coverage.py's real default pattern (coverage/config.py's
+    DEFAULT_EXCLUDE) is case-insensitive-by-alternation and treats the
+    colon as optional -- verified directly against it. Copied verbatim
+    rather than approximated, since these are meant to be its exact
+    defaults, not our own variant."""
+    cov = _run(tmp_path, f"""\
+        def foo(x):
+            if x < 0:  {pragma}
+                return -1
+            return 1
+
+        foo(1)
+        """)
+    assert 2 not in cov['executed_lines'] and 2 not in cov['missing_lines']
+    assert 3 not in cov['executed_lines'] and 3 not in cov['missing_lines']
+
+
 def test_default_type_checking_block_excluded(tmp_path):
     cov = _run(tmp_path, """\
         from typing import TYPE_CHECKING

@@ -23,11 +23,14 @@ from .lcovreport import LcovReporter
 # FIXME provide __all__
 
 # Default exclude_lines patterns, matching coverage.py's own zero-config
-# defaults (coverage/config.py's DEFAULT_EXCLUDE) so the most common idiom,
-# `# pragma: no cover`, works without any configuration.
+# defaults (coverage/config.py's DEFAULT_EXCLUDE, copied verbatim for the
+# two reused here) so the most common idiom, `# pragma: no cover`, works
+# without any configuration. coverage.py's third default -- excluding
+# stub-like `def foo(): ...` one-liners -- is intentionally not included;
+# that's a distinct feature, not what issue #26 asks for.
 DEFAULT_EXCLUDE = [
-    r"#\s*pragma:\s*no\s*cover",
-    r"if\s+(typing\.)?TYPE_CHECKING:",
+    r"#\s*(pragma|PRAGMA)[:\s]?\s*(no|NO)\s*(cover|COVER)",
+    r"if (typing\.)?TYPE_CHECKING:",
 ]
 
 # Counter.total() is new in 3.10
