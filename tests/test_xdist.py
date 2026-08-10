@@ -221,16 +221,10 @@ def test_xdist_four_workers(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Regression tests for modules imported by a conftest.py before pytest_configure()
-# runs in an xdist worker (issue #84's "pre-imported modules" report). Adapted
-# from PR #85 (https://github.com/plasma-umass/slipcover/pull/85, author @nurikk),
-# who first diagnosed this gap and prototyped a fix by retroactively instrumenting
-# already-imported objects after the fact. Unfortunately, that approach has some
-# significant issues: on Python <3.12 the rewritten bytecode wasn't reinstalled,
-# and on 3.12+ branch coverage came back as a false 100% (no AST-level branch
-# preinstrumentation for modules that were already compiled). The fix here takes
-# a different angle: activate ImportManager earlier, before conftest.py is ever
-# read, so these modules go through the normal instrumentation path from the
-# start and need no after-the-fact repair.
+# runs in an xdist worker (issue #84's "pre-imported modules" report). The fix:
+# activate ImportManager earlier, before conftest.py is ever read, so these
+# modules go through the normal instrumentation path from the start and need
+# no after-the-fact repair.
 # ---------------------------------------------------------------------------
 
 
