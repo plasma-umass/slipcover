@@ -226,6 +226,8 @@ def build_parser():
                     help="threshold for de-instrumentation (if not immediate)")
     ap.add_argument('--missing-width', type=int, default=80, metavar="WIDTH", help="maximum width for `missing' column")
     ap.add_argument('--sigterm', action='store_true', help="if true, register a SIGTERM signal handler to capture data when the process ends due to a SIGTERM signal.")
+    ap.add_argument('--exclude-lines', action='append', metavar="REGEX",
+                    help="regex for lines/blocks to exclude from coverage, in addition to the built-in defaults (may be repeated)")
 
     # intended for slipcover development only
     ap.add_argument('--silent', action='store_true', help=argparse.SUPPRESS)
@@ -303,7 +305,8 @@ def main():
     omit_list = args.omit.split(',') if args.omit else None
     sci = sc.Slipcover(immediate=args.immediate,
                        d_miss_threshold=args.threshold, branch=args.branch,
-                       disassemble=args.dis, source=args.source, omit=omit_list)
+                       disassemble=args.dis, source=args.source, omit=omit_list,
+                       exclude_lines=args.exclude_lines)
 
 
     if not args.dont_wrap_pytest:
@@ -321,6 +324,9 @@ def main():
             os.environ["SLIPCOVER_SOURCE"] = source_str
         if args.omit:
             os.environ["SLIPCOVER_OMIT"] = args.omit
+        if args.exclude_lines:
+            # newline-joined, not comma-joined: regex patterns can contain commas
+            os.environ["SLIPCOVER_EXCLUDE_LINES"] = "\n".join(args.exclude_lines)
 
     if platform.system() != 'Windows':
         os.fork = fork_shim(sci)

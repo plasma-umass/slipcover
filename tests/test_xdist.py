@@ -498,3 +498,45 @@ def test_xdist_fail_under_uses_merged_coverage(tmp_path):
     )
 
     assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+
+def test_xdist_exclude_lines_propagation(tmp_path, monkeypatch):
+    """--exclude-lines must propagate to xdist workers via
+    SLIPCOVER_EXCLUDE_LINES (newline-joined, not comma-joined, since regex
+    patterns can themselves contain commas)."""
+    monkeypatch.chdir(tmp_path)
+
+    module_file = tmp_path / "target.py"
+    module_file.write_text(dedent("""\
+        def foo(x):
+            if x < 0:  # custom-nocov
+                return 1
+            return 2
+    """))
+
+    test_file = tmp_path / "test_it.py"
+    test_file.write_text(dedent("""\
+        from target import foo
+
+        def test_foo():
+            assert foo(1) == 2
+    """))
+
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--exclude-lines', 'custom-nocov',
+         '--json', '--out', str(out),
+         '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
+        capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+    check_summaries(cov)
+
+    keys = [k for k in cov['files'] if 'target.py' in k]
+    assert keys, f"target.py not in coverage: {list(cov['files'].keys())}"
+    # line 3 ("return 1") is genuinely dead code (foo(1) never takes the
+    # excluded branch) and would show up as missing without propagation.
+    assert 3 not in cov['files'][keys[0]]['missing_lines']

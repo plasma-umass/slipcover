@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import dis
+import re
 import sys
 import threading
 import types
@@ -19,6 +21,14 @@ from .xmlreport import XmlReporter
 from .lcovreport import LcovReporter
 
 # FIXME provide __all__
+
+# Default exclude_lines patterns, matching coverage.py's own zero-config
+# defaults (coverage/config.py's DEFAULT_EXCLUDE) so the most common idiom,
+# `# pragma: no cover`, works without any configuration.
+DEFAULT_EXCLUDE = [
+    r"#\s*pragma:\s*no\s*cover",
+    r"if\s+(typing\.)?TYPE_CHECKING:",
+]
 
 # Counter.total() is new in 3.10
 if sys.version_info < (3,10):
@@ -367,13 +377,18 @@ class Slipcover:
     def __init__(self, immediate: bool = False,
                  d_miss_threshold: int = 50, branch: bool = False,
                  disassemble: bool = False, source: Optional[List[str]] = None,
-                 omit: Optional[List[str]] = None):
+                 omit: Optional[List[str]] = None,
+                 exclude_lines: Optional[List[str]] = None):
         self.immediate = immediate
         self.d_miss_threshold = d_miss_threshold
         self.branch = branch
         self.disassemble = disassemble
         self.source = source
         self.omit = omit
+        # user-supplied patterns are additive to DEFAULT_EXCLUDE, not a
+        # replacement -- losing "# pragma: no cover" support just by adding
+        # one custom pattern would be a surprising footgun.
+        self._exclude_patterns = [re.compile(p) for p in DEFAULT_EXCLUDE + list(exclude_lines or [])]
 
         # mutex protecting this state
         self.lock = threading.RLock()
@@ -700,6 +715,135 @@ class Slipcover:
                         print(f"Warning: unable to include {filename}: {e}")
 
 
+    # Statement types whose primary clause (`body`) must be bounded
+    # separately from a trailing elif/else/except/finally clause: ast.If/
+    # For/While/Try's own end_lineno reaches through ALL of those, so using
+    # it directly for the "if"/"for"/"while"/"try" line's own span would
+    # incorrectly sweep a sibling clause the pattern never matched. `elif`
+    # needs no special handling: it's just a nested If inside orelse,
+    # walked (and correctly bounded) like any other If. Built via getattr
+    # since TryStar (3.11+) doesn't exist on every Python version
+    # slipcover supports.
+    _MULTI_CLAUSE_TYPES = tuple(t for t in (
+        ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, getattr(ast, 'TryStar', None),
+    ) if t is not None)
+
+    def _compute_excluded_lines(self, source: str) -> set:
+        """Computes the set of 1-based line numbers excluded by self._exclude_patterns.
+
+        A match on a block's own header line excludes the whole block; a
+        match on a decorator excludes it, any decorators stacked after it,
+        and the decorated def/class; any other match excludes just that
+        line/statement. Each candidate line/decorator/except-handler/
+        match-case gets a (start, end) span from its actual AST `lineno`/
+        `end_lineno`, and the smallest enclosing span always wins (see
+        below) -- so a match on any line of a multi-line header (not just
+        its first physical line) correctly sweeps the whole block, and a
+        match anywhere within a multi-line statement excludes that whole
+        statement.
+
+        Matching coverage.py: a bare `else:`/`finally:` line has no
+        dedicated AST node -- Python's parser doesn't record its position
+        -- so a pragma placed directly on one only excludes that single
+        physical line, not the clause's body; excluding an else/except/
+        finally block needs its own pragma on a line the AST *does* track
+        (e.g. inside the clause, or on an `except`/`case` line, which do
+        have dedicated nodes).
+        """
+        lines = source.splitlines()
+        matched = {
+            i + 1 for i, text in enumerate(lines)
+            if any(p.search(text) for p in self._exclude_patterns)
+        }
+        if not matched:
+            return set()
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return matched  # best-effort: at least exclude the matched lines themselves
+
+        spans = []  # candidate (start, end) line ranges
+
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                for dec in node.decorator_list:
+                    # matching a decorator excludes it, any decorators
+                    # stacked after it, and the decorated def/class --
+                    # decorators *before* the matched one are unaffected.
+                    spans.append((dec.lineno, node.end_lineno))
+
+            elif isinstance(node, ast.ExceptHandler):
+                spans.append((node.lineno, node.end_lineno))
+
+            elif hasattr(ast, 'Match') and isinstance(node, ast.Match):
+                for case in node.cases:
+                    spans.append((case.pattern.lineno, case.body[-1].end_lineno))
+
+            if isinstance(node, ast.stmt):
+                if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES):
+                    spans.append((node.lineno, node.body[-1].end_lineno))
+                else:
+                    spans.append((node.lineno, node.end_lineno or node.lineno))
+
+        # Smallest span first, so a matched line is always attributed to its
+        # most specific enclosing construct: a match inside a block's body
+        # is claimed by that inner statement before the block's own (larger)
+        # span is even considered, so the block itself is only excluded
+        # when the match is part of its own header/body span with no
+        # smaller statement covering it there -- which also means a match
+        # on any line of a multi-line header (not just its first physical
+        # line) correctly sweeps the whole block.
+        spans.sort(key=lambda s: s[1] - s[0])
+
+        excluded: set = set()
+        claimed: set = set()
+        for start, end in spans:
+            span_lines = set(range(start, end + 1))
+            if (matched & span_lines) - claimed:
+                excluded.update(span_lines)
+                claimed.update(matched & span_lines)
+
+        # any matched line the AST doesn't account for (e.g. a standalone
+        # comment line, or a bare else:/finally: line) is still excluded
+        # on its own.
+        excluded.update(matched - claimed)
+        return excluded
+
+    def _filter_excluded_lines(self, files: dict) -> None:
+        """Removes excluded lines, and any branch tuple originating from one,
+        from the coverage data -- a decision point on an excluded line
+        shouldn't leave stray executed/missing branch entries behind even
+        though the line itself is gone."""
+        source_cache: Dict[str, str] = {}
+
+        for fname, fdata in files.items():
+            if fname not in source_cache:
+                path = Path(fname)
+                if not path.is_absolute():
+                    path = Path.cwd() / path
+                try:
+                    source_cache[fname] = path.read_text()
+                except OSError:
+                    source_cache[fname] = ""
+
+            source = source_cache[fname]
+            if not source:
+                continue
+
+            excluded = self._compute_excluded_lines(source)
+            if not excluded:
+                continue
+
+            fdata['executed_lines'] = [l for l in fdata['executed_lines'] if l not in excluded]
+            fdata['missing_lines'] = [l for l in fdata['missing_lines'] if l not in excluded]
+
+            if 'executed_branches' in fdata:
+                fdata['executed_branches'] = [b for b in fdata['executed_branches'] if b[0] not in excluded]
+            if 'missing_branches' in fdata:
+                fdata['missing_branches'] = [b for b in fdata['missing_branches'] if b[0] not in excluded]
+
+
     @staticmethod
     def _make_meta(branch_coverage: bool) -> dict:
         import datetime
@@ -754,6 +898,8 @@ class Slipcover:
                     f_files['missing_branches'] = sorted(self.code_branches[f] - branches_seen)
 
                 files[simp.simplify(f)] = f_files
+
+            self._filter_excluded_lines(files)
 
             cov = {
                 'meta': Slipcover._make_meta(self.branch),
