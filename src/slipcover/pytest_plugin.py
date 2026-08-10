@@ -88,7 +88,8 @@ def _activate_worker():
 
     # Create Slipcover instance
     source_list = [s.strip() for s in source.split(",")] if source else None
-    _slipcover_instance = sc.Slipcover(branch=branch, source=source_list, exclude_lines=exclude_lines)
+    omit_list = [o.strip() for o in omit.split(",")] if omit else None
+    _slipcover_instance = sc.Slipcover(branch=branch, source=source_list, omit=omit_list, exclude_lines=exclude_lines)
 
     # Wrap pytest's assertion rewriter for instrumentation
     sc.wrap_pytest(_slipcover_instance, _file_matcher)

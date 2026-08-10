@@ -587,3 +587,48 @@ def test_xdist_exclude_also_propagation(tmp_path, monkeypatch):
     # (line 4/5) must be excluded, neither showing up as missing.
     for ln in (3, 5):
         assert ln not in cov['files'][keys[0]]['missing_lines']
+
+
+def test_xdist_omit_propagates_to_workers(tmp_path, monkeypatch):
+    """--omit must reach an xdist worker's own Slipcover instance, not just
+    its FileMatcher: a worker with --source set independently scans its
+    source directory for files it never imported (_add_unseen_source_files
+    in slipcover.py), and that scan's own omit filter comes from
+    self.omit -- which stays unset on the worker unless omit= is actually
+    passed to its Slipcover(...) construction. excluded.py is never
+    imported by anything here, so it can only appear via that scan."""
+    monkeypatch.chdir(tmp_path)
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "included.py").write_text("def inc():\n    return 1\n")
+    (src / "excluded.py").write_text("def exc():\n    return 2\n")
+
+    test_file = tmp_path / "test_it.py"
+    test_file.write_text(dedent("""\
+        import sys
+        sys.path.insert(0, "src")
+        from included import inc
+
+        def test_inc():
+            assert inc() == 1
+    """))
+
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--source', str(src),
+         '--omit', str(src / 'excluded.py'),
+         '--json', '--out', str(out),
+         '-m', 'pytest', '-n', '2', '-q', 'test_it.py'],
+        capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    with out.open() as f:
+        cov = json.load(f)
+    check_summaries(cov)
+
+    filenames = list(cov['files'].keys())
+    assert not any('excluded.py' in f for f in filenames), (
+        f"excluded.py should be omitted, found: {filenames}"
+    )
