@@ -74,17 +74,10 @@ def _activate_worker():
         exclude_lines = None
 
     # Set up file matcher
-    _file_matcher = sc.FileMatcher()
-    if source:
-        for s in source.split(","):
-            s = s.strip()
-            if s:
-                _file_matcher.addSource(s)
-    if omit:
-        for o in omit.split(","):
-            o = o.strip()
-            if o:
-                _file_matcher.addOmit(o)
+    _file_matcher = sc.FileMatcher(
+        sources=[s.strip() for s in source.split(",") if s.strip()] if source else None,
+        omit=[o.strip() for o in omit.split(",") if o.strip()] if omit else None,
+    )
 
     # Create Slipcover instance
     source_list = [s.strip() for s in source.split(",")] if source else None

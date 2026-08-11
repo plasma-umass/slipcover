@@ -54,10 +54,8 @@ class SlipcoverLoader(Loader):
 
 
 class FileMatcher:
-    def __init__(self):
+    def __init__(self, sources=None, omit=None, default_dir=None):
         self.cwd = Path.cwd().resolve()
-        self.sources = []
-        self.omit = []
         self.pylib_paths = (
             Path(sysconfig.get_path("stdlib")).resolve(),
             Path(sysconfig.get_path("purelib")).resolve(),
@@ -65,16 +63,19 @@ class FileMatcher:
         # Don't instrument slipcover's own modules
         self._slipcover_path = Path(__file__).resolve().parent
 
-    def addSource(self, source : Path):
+        self.sources = [self._resolve_source(s) for s in (sources or [])]
+        self.omit = [self._resolve_omit(o) for o in (omit or [])]
+        self.default_dir = Path(default_dir).resolve() if default_dir is not None else self.cwd
+
+    def _resolve_source(self, source : Path):
         if isinstance(source, str):
             source = Path(source)
-        self.sources.append(source.resolve())
+        return source.resolve()
 
-    def addOmit(self, omit):
+    def _resolve_omit(self, omit):
         if not omit.startswith('*'):
             omit = self.cwd / omit
-
-        self.omit.append(omit)
+        return omit
 
     def matches(self, filename : Optional[Path]):
         if filename is None:

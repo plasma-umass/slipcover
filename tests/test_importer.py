@@ -63,9 +63,7 @@ def test_filematcher_source(tmp_path, monkeypatch):
 
     monkeypatch.chdir(base)
 
-    fm = im.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addSource('prereq')
+    fm = im.FileMatcher(sources=['mymodule', 'prereq'])
 
     assert not fm.matches('myscript.py')
     assert not fm.matches(Path('.') / 'myscript.py')
@@ -95,8 +93,7 @@ def test_filematcher_source_resolved(monkeypatch):
     from pathlib import Path
     monkeypatch.chdir('tests')
 
-    fm = im.FileMatcher()
-    fm.addSource('../src/')
+    fm = im.FileMatcher(sources=['../src/'])
 
     p = (Path.cwd() / '..' / 'src' / 'foo.py').resolve()
     assert fm.matches(p)
@@ -118,9 +115,7 @@ def test_filematcher_omit_pattern(tmp_path, monkeypatch):
 
     monkeypatch.chdir(base)
 
-    fm = im.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addOmit('*/foo.py')
+    fm = im.FileMatcher(sources=['mymodule'], omit=['*/foo.py'])
 
     assert not fm.matches('myscript.py')
     assert not fm.matches(Path('.') / 'myscript.py')
@@ -159,9 +154,7 @@ def test_filematcher_omit_nonpattern(tmp_path, monkeypatch):
 
     monkeypatch.chdir(base)
 
-    fm = im.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addOmit('mymodule/foo.py')
+    fm = im.FileMatcher(sources=['mymodule'], omit=['mymodule/foo.py'])
 
     assert not fm.matches('myscript.py')
     assert not fm.matches(Path('.') / 'myscript.py')
@@ -466,8 +459,7 @@ y = 2
     # Set up slipcover and file matcher
     import slipcover as sc
     sci = sc.Slipcover()
-    fm = im.FileMatcher()
-    fm.addSource(tmp_path)
+    fm = im.FileMatcher(sources=[tmp_path])
     
     # Wrap spec_from_file_location
     im.wrap_spec_from_file_location(sci, fm)

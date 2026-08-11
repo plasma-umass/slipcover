@@ -681,7 +681,7 @@ class Slipcover:
         import ast
         from fnmatch import fnmatch
 
-        # Prepare omit patterns (same logic as FileMatcher.addOmit)
+        # Prepare omit patterns (same logic as FileMatcher._resolve_omit)
         omit_patterns = []
         if self.omit:
             cwd = Path.cwd().resolve()
