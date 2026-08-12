@@ -99,6 +99,100 @@ def test_filematcher_source_resolved(monkeypatch):
     assert fm.matches(p)
 
 
+def test_filematcher_default_dir_respects_pylib(tmp_path, monkeypatch):
+    # Regression test for #79: a script run with no --source auto-scopes to
+    # its own directory (via default_dir); that shouldn't bypass stdlib/
+    # site-packages exclusion the way an explicit --source does.
+    # cwd is deliberately unrelated to script_dir, so a match on
+    # script_dir/myscript.py can only succeed via default_dir, not by
+    # falling back to (or coincidentally being an ancestor via) cwd.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    script_dir = tmp_path / "proj"
+    script_dir.mkdir()
+    (script_dir / "myscript.py").write_text("")
+
+    fake_pylib = script_dir / ".venv" / "lib" / "site-packages"
+    fake_pylib.mkdir(parents=True)
+    (fake_pylib / "somepkg").mkdir()
+    (fake_pylib / "somepkg" / "mod.py").write_text("")
+
+    fm = im.FileMatcher(default_dir=script_dir)
+    fm.pylib_paths = (*fm.pylib_paths, fake_pylib)
+
+    assert fm.matches(script_dir / "myscript.py")
+    assert not fm.matches(fake_pylib / "somepkg" / "mod.py")
+
+
+def test_filematcher_explicit_source_bypasses_pylib(tmp_path):
+    # An explicit --source is trusted completely, even if it points inside
+    # what looks like a venv/site-packages -- unlike the default_dir case
+    # above, matching how explicit --source already bypasses pylib_paths.
+    fake_pylib = tmp_path / "venv-site-packages"
+    fake_pylib.mkdir()
+    (fake_pylib / "somepkg").mkdir()
+    (fake_pylib / "somepkg" / "mod.py").write_text("")
+
+    fm = im.FileMatcher(sources=[fake_pylib])
+    fm.pylib_paths = (*fm.pylib_paths, fake_pylib)
+
+    assert fm.matches(fake_pylib / "somepkg" / "mod.py")
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='venv layout differs on Windows')
+def test_venv_excluded_from_report_without_source(tmp_path):
+    # End-to-end regression test for #79: running a script with no --source,
+    # sitting next to a real .venv, shouldn't pull that venv's own
+    # site-packages into the coverage report. Uses a real venv (so
+    # sysconfig.get_path("purelib") genuinely resolves inside it, as it
+    # would for a user's actual virtualenv) rather than faking pylib_paths.
+    import json
+    import sysconfig
+    import venv
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    venv_dir = proj / ".venv"
+    venv.create(venv_dir, with_pip=False)
+
+    site_packages = next(venv_dir.rglob("site-packages"))
+
+    # Make the local checkout (including its already-built C extension, if
+    # any) importable in the new venv without needing pip or network access,
+    # along with this same interpreter's own site-packages so slipcover's
+    # dependencies (e.g. tomli on <3.11) resolve too. Neither path is
+    # *inside* the new venv, so sysconfig.get_path("purelib") -- which
+    # pylib_paths relies on -- still resolves to the new venv's own
+    # site-packages when run via venv_python below, unaffected by this.
+    repo_src = Path(__file__).resolve().parent.parent / "src"
+    outer_site_packages = sysconfig.get_path("purelib")
+    (site_packages / "_slipcover_repo.pth").write_text(
+        f"{repo_src}\n{outer_site_packages}\n"
+    )
+
+    # A fake third-party package "installed" in the venv, as pip would.
+    pkg = site_packages / "thirdparty_pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("def hello():\n    return 1\n")
+
+    script = proj / "run.py"
+    script.write_text("import thirdparty_pkg\nthirdparty_pkg.hello()\n")
+
+    venv_python = venv_dir / "bin" / "python"
+    out = tmp_path / "out.json"
+
+    subprocess.run([str(venv_python), "-m", "slipcover", "--json", "--out", str(out), str(script)], check=True)
+
+    with out.open() as f:
+        cov = json.load(f)
+
+    files = cov['files'].keys()
+    assert str(script.resolve()) in files
+    assert not any('thirdparty_pkg' in f for f in files)
+
+
 def test_filematcher_omit_pattern(tmp_path, monkeypatch):
     base = tmp_path / "foo"
     base.mkdir()

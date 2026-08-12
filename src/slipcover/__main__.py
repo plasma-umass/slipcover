@@ -288,15 +288,11 @@ def main():
 
     if args.source:
         args.source = args.source.split(',')
-        matcher_sources = args.source
-    elif args.script:
-        matcher_sources = [Path(args.script).resolve().parent]
-    else:
-        matcher_sources = None
 
     file_matcher = sc.FileMatcher(
-        sources=matcher_sources,
+        sources=args.source,
         omit=args.omit.split(',') if args.omit else None,
+        default_dir=Path(args.script).resolve().parent if args.script else None,
     )
 
 

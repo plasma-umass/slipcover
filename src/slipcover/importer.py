@@ -104,7 +104,7 @@ class FileMatcher:
         if any(filename.is_relative_to(p) for p in self.pylib_paths):
             return False
 
-        return filename.is_relative_to(self.cwd)
+        return filename.is_relative_to(self.default_dir)
 
 
 class MatchEverything:
