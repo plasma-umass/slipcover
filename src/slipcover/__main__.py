@@ -286,18 +286,14 @@ def main():
         return merge_files(args, base_path=base_path)
 
 
-    file_matcher = sc.FileMatcher()
-
     if args.source:
         args.source = args.source.split(',')
-        for s in args.source:
-            file_matcher.addSource(s)
-    elif args.script:
-        file_matcher.addSource(Path(args.script).resolve().parent)
 
-    if args.omit:
-        for o in args.omit.split(','):
-            file_matcher.addOmit(o)
+    file_matcher = sc.FileMatcher(
+        sources=args.source,
+        omit=args.omit.split(',') if args.omit else None,
+        default_dir=Path(args.script).resolve().parent if args.script else None,
+    )
 
 
     omit_list = args.omit.split(',') if args.omit else None

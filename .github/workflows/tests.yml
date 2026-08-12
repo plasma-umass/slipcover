@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - src/**
-      - test/**
+      - tests/**
       - setup.py
       - requirements.txt
       - Makefile

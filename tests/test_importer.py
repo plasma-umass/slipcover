@@ -63,9 +63,7 @@ def test_filematcher_source(tmp_path, monkeypatch):
 
     monkeypatch.chdir(base)
 
-    fm = im.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addSource('prereq')
+    fm = im.FileMatcher(sources=['mymodule', 'prereq'])
 
     assert not fm.matches('myscript.py')
     assert not fm.matches(Path('.') / 'myscript.py')
@@ -95,11 +93,107 @@ def test_filematcher_source_resolved(monkeypatch):
     from pathlib import Path
     monkeypatch.chdir('tests')
 
-    fm = im.FileMatcher()
-    fm.addSource('../src/')
+    fm = im.FileMatcher(sources=['../src/'])
 
     p = (Path.cwd() / '..' / 'src' / 'foo.py').resolve()
     assert fm.matches(p)
+
+
+def test_filematcher_default_dir_respects_pylib(tmp_path, monkeypatch):
+    # Regression test for #79: a script run with no --source auto-scopes to
+    # its own directory (via default_dir); that shouldn't bypass stdlib/
+    # site-packages exclusion the way an explicit --source does.
+    # cwd is deliberately unrelated to script_dir, so a match on
+    # script_dir/myscript.py can only succeed via default_dir, not by
+    # falling back to (or coincidentally being an ancestor via) cwd.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    script_dir = tmp_path / "proj"
+    script_dir.mkdir()
+    (script_dir / "myscript.py").write_text("")
+
+    fake_pylib = script_dir / ".venv" / "lib" / "site-packages"
+    fake_pylib.mkdir(parents=True)
+    (fake_pylib / "somepkg").mkdir()
+    (fake_pylib / "somepkg" / "mod.py").write_text("")
+
+    fm = im.FileMatcher(default_dir=script_dir)
+    fm.pylib_paths = (*fm.pylib_paths, fake_pylib)
+
+    assert fm.matches(script_dir / "myscript.py")
+    assert not fm.matches(fake_pylib / "somepkg" / "mod.py")
+
+
+def test_filematcher_explicit_source_bypasses_pylib(tmp_path):
+    # An explicit --source is trusted completely, even if it points inside
+    # what looks like a venv/site-packages -- unlike the default_dir case
+    # above, matching how explicit --source already bypasses pylib_paths.
+    fake_pylib = tmp_path / "venv-site-packages"
+    fake_pylib.mkdir()
+    (fake_pylib / "somepkg").mkdir()
+    (fake_pylib / "somepkg" / "mod.py").write_text("")
+
+    fm = im.FileMatcher(sources=[fake_pylib])
+    fm.pylib_paths = (*fm.pylib_paths, fake_pylib)
+
+    assert fm.matches(fake_pylib / "somepkg" / "mod.py")
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='venv layout differs on Windows')
+def test_venv_excluded_from_report_without_source(tmp_path):
+    # End-to-end regression test for #79: running a script with no --source,
+    # sitting next to a real .venv, shouldn't pull that venv's own
+    # site-packages into the coverage report. Uses a real venv (so
+    # sysconfig.get_path("purelib") genuinely resolves inside it, as it
+    # would for a user's actual virtualenv) rather than faking pylib_paths.
+    import json
+    import sysconfig
+    import venv
+    import slipcover as _sc
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    venv_dir = proj / ".venv"
+    venv.create(venv_dir, with_pip=False)
+
+    site_packages = next(venv_dir.rglob("site-packages"))
+
+    # Make slipcover (already built/importable in this same interpreter --
+    # whether from an editable install pointing at src/, or a regular
+    # install in site-packages) and its dependencies (e.g. tomli on <3.11)
+    # importable in the new venv, without needing pip or network access.
+    # slipcover_parent is wherever the *package* is importable from --
+    # covers both install styles; outer_site_packages covers the rest.
+    # Neither path is *inside* the new venv, so sysconfig.get_path
+    # ("purelib") -- which pylib_paths relies on -- still resolves to the
+    # new venv's own site-packages when run via venv_python below.
+    slipcover_parent = Path(_sc.__file__).resolve().parent.parent
+    outer_site_packages = sysconfig.get_path("purelib")
+    (site_packages / "_slipcover_repo.pth").write_text(
+        f"{slipcover_parent}\n{outer_site_packages}\n"
+    )
+
+    # A fake third-party package "installed" in the venv, as pip would.
+    pkg = site_packages / "thirdparty_pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("def hello():\n    return 1\n")
+
+    script = proj / "run.py"
+    script.write_text("import thirdparty_pkg\nthirdparty_pkg.hello()\n")
+
+    venv_python = venv_dir / "bin" / "python"
+    out = tmp_path / "out.json"
+
+    subprocess.run([str(venv_python), "-m", "slipcover", "--json", "--out", str(out), str(script)], check=True)
+
+    with out.open() as f:
+        cov = json.load(f)
+
+    files = cov['files'].keys()
+    assert str(script.resolve()) in files
+    assert not any('thirdparty_pkg' in f for f in files)
 
 
 def test_filematcher_omit_pattern(tmp_path, monkeypatch):
@@ -118,9 +212,7 @@ def test_filematcher_omit_pattern(tmp_path, monkeypatch):
 
     monkeypatch.chdir(base)
 
-    fm = im.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addOmit('*/foo.py')
+    fm = im.FileMatcher(sources=['mymodule'], omit=['*/foo.py'])
 
     assert not fm.matches('myscript.py')
     assert not fm.matches(Path('.') / 'myscript.py')
@@ -159,9 +251,7 @@ def test_filematcher_omit_nonpattern(tmp_path, monkeypatch):
 
     monkeypatch.chdir(base)
 
-    fm = im.FileMatcher()
-    fm.addSource('mymodule')
-    fm.addOmit('mymodule/foo.py')
+    fm = im.FileMatcher(sources=['mymodule'], omit=['mymodule/foo.py'])
 
     assert not fm.matches('myscript.py')
     assert not fm.matches(Path('.') / 'myscript.py')
@@ -466,8 +556,7 @@ y = 2
     # Set up slipcover and file matcher
     import slipcover as sc
     sci = sc.Slipcover()
-    fm = im.FileMatcher()
-    fm.addSource(tmp_path)
+    fm = im.FileMatcher(sources=[tmp_path])
     
     # Wrap spec_from_file_location
     im.wrap_spec_from_file_location(sci, fm)
