@@ -2,7 +2,7 @@ from __future__ import annotations
 import sys
 import dis
 import types
-from typing import List, Tuple, Iterator
+from typing import List, Tuple, Iterator, Union
 
 # FIXME provide __all__
 
@@ -67,7 +67,7 @@ def opcode_arg(opcode: int, arg: int, min_ext : int = 0) -> List[int]:
     return bytecode
 
 
-def unpack_opargs(code: bytes) -> Iterator[Tuple[int, int, int, int]]:
+def unpack_opargs(code: Union[bytes, bytearray]) -> Iterator[Tuple[int, int, int, int]]:
     """Unpacks opcodes and their arguments, returning:
 
     - the beginning offset, including that of the first EXTENDED_ARG, if any
@@ -93,7 +93,7 @@ def unpack_opargs(code: bytes) -> Iterator[Tuple[int, int, int, int]]:
         off += 2
 
 
-def calc_max_stack(code: bytes) -> int:
+def calc_max_stack(code: Union[bytes, bytearray]) -> int:
     """Calculates the maximum stack size for code to execute.
 
     Assumes linear execution (i.e., not things like a loop pushing to the stack).
@@ -579,6 +579,7 @@ class Editor:
            coming from an immediately preceding LOAD_CONST.
         """
         load_off = None
+        const_arg = None
         for (op_off, op_len, op, arg) in unpack_opargs(self.orig_code.co_code[start:end]):
             if op == op_LOAD_CONST:
                 load_off = op_off+start
@@ -634,6 +635,10 @@ class Editor:
             self.finished = True
 
             if self.branches is not None:
+                # self.branches is only ever set alongside self.patch, in
+                # insert_function_call(), which sets patch first
+                assert self.patch is not None
+
                 # A branch's new target may now require more EXTENDED_ARG opcodes to be expressed.
                 # Inserting space for those may in turn trigger needing more space for others...
                 # FIXME missing test for length adjustment triggering other length adjustments

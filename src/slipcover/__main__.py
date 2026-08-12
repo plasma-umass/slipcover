@@ -53,8 +53,8 @@ def merged_coverage(sci):
     # Merge coverage from forked children (pytest-forked)
     if input_tmpfiles:
         for f in input_tmpfiles:
+            fname = f.name
             try:
-                fname = f.name
                 f.seek(0, os.SEEK_END)
                 # If the file is empty, it was likely closed, possibly upon exec
                 if f.tell() != 0:
@@ -119,6 +119,7 @@ def merge_files(args, base_path):
         warnings.warn(f"Error reading in {args.merge[0]}: {e}")
         return 1
 
+    f = None
     try:
         for f in args.merge[1:]:
             with f.open() as jf:

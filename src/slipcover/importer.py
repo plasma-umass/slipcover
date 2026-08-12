@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from .slipcover import Slipcover
 from .version import __version__
 from . import branch as br
@@ -30,7 +30,7 @@ class SlipcoverLoader(Loader):
     # for compability with loaders supporting resources, used e.g. by sklearn
     def get_resource_reader(self, fullname: str) -> Optional[TraversableResources]:
         if hasattr(self.orig_loader, 'get_resource_reader'):
-            return self.orig_loader.get_resource_reader(fullname)
+            return self.orig_loader.get_resource_reader(fullname)  # type: ignore[attr-defined]
         return None
 
     def create_module(self, spec):
@@ -48,6 +48,9 @@ class SlipcoverLoader(Loader):
         else:
             code = self.orig_loader.get_code(module.__name__)  # type: ignore[attr-defined]
 
+        # get_code() can return None for loaders with no code object (e.g.
+        # built-ins) -- not expected for the loaders SlipcoverLoader wraps
+        assert code is not None
         self.sci.register_module(module)
         code = self.sci.instrument(code)
         exec(code, module.__dict__)
@@ -77,7 +80,7 @@ class FileMatcher:
             omit = self.cwd / omit
         return omit
 
-    def matches(self, filename : Optional[Path]):
+    def matches(self, filename : Optional[Union[Path, str]]):
         if filename is None:
             return False
 
@@ -95,7 +98,7 @@ class FileMatcher:
 
         if self.omit:
             from fnmatch import fnmatch
-            if any(fnmatch(filename, o) for o in self.omit):
+            if any(fnmatch(str(filename), str(o)) for o in self.omit):
                 return False
 
         if self.sources:

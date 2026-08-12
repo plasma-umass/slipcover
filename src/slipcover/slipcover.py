@@ -7,7 +7,7 @@ import sys
 import threading
 import types
 from collections import Counter, defaultdict
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 if sys.version_info < (3,12):
     from . import bytecode as bc
@@ -208,18 +208,19 @@ def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_cov
             exec_l = len(f_info['executed_lines'])
             miss_l = len(f_info['missing_lines'])
 
+            extra_b = []
             if branch_coverage:
                 exec_b = len(f_info['executed_branches'])
                 miss_b = len(f_info['missing_branches'])
                 pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
+                extra_b = [exec_b+miss_b, miss_b, round(pct_b)]
 
             pct = f_info['summary']['percent_covered']
 
             if skip_covered and pct == 100.0:
                 continue
 
-            yield [f, exec_l+miss_l, miss_l,
-                   *([exec_b+miss_b, miss_b, round(pct_b)] if branch_coverage else []),
+            yield [f, exec_l+miss_l, miss_l, *extra_b,
                    round(pct),
                    format_missing(f_info['missing_lines'], f_info['executed_lines'],
                                   f_info['missing_branches'] if 'missing_branches' in f_info else [])]
@@ -229,13 +230,14 @@ def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_cov
 
             s = coverage['summary']
 
+            extra_b = []
             if branch_coverage:
                 exec_b = s['covered_branches']
                 miss_b = s['missing_branches']
                 pct_b = 100*exec_b/(exec_b+miss_b) if (exec_b+miss_b) else 0
+                extra_b = [exec_b+miss_b, miss_b, round(pct_b)]
 
-            yield ['(summary)', s['covered_lines']+s['missing_lines'], s['missing_lines'],
-                   *([exec_b+miss_b, miss_b, round(pct_b)] if branch_coverage else []),
+            yield ['(summary)', s['covered_lines']+s['missing_lines'], s['missing_lines'], *extra_b,
                    round(s['percent_covered']), '']
 
 
@@ -251,7 +253,7 @@ def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_cov
 def add_summaries(cov: dict) -> None:
     """Adds (or updates) 'summary' entries in coverage information."""
     # global summary
-    g_summary : dict = defaultdict(int)
+    g_summary : dict[str, Any] = defaultdict(int)
     g_nom = g_den = 0
 
     if 'files' in cov:
@@ -444,7 +446,7 @@ class Slipcover:
         # is just to protect callers of this method (so that the exchange is atomic).
 
         with self.lock:
-            newly_seen = self.newly_seen if hasattr(self, "newly_seen") else None
+            newly_seen = self.newly_seen if hasattr(self, "newly_seen") else defaultdict(set)
             self.newly_seen: Dict[str, set] = defaultdict(set)
 
         return newly_seen
@@ -787,49 +789,59 @@ class Slipcover:
         except SyntaxError:
             return matched  # best-effort: at least exclude the matched lines themselves
 
+        def _end(n) -> int:
+            # end_lineno is Optional per the ast stubs, but always set for
+            # any node coming from a real ast.parse() of source text (as
+            # opposed to a synthetically-constructed node with no position
+            # info) -- lineno is a reasonable, always-safe fallback.
+            return n.end_lineno or n.lineno
+
         spans = []  # (full_start, full_end, trigger_start, trigger_end)
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 first = node.decorator_list[0].lineno if node.decorator_list else node.lineno
-                spans.append((first, node.end_lineno, first, node.lineno))
+                spans.append((first, _end(node), first, node.lineno))
                 continue  # handled fully here -- skip the generic stmt case below
 
             if isinstance(node, ast.ExceptHandler):
-                spans.append((node.lineno, node.end_lineno, node.lineno, node.body[0].lineno - 1))
+                spans.append((node.lineno, _end(node), node.lineno, node.body[0].lineno - 1))
 
             elif hasattr(ast, 'Match') and isinstance(node, ast.Match):
                 for case in node.cases:
-                    spans.append((case.pattern.lineno, case.body[-1].end_lineno,
+                    spans.append((case.pattern.lineno, _end(case.body[-1]),
                                   case.pattern.lineno, case.body[0].lineno - 1))
 
-            if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES) and node.orelse:
-                gap_start = node.body[-1].end_lineno + 1
-                gap_end = node.orelse[0].lineno - 1
+            orelse = getattr(node, 'orelse', None)
+            if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES) and orelse:
+                clause_body = getattr(node, 'body')
+                gap_start = _end(clause_body[-1]) + 1
+                gap_end = orelse[0].lineno - 1
                 if gap_start <= gap_end:
-                    spans.append((gap_start, node.orelse[-1].end_lineno, gap_start, gap_end))
+                    spans.append((gap_start, _end(orelse[-1]), gap_start, gap_end))
 
             finalbody = getattr(node, 'finalbody', None)
             if finalbody:
-                prev_end = (node.orelse[-1].end_lineno if node.orelse
-                            else node.handlers[-1].end_lineno if node.handlers
-                            else node.body[-1].end_lineno)
+                handlers = getattr(node, 'handlers', None)
+                prev_end = (_end(orelse[-1]) if orelse
+                            else _end(handlers[-1]) if handlers
+                            else _end(getattr(node, 'body')[-1]))
                 gap_start = prev_end + 1
                 gap_end = finalbody[0].lineno - 1
                 if gap_start <= gap_end:
-                    spans.append((gap_start, finalbody[-1].end_lineno, gap_start, gap_end))
+                    spans.append((gap_start, _end(finalbody[-1]), gap_start, gap_end))
 
             if isinstance(node, ast.stmt):
                 body = getattr(node, 'body', None)
                 if body:
                     header_end = max(body[0].lineno - 1, node.lineno)
                     if isinstance(node, Slipcover._MULTI_CLAUSE_TYPES):
-                        full_end = body[-1].end_lineno
+                        full_end = _end(body[-1])
                     else:
-                        full_end = node.end_lineno or node.lineno
+                        full_end = _end(node)
                     spans.append((node.lineno, full_end, node.lineno, header_end))
                 else:
-                    end = node.end_lineno or node.lineno
+                    end = _end(node)
                     spans.append((node.lineno, end, node.lineno, end))
 
         # Smallest full-range first, so a matched line is always attributed

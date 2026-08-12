@@ -59,7 +59,9 @@ class LcovReporter:
         `outfile` is a file object to write the LCOV data to.
 
         """
-        outfile = outfile or sys.stdout
+        if outfile is None:
+            outfile = sys.stdout
+        assert outfile is not None
 
         for comment in self.comments:
             outfile.write(f"# {comment}\n")

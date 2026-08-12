@@ -39,8 +39,9 @@ def preinstrument(tree: ast.Module) -> ast.Module:
                 mark = ast.Assign([ast.Name(BRANCH_NAME, ast.Store())],
                                    ast.Tuple([ast.Constant(from_line), ast.Constant(to_line)], ast.Load()))
                 if sys.version_info[0:2] == (3,11):
+                    # we ignore line 0, so this avoids generating extra line probes
                     for node in ast.walk(mark):
-                        node.lineno = 0 # we ignore line 0, so this avoids generating extra line probes
+                        node.lineno = 0 # type: ignore[attr-defined]
                 else:
                     for node in ast.walk(mark):
                         node.lineno = from_line # type: ignore[attr-defined]
@@ -88,11 +89,12 @@ def preinstrument(tree: ast.Module) -> ast.Module:
                 for case in node.cases:
                     case.body = self._mark_branch(node.lineno, case.body[0].lineno) + case.body
 
-                last_pattern = case.pattern  # case is node.cases[-1]
+                last_case = node.cases[-1]  # a Match always has at least one case
+                last_pattern = last_case.pattern
                 while isinstance(last_pattern, ast.MatchOr):
                     last_pattern = last_pattern.patterns[-1]
 
-                has_wildcard = case.guard is None and isinstance(last_pattern, ast.MatchAs) and last_pattern.pattern is None
+                has_wildcard = last_case.guard is None and isinstance(last_pattern, ast.MatchAs) and last_pattern.pattern is None
                 if not has_wildcard:
                     to_line = node.next_node.lineno if node.next_node else EXIT # type: ignore[attr-defined]
                     node.cases.append(ast.match_case(ast.MatchAs(),
