@@ -216,8 +216,10 @@ def build_parser():
     ap.add_argument('--lcov-test-name', type=str, help="test name for LCOV TN: entries")
     ap.add_argument('--lcov-comment', action='append', dest='lcov_comments', help="add comment lines at the beginning of LCOV output (can be used multiple times)")
     ap.add_argument('--out', type=Path, help="specify output file name")
-    ap.add_argument('--source', help="specify directories to cover")
-    ap.add_argument('--omit', help="specify file(s) to omit")
+    ap.add_argument('--source', metavar='SRC1,SRC2,...',
+                     help="specify directories to cover; comma-separated for multiple")
+    ap.add_argument('--omit', metavar='PAT1,PAT2,...',
+                     help="specify file pattern(s) to omit; comma-separated for multiple")
     ap.add_argument('--immediate', action='store_true',
                     help=(argparse.SUPPRESS if platform.python_implementation() == "PyPy" else "request immediate de-instrumentation"))
     ap.add_argument('--skip-covered', action='store_true', help="omit fully covered files (from text, non-JSON output)")

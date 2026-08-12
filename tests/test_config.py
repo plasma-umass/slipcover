@@ -162,6 +162,30 @@ def test_config_keys_match_cli_flags():
     assert not missing, f"CLI flags with no matching config.py key: {sorted(missing)}"
 
 
+@pytest.mark.skipif(sys.version_info[:2] != (3, 12), reason=(
+    "argparse's own output changed across Python versions (e.g. the "
+    "'options:' vs 'optional arguments:' heading, 3.9 vs 3.10+) -- "
+    "README.md's transcript is captured from 3.12, so only compare there"
+))
+def test_readme_help_matches_cli():
+    """Catches drift between the '--help' transcript embedded in README.md's
+    "Command-line options" section and the actual current output -- e.g.
+    a flag's help= text changing without the README being refreshed. If
+    this fails: run tools/update_readme_help.py (with a 3.12 interpreter)
+    and commit the result.
+    """
+    import re
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    m = re.search(
+        r'\[//\]: # \(help-output\)\n```console\n\$ python3 -m slipcover --help\n(.*?)\n```',
+        readme, flags=re.S
+    )
+    assert m, "README.md is missing its [//]: # (help-output) marked section"
+
+    assert m.group(1) == build_parser().format_help().rstrip('\n')
+
+
 def _make_args(**kwargs):
     defaults = dict(
         branch=False, format='text', pretty_print=False,

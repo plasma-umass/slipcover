@@ -175,15 +175,16 @@ As can be seen in the coverage report, d2k lacks some coverage, especially in
 its `box.py` and `image.py` components.
 
 ## Command-line options
+[//]: # (help-output)
 ```console
 $ python3 -m slipcover --help
 usage: SlipCover [-h] [--branch] [--format {text,json,xml,lcov}] [--json]
                  [--pretty-print] [--xml]
                  [--xml-package-depth XML_PACKAGE_DEPTH] [--lcov]
                  [--lcov-test-name LCOV_TEST_NAME]
-                 [--lcov-comment LCOV_COMMENTS] [--out OUT] [--source SOURCE]
-                 [--omit OMIT] [--immediate] [--skip-covered]
-                 [--fail-under FAIL_UNDER] [--threshold T]
+                 [--lcov-comment LCOV_COMMENTS] [--out OUT]
+                 [--source SRC1,SRC2,...] [--omit PAT1,PAT2,...] [--immediate]
+                 [--skip-covered] [--fail-under FAIL_UNDER] [--threshold T]
                  [--missing-width WIDTH] [--sigterm] [--version] [-m MODULE]
                  [--merge MERGE [MERGE ...]]
                  [script] ...
@@ -212,8 +213,11 @@ options:
                         add comment lines at the beginning of LCOV output (can
                         be used multiple times)
   --out OUT             specify output file name
-  --source SOURCE       specify directories to cover
-  --omit OMIT           specify file(s) to omit
+  --source SRC1,SRC2,...
+                        specify directories to cover; comma-separated for
+                        multiple
+  --omit PAT1,PAT2,...  specify file pattern(s) to omit; comma-separated for
+                        multiple
   --immediate           request immediate de-instrumentation
   --skip-covered        omit fully covered files (from text, non-JSON output)
   --fail-under FAIL_UNDER
