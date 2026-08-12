@@ -151,6 +151,7 @@ def test_venv_excluded_from_report_without_source(tmp_path):
     import json
     import sysconfig
     import venv
+    import slipcover as _sc
 
     proj = tmp_path / "proj"
     proj.mkdir()
@@ -159,17 +160,19 @@ def test_venv_excluded_from_report_without_source(tmp_path):
 
     site_packages = next(venv_dir.rglob("site-packages"))
 
-    # Make the local checkout (including its already-built C extension, if
-    # any) importable in the new venv without needing pip or network access,
-    # along with this same interpreter's own site-packages so slipcover's
-    # dependencies (e.g. tomli on <3.11) resolve too. Neither path is
-    # *inside* the new venv, so sysconfig.get_path("purelib") -- which
-    # pylib_paths relies on -- still resolves to the new venv's own
-    # site-packages when run via venv_python below, unaffected by this.
-    repo_src = Path(__file__).resolve().parent.parent / "src"
+    # Make slipcover (already built/importable in this same interpreter --
+    # whether from an editable install pointing at src/, or a regular
+    # install in site-packages) and its dependencies (e.g. tomli on <3.11)
+    # importable in the new venv, without needing pip or network access.
+    # slipcover_parent is wherever the *package* is importable from --
+    # covers both install styles; outer_site_packages covers the rest.
+    # Neither path is *inside* the new venv, so sysconfig.get_path
+    # ("purelib") -- which pylib_paths relies on -- still resolves to the
+    # new venv's own site-packages when run via venv_python below.
+    slipcover_parent = Path(_sc.__file__).resolve().parent.parent
     outer_site_packages = sysconfig.get_path("purelib")
     (site_packages / "_slipcover_repo.pth").write_text(
-        f"{repo_src}\n{outer_site_packages}\n"
+        f"{slipcover_parent}\n{outer_site_packages}\n"
     )
 
     # A fake third-party package "installed" in the venv, as pip would.
