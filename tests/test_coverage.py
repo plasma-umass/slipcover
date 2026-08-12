@@ -1921,15 +1921,19 @@ def test_sigterm_forked_child_writes_partial_coverage_safely(tmp_path, monkeypat
     )
 
     pid_file = tmp_path / "child_pid.txt"
+    child_pid = None
     for _ in range(100):  # up to ~5s
-        if pid_file.exists():
+        # both errors mean "not ready yet": the file may not exist, or it
+        # may exist but not be flushed/visible yet (empty content)
+        try:
+            child_pid = int(pid_file.read_text())
             break
+        except (FileNotFoundError, ValueError):
+            pass
         time.sleep(0.05)
     else:
         proc.kill()
         pytest.fail("forked child never started")
-
-    child_pid = int(pid_file.read_text())
     os.kill(child_pid, signal.SIGTERM)
 
     stdout, stderr = proc.communicate(timeout=30)
