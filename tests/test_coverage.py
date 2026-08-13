@@ -1907,11 +1907,11 @@ def test_sigterm_forked_child_writes_partial_coverage_safely(tmp_path, monkeypat
         pid = os.fork()
         if pid == 0:
             x = 1
+            with open("child_ready.txt", "w") as f:
+                f.write(str(os.getpid()))
             time.sleep(10)
             y = 2  # must never execute -- child is killed during sleep
         else:
-            with open("child_pid.txt", "w") as f:
-                f.write(str(pid))
             os.waitpid(pid, 0)
     """))
 
@@ -1920,13 +1920,17 @@ def test_sigterm_forked_child_writes_partial_coverage_safely(tmp_path, monkeypat
         cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
 
-    pid_file = tmp_path / "child_pid.txt"
+    # Written by the child itself, strictly after "x = 1" executes -- unlike
+    # polling for the pid alone, this guarantees line 5 has already been
+    # recorded before we signal, closing a race that made this test flaky
+    # under contended CI runners (process existing != line already executed).
+    ready_file = tmp_path / "child_ready.txt"
     child_pid = None
     for _ in range(100):  # up to ~5s
         # both errors mean "not ready yet": the file may not exist, or it
         # may exist but not be flushed/visible yet (empty content)
         try:
-            child_pid = int(pid_file.read_text())
+            child_pid = int(ready_file.read_text())
             break
         except (FileNotFoundError, ValueError):
             pass
@@ -1942,4 +1946,4 @@ def test_sigterm_forked_child_writes_partial_coverage_safely(tmp_path, monkeypat
     cov = json.loads((tmp_path / "out.json").read_text())
     file_cov = cov['files']['script.py']
     assert 5 in file_cov['executed_lines']       # x = 1, in the child
-    assert 7 not in file_cov['executed_lines']   # y = 2, never reached
+    assert 9 not in file_cov['executed_lines']   # y = 2, never reached
