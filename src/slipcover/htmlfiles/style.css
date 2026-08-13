@@ -1,0 +1,151 @@
+/* slipcover's HTML report stylesheet.
+ *
+ * Self-contained on purpose: no imports, no web fonts, no external anything,
+ * so a report works offline, straight off the filesystem.
+ *
+ * The chrome is slipcover's own palette; the line statuses stay the green /
+ * red / amber a coverage tool is read in.  Every status carries a 3px left
+ * border as well as a tint -- that border is what tells the four categories
+ * apart in greyscale, in print, and for colour-blind readers, so nothing here
+ * ever signals status by background alone.
+ */
+
+:root {
+    --bg: #ffffff;
+    --fg: #211f1f;
+    --muted: #595962;
+    --link: #5b5ea8;
+    --accent: #7b7dc4;
+    --bar-bg: #211f1f;
+    --bar-fg: #ffffff;
+    --thead-bg: #f6f6f8;
+    --thead-fg: #595962;
+    --rule: #e5e5e8;
+    --hairline: #f0f0f2;
+    --total-bg: #fbfbfc;
+    --run-bg: #eef7ee;
+    --run-bd: #4a8a4a;
+    --mis-bg: #fdeeee;
+    --mis-bd: #c04a4a;
+    --par-bg: #fdf6e6;
+    --par-bd: #c99a2e;
+    --pln-bg: #ffffff;
+    --lineno: #b6b6bd;
+    --annot: #8a6d1f;
+    --key: #7b3fa0;
+    --str: #2c7a7a;
+    --num: #a05a2c;
+    --com: #8a8a92;
+}
+
+[hidden] { display: none !important; }
+
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+a { color: var(--link); }
+b { font-weight: 600; }
+kbd { border: 1px solid var(--rule); border-radius: 3px; padding: 0 .3em; font-family: ui-monospace, monospace; }
+
+/* The dark bar: title on the left, the overall percentage on the right. */
+.bar {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 1em;
+    background: var(--bar-bg); color: var(--bar-fg); padding: .7em 1.1em;
+}
+.bar a { color: var(--accent); }
+.bar h1 { font-size: 1.05em; font-weight: 600; margin: 0; }
+.brand { color: var(--accent); }
+.pc_cov { font-size: 1.25em; font-weight: 700; }
+
+header .counts, header .meta, header .controls { padding: .55em 1.1em; }
+.meta { color: var(--muted); font-size: .85em; margin: 0; border-bottom: 1px solid var(--hairline); }
+.sep { color: var(--muted); }
+main { padding: .8em 1.1em; }
+.skipped { color: var(--muted); font-size: .85em; }
+
+/* Index controls. */
+.controls { display: flex; flex-wrap: wrap; gap: .4em 1.2em; align-items: center; font-size: .9em; }
+.controls input[type="search"] { border: 1px solid var(--rule); border-radius: 4px; padding: .25em .5em; font: inherit; }
+
+/* Index table. */
+table.index { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.index th, table.index td { padding: .35em .9em; text-align: right; }
+table.index th.name, table.index td.name { text-align: left; }
+table.index thead th { background: var(--thead-bg); color: var(--thead-fg); border-bottom: 1px solid var(--rule); padding: 0; font-weight: 600; }
+table.index thead button {
+    background: none; border: 0; color: inherit; font: inherit; font-weight: 600;
+    padding: .35em .9em; width: 100%; text-align: inherit; cursor: pointer;
+}
+table.index thead button::after { content: " \2195"; color: var(--rule); }
+/* These must out-specify the neutral arrow above, hence the full prefix. */
+table.index thead th[aria-sort="ascending"] button::after { content: " \25B2"; color: var(--accent); }
+table.index thead th[aria-sort="descending"] button::after { content: " \25BC"; color: var(--accent); }
+table.index tbody td { border-bottom: 1px solid var(--hairline); }
+table.index tbody.empty td { text-align: left; color: var(--muted); font-style: italic; }
+table.index tfoot td { background: var(--total-bg); border-top: 1px solid var(--rule); font-weight: 600; }
+/* While a filter is on, the footer is a subtotal of the visible rows, not the
+ * report's own total -- the accent marks it so the two can't be confused. */
+table.index tfoot tr.filtered td { color: var(--link); box-shadow: inset 3px 0 0 var(--accent); }
+
+/* Status chips: the header counts and the footer legend, both swatch-plus-border. */
+.count, .swatch { padding: .1em .55em; border-left: 3px solid transparent; background: var(--pln-bg); }
+.counts, .legend { display: flex; flex-wrap: wrap; gap: .5em; margin: 0; font-size: .85em; }
+.run.count, .run.swatch { background: var(--run-bg); border-left-color: var(--run-bd); }
+.mis.count, .mis.swatch { background: var(--mis-bg); border-left-color: var(--mis-bd); }
+.par.count, .par.swatch { background: var(--par-bg); border-left-color: var(--par-bd); }
+
+/* The source listing. */
+#source { padding: .8em 0 0; font: 12px/1.55 ui-monospace, "DejaVu Sans Mono", monospace; }
+#source p { display: flex; margin: 0; white-space: pre; background: var(--pln-bg); border-left: 3px solid transparent; }
+#source p.run { background: var(--run-bg); border-left-color: var(--run-bd); }
+#source p.mis { background: var(--mis-bg); border-left-color: var(--mis-bd); }
+#source p.par { background: var(--par-bg); border-left-color: var(--par-bd); }
+
+/* Line numbers sit outside the code and can't be selected, so copying the
+ * listing gives back the source and nothing else. */
+#source .n { flex: 0 0 34px; text-align: right; color: var(--lineno); user-select: none; -webkit-user-select: none; }
+#source .n a { color: inherit; text-decoration: none; }
+#source .n a:hover { text-decoration: underline; }
+#source .t { flex: 1 1 auto; padding: 0 1em; }
+#source .r { flex: 0 0 auto; padding-right: .8em; text-align: right; }
+.no-source { display: block; white-space: normal; color: var(--muted); padding: 1em 1.1em; }
+
+/* Which jumps a partial line never took: the short form always, the whole
+ * sentence while the line is hovered. */
+.annotate { color: var(--annot); font-size: .9em; white-space: normal; }
+.annotate.long { display: none; }
+#source p:hover .annotate.short { display: none; }
+#source p:hover .annotate.long { display: inline; }
+
+/* Syntax highlighting.  These class names come from phystokens. */
+.key { color: var(--key); }
+.str, .fst { color: var(--str); }
+.num { color: var(--num); }
+.com { color: var(--com); font-style: italic; }
+
+footer { border-top: 1px solid var(--rule); margin-top: 1.5em; padding: .7em 1.1em; }
+.legend-bar { display: flex; flex-wrap: wrap; gap: .8em; align-items: center; justify-content: space-between; }
+.keys { color: var(--muted); font-size: .85em; margin: 0; }
+footer .meta { border: 0; padding-top: .5em; }
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #211f1f;
+        --fg: #f2f2f4;
+        --muted: #a9a9b2;
+        --link: #a3a5dc;
+        --bar-bg: #171616;
+        --thead-bg: #2a2828;
+        --thead-fg: #a9a9b2;
+        --rule: #3a3838;
+        --hairline: #2c2a2a;
+        --total-bg: #262424;
+        --run-bg: #1b291b;
+        --mis-bg: #2e1d1d;
+        --par-bg: #2d2718;
+        --pln-bg: transparent;
+        --lineno: #6a6a72;
+        --annot: #c9a94e;
+        --key: #b98ad6;
+        --str: #6fc0c0;
+        --num: #d79a6a;
+    }
+}

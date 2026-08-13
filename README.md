@@ -111,7 +111,7 @@ branch = true
 source = "src"        # or ["src", "lib"]
 omit = "tests/*"       # or ["tests/*", "*.pyc"]
 fail-under = 80.0
-format = "json"        # "text" (default), "json", "xml", or "lcov"
+format = "json"        # "text" (default), "json", "xml", "lcov", or "html"
 pretty-print = true
 skip-covered = true
 immediate = false
@@ -123,9 +123,9 @@ xml-package-depth = 3
 
 Most command-line flags have a matching key (use hyphens, as shown above);
 `source` and `omit` also accept a TOML array instead of a single
-comma-separated string. `--json`/`--xml`/`--lcov` map to the single `format`
-key shown above rather than one key per flag. `--merge`, `-m`/module, the
-script argument, `--version`, and `--help` are per-invocation choices rather
+comma-separated string. `--json`/`--xml`/`--lcov`/`--html` map to the single
+`format` key shown above rather than one key per flag. `--merge`, `-m`/module,
+the script argument, `--version`, and `--help` are per-invocation choices rather
 than settings, so they aren't configurable this way. Command-line arguments
 always take precedence over values in `pyproject.toml`, so you can override
 any setting on a per-run basis.
@@ -178,9 +178,9 @@ its `box.py` and `image.py` components.
 [//]: # (help-output)
 ```console
 $ python3 -m slipcover --help
-usage: SlipCover [-h] [--branch] [--format {text,json,xml,lcov}] [--json]
+usage: SlipCover [-h] [--branch] [--format {text,json,xml,lcov,html}] [--json]
                  [--pretty-print] [--xml]
-                 [--xml-package-depth XML_PACKAGE_DEPTH] [--lcov]
+                 [--xml-package-depth XML_PACKAGE_DEPTH] [--lcov] [--html]
                  [--lcov-test-name LCOV_TEST_NAME]
                  [--lcov-comment LCOV_COMMENTS] [--out OUT]
                  [--source SRC1,SRC2,...] [--omit PAT1,PAT2,...] [--immediate]
@@ -196,7 +196,7 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --branch              measure both branch and line coverage
-  --format {text,json,xml,lcov}
+  --format {text,json,xml,lcov,html}
                         select output format
   --json                select JSON output (shortcut for --format=json)
   --pretty-print        pretty-print JSON output
@@ -207,12 +207,14 @@ options:
                         not reported as packages. The default is that all
                         directories are reported as packages.
   --lcov                select LCOV output (shortcut for --format=lcov)
+  --html                select HTML output (shortcut for --format=html)
   --lcov-test-name LCOV_TEST_NAME
                         test name for LCOV TN: entries
   --lcov-comment LCOV_COMMENTS
                         add comment lines at the beginning of LCOV output (can
                         be used multiple times)
-  --out OUT             specify output file name
+  --out OUT             specify output file name (output directory if
+                        --format=html)
   --source SRC1,SRC2,...
                         specify directories to cover; comma-separated for
                         multiple

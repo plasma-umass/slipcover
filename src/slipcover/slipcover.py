@@ -194,6 +194,24 @@ def print_lcov(
     ).report(outfile=outfile)
 
 
+def print_html(
+    coverage: Coverage,
+    *,
+    directory: str = "htmlcov",
+    with_branches: bool = False,
+    skip_covered: bool = False
+) -> None:
+    """Writes an HTML coverage report into `directory`."""
+    from .htmlreport import HtmlReporter
+
+    HtmlReporter(
+        coverage=coverage,
+        directory=directory,
+        with_branches=with_branches,
+        skip_covered=skip_covered,
+    ).report()
+
+
 def print_coverage(coverage, *, outfile=sys.stdout, missing_width=None, skip_covered=False) -> None:
     """Prints coverage information for human consumption."""
     from tabulate import tabulate

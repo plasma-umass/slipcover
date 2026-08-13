@@ -48,6 +48,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.package-dir]
 "" = "src"
 
+[tool.setuptools.package-data]
+slipcover = ["htmlfiles/*"]
+
 [project.optional-dependencies]
 test = [
     'pytest',

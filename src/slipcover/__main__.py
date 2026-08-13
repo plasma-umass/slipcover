@@ -109,6 +109,18 @@ def exit_shim(sci):
     return wrapper
 
 
+DEFAULT_HTML_DIR = "htmlcov"
+
+
+def html_directory(args):
+    """The output directory for --format=html.
+
+    For HTML, --out names a directory rather than a file; HTML is never
+    written to stdout, so an unset --out means the default directory.
+    """
+    return str(args.out) if args.out else DEFAULT_HTML_DIR
+
+
 def merge_files(args, base_path):
     """Merges coverage files."""
 
@@ -129,6 +141,20 @@ def merge_files(args, base_path):
         return 1
 
     try:
+        if args.format == 'html':
+            sc.print_html(merged, directory=html_directory(args),
+                          with_branches=args.branch, skip_covered=args.skip_covered)
+
+            # print human-readable table for merge results
+            if not args.silent:
+                sc.print_coverage(merged, outfile=sys.stdout, skip_covered=args.skip_covered,
+                                  missing_width=args.missing_width)
+
+            if args.fail_under and merged['summary']['percent_covered'] < args.fail_under:
+                return 2
+
+            return 0
+
         with args.out.open("w", encoding='utf-8') as jf:
             if args.format == 'xml':
                 sc.print_xml(merged, source_paths=[str(base_path)], with_branches=args.branch,
@@ -201,7 +227,7 @@ def build_parser():
     ap = argparse.ArgumentParser(prog='SlipCover')
     ap.add_argument('--branch', action='store_true', help="measure both branch and line coverage")
     fmt = ap.add_mutually_exclusive_group()
-    fmt.add_argument('--format', choices=['text', 'json', 'xml', 'lcov'], default='text',
+    fmt.add_argument('--format', choices=['text', 'json', 'xml', 'lcov', 'html'], default='text',
                      help="select output format")
     fmt.add_argument('--json', dest='format', action='store_const', const='json',
                      help="select JSON output (shortcut for --format=json)")
@@ -214,9 +240,12 @@ def build_parser():
         "The default is that all directories are reported as packages."))
     fmt.add_argument('--lcov', dest='format', action='store_const', const='lcov',
                      help="select LCOV output (shortcut for --format=lcov)")
+    fmt.add_argument('--html', dest='format', action='store_const', const='html',
+                     help="select HTML output (shortcut for --format=html)")
     ap.add_argument('--lcov-test-name', type=str, help="test name for LCOV TN: entries")
     ap.add_argument('--lcov-comment', action='append', dest='lcov_comments', help="add comment lines at the beginning of LCOV output (can be used multiple times)")
-    ap.add_argument('--out', type=Path, help="specify output file name")
+    ap.add_argument('--out', type=Path,
+                    help="specify output file name (output directory if --format=html)")
     ap.add_argument('--source', metavar='SRC1,SRC2,...',
                      help="specify directories to cover; comma-separated for multiple")
     ap.add_argument('--omit', metavar='PAT1,PAT2,...',
@@ -284,8 +313,20 @@ def main():
                 else Path('.').resolve()
 
 
+    # For HTML, --out names a directory; a path that's already something else
+    # can only fail later, when the report is written from an atexit callback
+    # where the traceback is swallowed and the exit status stays 0.  lexists()
+    # rather than exists() so a dangling symlink, which os.makedirs() also
+    # refuses, is caught here too.
+    if args.format == 'html' and args.out and os.path.lexists(args.out) \
+       and not args.out.is_dir():
+        ap.error(f"--out must name a directory with --format=html: {args.out}")
+
     if args.merge:
-        if not args.out: ap.error("--out is required with --merge")
+        # HTML falls back to its default directory rather than stdout, so it
+        # doesn't need --out the way the single-file formats do.
+        if not args.out and args.format != 'html':
+            ap.error("--out is required with --merge")
         return merge_files(args, base_path=base_path)
 
 
@@ -362,6 +403,20 @@ def main():
                                   missing_width=args.missing_width)
 
         if not args.silent:
+            if args.format == 'html':
+                # A forked child reaching normal interpreter shutdown runs this
+                # too; letting it write would interleave a partial report (and
+                # a mutable status.json) with the parent's.  Such a child's
+                # coverage is lost -- output_tmpfile is only ever written by
+                # the os._exit() shim, which atexit doesn't run behind -- but
+                # it is lost the same way for every other format, so this only
+                # keeps the report intact, it doesn't cost anything extra.
+                if output_tmpfile:
+                    return
+                sc.print_html(merged_coverage(sci), directory=html_directory(args),
+                              with_branches=args.branch, skip_covered=args.skip_covered)
+                return
+
             coverage = merged_coverage(sci)
             if args.out:
                 with open(args.out, "w") as outfile:
