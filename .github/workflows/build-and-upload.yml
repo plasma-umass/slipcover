@@ -31,7 +31,12 @@ jobs:
     strategy:
       matrix:
         python_version: ['3.9', '3.10']  # The 3.10 builds use abi3, so are good for Python 3.10+
-        os: ['ubuntu-latest', 'macos-13', 'macos-14', 'windows-latest']
+        # macos-13 was retained after macos-14 was added, to hedge against the macos-14
+        # universal2 build not working on macos-13 -- never confirmed either way in
+        # practice, but it shipped fine from macos-14 across many releases. macos-13 is
+        # no longer available as a GitHub-hosted runner (jobs requesting it just queue
+        # forever), so there's no longer a choice to make here.
+        os: ['ubuntu-latest', 'macos-14', 'windows-latest']
         include:
           - os: ubuntu-latest
             container: quay.io/pypa/manylinux_2_28_x86_64 # https://github.com/pypa/manylinux
