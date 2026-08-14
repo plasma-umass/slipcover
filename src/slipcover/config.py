@@ -1,4 +1,4 @@
-"""Read and apply [tool.slipcover] configuration from pyproject.toml."""
+"""Read and apply slipcover configuration from slipcover.toml or pyproject.toml."""
 
 import argparse
 from pathlib import Path
@@ -15,9 +15,11 @@ _ROOT_MARKERS = frozenset({".git", ".hg", ".svn", "setup.py", "setup.cfg"})
 # Maximum number of parent directories to walk up from the start.
 _MAX_WALK = 3
 
+_CONFIG_NAME = "slipcover.toml"
 
-def find_pyproject(start=None):
-    """Walks up from 'start' (default cwd) looking for pyproject.toml.
+
+def _find_upwards(filename, start):
+    """Walks up from 'start' (default cwd) looking for 'filename'.
 
     The search stops and returns None when any of these boundaries is
     reached without finding the file:
@@ -34,7 +36,7 @@ def find_pyproject(start=None):
     home = Path.home()
 
     for depth, directory in enumerate((start, *start.parents)):
-        candidate = directory / "pyproject.toml"
+        candidate = directory / filename
         if candidate.is_file():
             return candidate
 
@@ -46,6 +48,27 @@ def find_pyproject(start=None):
             break
 
     return None
+
+
+def find_pyproject(start=None):
+    """Walks up from 'start' (default cwd) looking for pyproject.toml.
+
+    See _find_upwards() for the boundaries that stop the search.
+    """
+    return _find_upwards("pyproject.toml", start)
+
+
+def find_slipcover_toml(start=None):
+    """Walks up from 'start' (default cwd) looking for slipcover.toml.
+
+    Uses the same boundaries as find_pyproject().
+    """
+    return _find_upwards(_CONFIG_NAME, start)
+
+
+def _load_toml(path):
+    with open(path, "rb") as f:
+        return tomllib.load(f)
 
 
 def read_config(path=None):
@@ -60,10 +83,40 @@ def read_config(path=None):
     if path is None:
         return {}
 
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
+    return _load_toml(path).get("tool", {}).get("slipcover", {})
 
-    return data.get("tool", {}).get("slipcover", {})
+
+def read_slipcover_toml(path=None):
+    """Returns the settings held in a slipcover.toml.
+
+    The file holds exactly what would have gone inside [tool.slipcover],
+    with no enclosing header, so its keys and value types are the ones
+    read_config() returns and the result is shaped identically.
+
+    If 'path' is None, find_slipcover_toml() is used to locate the file.
+    Returns an empty dict when no file is found.
+    """
+    if path is None:
+        path = find_slipcover_toml()
+
+    if path is None:
+        return {}
+
+    return _load_toml(path)
+
+
+def pyproject_has_config(path):
+    """Returns whether 'path' holds a non-empty [tool.slipcover] table.
+
+    Used to warn that a slipcover.toml is shadowing it. A pyproject.toml
+    that can't be read is reported as False rather than raising: it is
+    being ignored in favour of slipcover.toml, so it shouldn't be able to
+    fail the run -- much less under an error message naming the other file.
+    """
+    try:
+        return bool(read_config(path))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
 
 
 def derive_configurable_keys(ap):
@@ -149,13 +202,16 @@ _VALUE_KEYS = {
 }
 
 
-def apply_config(config, parsed_args, explicit_args=None):
+def apply_config(config, parsed_args, explicit_args=None,
+                 source="[tool.slipcover]"):
     """Merges config values into parsed_args.
 
     Keys whose dest name appears in 'explicit_args' are skipped so that
     command-line flags always take precedence over the config file.
+    'source' names where the config came from, for diagnostics.
 
-    Raises TypeError if a boolean key has a non-boolean value.
+    Raises TypeError if a value's type is wrong for its key, and
+    ValueError if a value can't be coerced to the key's type.
     Emits a UserWarning for unrecognised keys.
     """
     if explicit_args is None:
@@ -171,7 +227,7 @@ def apply_config(config, parsed_args, explicit_args=None):
         if key in _BOOL_KEYS:
             if not isinstance(value, bool):
                 raise TypeError(
-                    f"[tool.slipcover] key '{key}' must be a boolean, got {type(value).__name__}"
+                    f"{source} key '{key}' must be a boolean, got {type(value).__name__}"
                 )
             setattr(parsed_args, dest, value)
 
@@ -181,8 +237,16 @@ def apply_config(config, parsed_args, explicit_args=None):
             # expects, rather than stringifying the Python list itself.
             if key in ("source", "omit") and isinstance(value, list):
                 value = ",".join(str(v) for v in value)
-            setattr(parsed_args, dest, _VALUE_KEYS[key](value))
+            # Path("") is Path('.'), so an empty 'out' would only surface much
+            # later, as an IsADirectoryError while writing the report.
+            if key == "out" and isinstance(value, str) and not value.strip():
+                raise ValueError(f"key '{key}': must not be empty")
+            try:
+                coerced = _VALUE_KEYS[key](value)
+            except (ValueError, TypeError) as e:
+                raise type(e)(f"key '{key}': {e}") from None
+            setattr(parsed_args, dest, coerced)
 
         else:
             import warnings
-            warnings.warn(f"Unknown [tool.slipcover] key: '{key}'")
+            warnings.warn(f"Unknown {source} key: '{key}'")
