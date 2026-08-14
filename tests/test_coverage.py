@@ -1947,3 +1947,78 @@ def test_sigterm_forked_child_writes_partial_coverage_safely(tmp_path, monkeypat
     file_cov = cov['files']['script.py']
     assert 5 in file_cov['executed_lines']       # x = 1, in the child
     assert 9 not in file_cov['executed_lines']   # y = 2, never reached
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='os.fork() is Unix-specific')
+def test_fork_child_normal_exit_does_not_clobber_parent_report(tmp_path, monkeypatch):
+    """A forked child that exits normally (falls off the end, sys.exit(),
+    an uncaught SystemExit -- anything but the shimmed os._exit()) still
+    inherits the top-level atexit handler. It must not use it to overwrite
+    --out with just its own partial coverage: the final report must
+    contain both the parent's and the child's coverage merged, regardless
+    of which process's atexit handler happens to run last.
+    """
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "script.py"
+    script.write_text(dedent("""\
+        import os, sys
+
+        x = 1
+        pid = os.fork()
+        if pid == 0:
+            y = 2          # child only
+            sys.exit(0)    # normal exit -- not os._exit()
+        else:
+            os.waitpid(pid, 0)
+            w = 4          # parent only
+    """))
+
+    subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--json', '--out', 'out.json', 'script.py'],
+        cwd=tmp_path, check=True,
+    )
+
+    cov = json.loads((tmp_path / "out.json").read_text())
+    file_cov = cov['files']['script.py']
+    assert 3 in file_cov['executed_lines']    # x = 1, both
+    assert 6 in file_cov['executed_lines']    # y = 2, child only
+    assert 10 in file_cov['executed_lines']   # w = 4, parent only
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='os.fork() is Unix-specific')
+def test_fail_under_with_fork_does_not_crash_atexit(tmp_path, monkeypatch):
+    """--fail-under makes main() call merged_coverage() once to check the
+    threshold, before sci_atexit() calls it again at interpreter shutdown
+    to build the actual report. The first call consumes (closes and
+    removes) any forked children's tempfiles -- the second call must not
+    crash trying to read them again, and a report must still be written.
+    """
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "script.py"
+    script.write_text(dedent("""\
+        import os
+
+        x = 1
+        pid = os.fork()
+        if pid == 0:
+            os._exit(0)
+        else:
+            os.waitpid(pid, 0)
+            y = 2
+    """))
+
+    p = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--json', '--out', 'out.json',
+         '--fail-under', '1', 'script.py'],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+
+    assert p.returncode == 0, f"stdout={p.stdout}\nstderr={p.stderr}"
+    assert "Exception ignored" not in p.stderr
+
+    out = tmp_path / "out.json"
+    assert out.exists(), f"stdout={p.stdout}\nstderr={p.stderr}"
+    cov = json.loads(out.read_text())
+    file_cov = cov['files']['script.py']
+    assert 3 in file_cov['executed_lines']   # x = 1, before the fork
+    assert 9 in file_cov['executed_lines']   # y = 2, parent only

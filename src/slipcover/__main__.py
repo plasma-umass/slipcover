@@ -17,6 +17,7 @@ import shutil
 # Used for fork() support
 input_tmpfiles = []
 output_tmpfile = None
+_merged_coverage_cache = None
 
 
 def fork_shim(sci):
@@ -45,8 +46,17 @@ def fork_shim(sci):
 
 
 def merged_coverage(sci):
-    """Combines this process' coverage with that of any previously forked children and xdist workers."""
-    global input_tmpfiles, output_tmpfile
+    """Combines this process' coverage with that of any previously forked children and xdist workers.
+
+    Idempotent: the first call consumes (closes and removes) input_tmpfiles, so a later
+    call in the same process can't re-read them. slipcover calls this twice in one process
+    -- once for --fail-under's check in main(), again from sci_atexit() at interpreter
+    shutdown -- so later calls return the cached result instead of crashing on closed files.
+    """
+    global input_tmpfiles, output_tmpfile, _merged_coverage_cache
+
+    if _merged_coverage_cache is not None:
+        return _merged_coverage_cache
 
     cov = sci.get_coverage()
 
@@ -87,7 +97,28 @@ def merged_coverage(sci):
         except Exception:
             pass
 
+    _merged_coverage_cache = cov
     return cov
+
+
+def write_child_coverage(sci):
+    """Writes this forked child's coverage to output_tmpfile, for the parent to merge.
+
+    Best-effort: a script that closes its own file descriptors out from under us (e.g.
+    os.closerange(), when daemonizing) leaves nothing we can report through -- there's no
+    channel left to signal that failure either, so we drop the child's coverage silently
+    rather than let the OSError surface as an "Exception ignored" atexit traceback.
+    """
+    global output_tmpfile
+
+    if not output_tmpfile:
+        return
+
+    try:
+        json.dump(merged_coverage(sci), output_tmpfile)
+        output_tmpfile.flush()
+    except OSError:
+        pass
 
 
 def exit_shim(sci):
@@ -98,12 +129,7 @@ def exit_shim(sci):
 
     @functools.wraps(original_exit)
     def wrapper(*pargs, **kwargs):
-        global output_tmpfile
-
-        if output_tmpfile:
-            json.dump(merged_coverage(sci), output_tmpfile)
-            output_tmpfile.flush()
-
+        write_child_coverage(sci)
         original_exit(*pargs, **kwargs)
 
     return wrapper
@@ -346,6 +372,18 @@ def main():
 
     def sci_atexit():
         global output_tmpfile
+
+        if output_tmpfile:
+            # We're a forked child exiting normally (not through the
+            # shimmed os._exit()) -- e.g. falling off the end, sys.exit(),
+            # an uncaught SystemExit. This atexit handler is inherited
+            # from the parent, so without this check we'd overwrite
+            # args.out with just our own partial coverage. Write to our
+            # tempfile instead, exactly as exit_shim does, so the parent's
+            # own merged_coverage() picks it up like any other forked
+            # child's contribution.
+            write_child_coverage(sci)
+            return
 
         def printit(coverage, outfile):
             if args.format == 'json':
