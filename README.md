@@ -140,6 +140,37 @@ exclude-lines = ["# pragma: no cover", "if DEBUG:"]  # replaces the built-in def
 exclude-also = ["# my-custom-marker"]                # adds to whichever list is active
 ```
 
+### Configuration via `slipcover.toml`
+If you'd rather keep coverage settings out of `pyproject.toml`, or don't have
+one, put them in a `slipcover.toml` instead. SlipCover discovers it the same
+way it discovers `pyproject.toml`.
+
+The format is the same, minus the enclosing header: the file holds exactly
+what would have gone inside `[tool.slipcover]`, with the same key names,
+value types and array support.
+
+```toml
+branch = true
+source = ["src", "lib"]
+omit = "tests/*"
+fail-under = 80.0
+format = "json"
+pretty-print = true
+skip-covered = true
+out = "coverage.json"
+threshold = 75
+missing-width = 120
+xml-package-depth = 3
+```
+
+When a `slipcover.toml` is found, it is the configuration: any
+`[tool.slipcover]` in `pyproject.toml` is ignored in full rather than merged
+with, and SlipCover warns when it drops a table that held settings. Keys the
+`slipcover.toml` doesn't set fall back to their defaults. Command-line
+arguments still take precedence. The two files are searched for independently,
+so a `slipcover.toml` found further up the directory tree still takes
+precedence over a `pyproject.toml` in the current directory.
+
 ## Usage example
 ```console
 $ python3 -m slipcover -m pytest

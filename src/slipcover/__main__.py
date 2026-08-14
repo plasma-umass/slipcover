@@ -275,7 +275,9 @@ def build_parser():
 
 def main():
     import argparse
-    from slipcover.config import read_config, apply_config
+    import warnings
+    from slipcover.config import (find_pyproject, find_slipcover_toml, read_config,
+                                  read_slipcover_toml, pyproject_has_config, apply_config)
 
     ap = build_parser()
 
@@ -296,13 +298,33 @@ def main():
     else:
         args = ap.parse_args(sys.argv[1:])
 
-    # Apply [tool.slipcover] from pyproject.toml; CLI flags take precedence
+    # A slipcover.toml replaces [tool.slipcover] rather than merging with it:
+    # the file is meant for projects that would rather not carry a
+    # pyproject.toml at all, so there is normally nothing to merge with, and
+    # one file holding the whole configuration is the simpler rule to follow.
+    # CLI flags beat whichever file is used.
+    config_file = find_slipcover_toml()
+
     try:
-        config = read_config()
+        if config_file is not None:
+            config = read_slipcover_toml(config_file)
+            source = str(config_file)
+
+            # Shadowing a table that actually holds settings is worth saying
+            # out loud; staying silent is the one way this rule bites.
+            pyproject = find_pyproject()
+            if pyproject is not None and pyproject_has_config(pyproject):
+                warnings.warn(f"{config_file} is in use; "
+                              f"[tool.slipcover] in {pyproject} is ignored")
+        else:
+            config_file = find_pyproject()
+            config = read_config(config_file) if config_file is not None else {}
+            source = "[tool.slipcover]"
+
         if config:
-            apply_config(config, args, explicit_args)
+            apply_config(config, args, explicit_args, source=source)
     except (ValueError, TypeError) as e:
-        print(f"slipcover: error in pyproject.toml configuration: {e}", file=sys.stderr)
+        print(f"slipcover: error in {config_file} configuration: {e}", file=sys.stderr)
         return 1
 
 
