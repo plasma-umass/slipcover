@@ -126,7 +126,7 @@ def _coerce_comments(value):
 
 
 def _coerce_format(value):
-    choices = ("text", "json", "xml", "lcov")
+    choices = ("text", "json", "xml", "lcov", "html")
     if value not in choices:
         raise ValueError(f"must be one of {choices}, got {value!r}")
     return value
