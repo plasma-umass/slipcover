@@ -717,7 +717,7 @@ class Slipcover:
                             t = ast.parse(file.read_text())
                             if self.branch:
                                 t = br.preinstrument(t)
-                            code = compile(t, filename, "exec")
+                            code = compile(t, filename, "exec", dont_inherit=True)
                             self.code_lines[filename] = set(Slipcover.lines_from_code(code))
                             if self.branch:
                                 self.code_branches[filename] = set(Slipcover.branches_from_code(code))

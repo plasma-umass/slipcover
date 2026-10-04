@@ -34,6 +34,47 @@ def ast_parse(s):
 
 
 
+@pytest.mark.parametrize("workers", [[], ['-n', '2']])
+def test_multiline_signature_source_coverage(tmp_path, workers):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "example.py").write_text("""\
+def add(
+    left: int = 1,
+    right: int = 2,
+) -> int:
+    return left + right
+
+
+class Box:
+    def value(self) -> int:
+        return 3
+""")
+    (tmp_path / "test_example.py").write_text(
+        "import sys\nsys.path.insert(0, 'src')\nfrom example import Box, add\n"
+        "def test_example():\n    assert add() == 3\n"
+        "    assert add(4, 5) == 9\n    assert Box().value() == 3\n"
+    )
+    out = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, '-m', 'slipcover', '--source', 'src', '--json',
+         '--out', str(out), '-m', 'pytest', '-q', *workers, 'test_example.py'],
+        cwd=tmp_path, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    cov = json.loads(out.read_text())['files'][str(Path('src') / 'example.py')]
+    assert cov['missing_lines'] == []
+    assert cov['summary']['percent_covered'] == 100
+
+
+def test_unseen_source_preserves_defaults_and_decorators(tmp_path):
+    source = "if enabled:\n    @decorate(\n        1\n    )\n    def unused(\n        value=make_default(),\n    ):\n        return value\n"
+    (tmp_path / "example.py").write_text(source)
+    sci = sc.Slipcover(source=[str(tmp_path)])
+    cov = sci.get_coverage()['files'][str(tmp_path / 'example.py')]
+    assert {2, 3, 5, 6, 8} <= set(cov['missing_lines'])
+
+
 def test_pathsimplifier_not_relative():
     ps = sc.PathSimplifier()
     assert ".." == ps.simplify("..")
